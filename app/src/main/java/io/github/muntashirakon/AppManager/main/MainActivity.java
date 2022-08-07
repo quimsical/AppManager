@@ -52,6 +52,7 @@ import io.github.muntashirakon.AppManager.changelog.Changelog;
 import io.github.muntashirakon.AppManager.changelog.ChangelogParser;
 import io.github.muntashirakon.AppManager.changelog.ChangelogRecyclerAdapter;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
+import io.github.muntashirakon.AppManager.debloat.DebloaterActivity;
 import io.github.muntashirakon.AppManager.logcat.LogViewerActivity;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.misc.HelpActivity;
@@ -320,6 +321,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         } else if (id == R.id.action_log_viewer) {
             Intent intent = new Intent(getApplicationContext(), LogViewerActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } else if (id == R.id.action_debloater) {
+            Intent intent = new Intent(getApplicationContext(), DebloaterActivity.class);
             startActivity(intent);
         } else return super.onOptionsItemSelected(item);
         return true;
