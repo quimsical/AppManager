@@ -105,6 +105,22 @@ public final class ColorCodes {
         return ContextCompat.getColor(context, R.color.electric_red);
     }
 
+    public static int getRemovalSafeIndicatorColor(@NonNull Context context) {
+        return ContextCompat.getColor(context, R.color.stopped);
+    }
+
+    public static int getRemovalReplaceIndicatorColor(@NonNull Context context) {
+        return ContextCompat.getColor(context, R.color.sand_tan);
+    }
+
+    public static int getRemovalCautionIndicatorColor(@NonNull Context context) {
+        return ContextCompat.getColor(context, R.color.tracker);
+    }
+
+    public static int getRemovalUnsafeIndicatorColor(@NonNull Context context) {
+        return ContextCompat.getColor(context, R.color.electric_red);
+    }
+
     public static int getScannerNoTrackerIndicatorColor(@NonNull Context context) {
         return ContextCompat.getColor(context, R.color.stopped);
     }
