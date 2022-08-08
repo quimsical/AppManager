@@ -21,7 +21,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
-import com.google.android.material.switchmaterial.SwitchMaterial;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,8 +75,6 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
 
         mProgressIndicator = findViewById(R.id.progress_linear);
         mProgressIndicator.show();
-        SwitchMaterial filterInstalled = findViewById(R.id.filter_installed_apps);
-        filterInstalled.setOnCheckedChangeListener((buttonView, isChecked) -> viewModel.setFilterInstalledApps(isChecked));
 
         RecyclerView recyclerView = findViewById(R.id.recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
@@ -121,7 +118,9 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
             finish();
             return true;
         } else if (id == R.id.action_list_options) {
-            // TODO: 8/8/22
+            DebloaterListOptions dialog = new DebloaterListOptions();
+            dialog.show(getSupportFragmentManager(), DebloaterListOptions.TAG);
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }

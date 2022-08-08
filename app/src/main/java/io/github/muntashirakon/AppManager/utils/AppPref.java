@@ -34,6 +34,7 @@ import io.github.muntashirakon.AppManager.apk.signing.Signer;
 import io.github.muntashirakon.AppManager.backup.BackupFlags;
 import io.github.muntashirakon.AppManager.backup.CryptoUtils;
 import io.github.muntashirakon.AppManager.crypto.auth.AuthManager;
+import io.github.muntashirakon.AppManager.debloat.DebloaterListOptions;
 import io.github.muntashirakon.AppManager.details.AppDetailsFragment;
 import io.github.muntashirakon.AppManager.logcat.helper.LogcatHelper;
 import io.github.muntashirakon.AppManager.main.ListOptions;
@@ -78,6 +79,8 @@ public class AppPref {
 
         PREF_DISPLAY_CHANGELOG_BOOL,
         PREF_DISPLAY_CHANGELOG_LAST_VERSION_LONG,
+
+        PREF_DEBLOATER_FILTER_FLAGS_INT,
 
         PREF_ENABLE_KILL_FOR_SYSTEM_BOOL,
         PREF_ENABLE_SCREEN_LOCK_BOOL,
@@ -544,6 +547,8 @@ public class AppPref {
                 return "%label%_%version%";
             case PREF_AUTHORIZATION_KEY_STR:
                 return AuthManager.generateKey();
+            case PREF_DEBLOATER_FILTER_FLAGS_INT:
+                return DebloaterListOptions.getDefaultFilterFlags();
         }
         throw new IllegalArgumentException("Pref key not found.");
     }
