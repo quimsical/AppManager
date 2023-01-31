@@ -185,6 +185,11 @@ class RestoreOp implements Closeable {
         }
     }
 
+    @NonNull
+    public MetadataManager.Metadata getMetadata() {
+        return metadata;
+    }
+
     void runRestore() throws BackupException {
         try {
             if (requestedFlags.backupData() && metadata.keyStore && !requestedFlags.skipSignatureCheck()) {
@@ -276,12 +281,11 @@ class RestoreOp implements Closeable {
         if (!isVerified) {
             // Signature verification failed but still here because signature check is disabled.
             // The only way to restore is to reinstall the app
-            try {
-                synchronized (sLock) {
-                    PackageInstallerCompat.uninstall(packageName, userHandle, false);
+            synchronized (sLock) {
+                PackageInstallerCompat installer = PackageInstallerCompat.getNewInstance();
+                if (installer.uninstall(packageName, userHandle, false)) {
+                    throw new BackupException("An uninstallation was necessary but couldn't perform it.");
                 }
-            } catch (Exception e) {
-                throw new BackupException("An uninstall was necessary but couldn't perform it.", e);
             }
         }
         // Setup package staging directory
@@ -327,9 +331,9 @@ class RestoreOp implements Closeable {
                 throw new BackupException("Failed to extract the apk file(s).", th);
             }
             // A normal update will do it now
-            PackageInstallerCompat packageInstaller = PackageInstallerCompat.getNewInstance(userHandle, metadata.installer);
+            PackageInstallerCompat packageInstaller = PackageInstallerCompat.getNewInstance(metadata.installer);
             try {
-                if (!packageInstaller.install(allApks, packageName)) {
+                if (!packageInstaller.install(allApks, packageName, userHandle)) {
                     throw new BackupException("A (re)install was necessary but couldn't perform it.");
                 }
             } finally {
@@ -574,8 +578,8 @@ class RestoreOp implements Closeable {
                         break;
                     case SSAID:
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            new SsaidSettings(packageName, packageInfo.applicationInfo.uid)
-                                    .setSsaid(((SsaidRule) entry).getSsaid());
+                            new SsaidSettings(userHandle).setSsaid(packageName, packageInfo.applicationInfo.uid,
+                                    ((SsaidRule) entry).getSsaid());
                             requiresRestart = true;
                         }
                         break;

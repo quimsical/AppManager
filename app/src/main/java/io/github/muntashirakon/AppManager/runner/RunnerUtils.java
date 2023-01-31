@@ -3,7 +3,6 @@
 package io.github.muntashirakon.AppManager.runner;
 
 import android.os.Build;
-import android.os.UserHandleHidden;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -28,10 +27,6 @@ public final class RunnerUtils {
 
     public static final String CMD_AM = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? "cmd activity" : "am";
     public static final String CMD_PM = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? "cmd package" : "pm";
-
-    public static final String CMD_INSTALL_EXISTING_PACKAGE = CMD_PM + " install-existing --user %s %s";
-    public static final String CMD_UNINSTALL_PACKAGE = CMD_PM + " uninstall -k --user %s %s";
-    public static final String CMD_UNINSTALL_PACKAGE_WITH_DATA = CMD_PM + " uninstall --user %s %s";
 
     private static final String EMPTY = "";
 
@@ -89,20 +84,6 @@ public final class RunnerUtils {
      */
     public static String escape(final String input) {
         return ESCAPE_XSI.translate(input);
-    }
-
-    @NonNull
-    public static Runner.Result uninstallPackageUpdate(String packageName, int userHandle, boolean keepData) {
-        String cmd = String.format(keepData ? CMD_UNINSTALL_PACKAGE : CMD_UNINSTALL_PACKAGE_WITH_DATA,
-                userHandleToUser(UserHandleHidden.USER_ALL), packageName) + " && "
-                + String.format(CMD_INSTALL_EXISTING_PACKAGE, userHandleToUser(userHandle), packageName);
-        return Runner.runCommand(cmd);
-    }
-
-    @NonNull
-    public static String userHandleToUser(int userHandle) {
-        if (userHandle == UserHandleHidden.USER_ALL) return "all";
-        else return String.valueOf(userHandle);
     }
 
     @NoOps

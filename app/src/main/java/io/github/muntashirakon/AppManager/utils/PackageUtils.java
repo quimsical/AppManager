@@ -38,7 +38,6 @@ import androidx.core.content.pm.PackageInfoCompat;
 
 import com.android.apksig.ApkVerifier;
 import com.android.apksig.apk.ApkFormatException;
-import com.android.internal.util.TextUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,6 +55,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -77,6 +77,7 @@ import io.github.muntashirakon.AppManager.db.utils.AppDb;
 import io.github.muntashirakon.AppManager.ipc.ProxyBinder;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.main.ApplicationItem;
+import io.github.muntashirakon.AppManager.misc.OidMap;
 import io.github.muntashirakon.AppManager.misc.OsEnvironment;
 import io.github.muntashirakon.AppManager.rules.RuleType;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
@@ -165,58 +166,63 @@ public final class PackageUtils {
         HashMap<String, ApplicationItem> applicationItems = new HashMap<>();
         AppDb appDb = new AppDb();
         List<App> apps = appDb.getAllApplications();
-        if (apps.size() == 0 || executor == null) {
+        boolean loadInBackground = !(apps.size() == 0 || executor == null);
+        if (!loadInBackground) {
             // Load app list for the first time
             Log.d(TAG, "Loading apps for the first time.");
             appDb.loadInstalledOrBackedUpApplications(context);
             apps = appDb.getAllApplications();
-        } else {
-            // Update list of apps safely in the background
-            executor.submit(() -> {
-                appDb.updateApplications(context);
-                if (loadBackups) {
-                    appDb.updateBackups(context);
-                }
-            });
         }
-        HashMap<String, Backup> backups = BackupUtils.getAllLatestBackupMetadataFromDb();
+        Map<String, Backup> backups = appDb.getBackups(false);
         int thisUser = UserHandleHidden.myUserId();
         // Get application items from apps
         for (App app : apps) {
-            ApplicationItem item = new ApplicationItem();
-            item.packageName = app.packageName;
+            ApplicationItem item;
+            ApplicationItem oldItem = applicationItems.get(app.packageName);
             if (app.isInstalled) {
-                ApplicationItem oldItem = applicationItems.get(app.packageName);
+                boolean newItem = oldItem == null || !oldItem.isInstalled;
                 if (oldItem != null) {
-                    // Item already exists, add the user handle and continue
-                    oldItem.userHandles = ArrayUtils.appendInt(oldItem.userHandles, app.userId);
-                    oldItem.isInstalled = true;
-                    if (app.userId != thisUser) {
-                        // This user has the highest priority
-                        continue;
-                    }
+                    // Item already exists
                     item = oldItem;
                 } else {
-                    // Item doesn't exist, add the user handle
-                    item.userHandles = ArrayUtils.appendInt(item.userHandles, app.userId);
-                    item.isInstalled = true;
+                    // Item doesn't exist
+                    item = new ApplicationItem();
                     applicationItems.put(app.packageName, item);
+                    item.packageName = app.packageName;
+                }
+                item.userHandles = ArrayUtils.appendInt(item.userHandles, app.userId);
+                item.isInstalled = true;
+                item.openCount += app.openCount;
+                item.screenTime += app.screenTime;
+                if (item.lastUsageTime == 0L || item.lastUsageTime < app.lastUsageTime) {
+                    item.lastUsageTime = app.lastUsageTime;
+                }
+                item.hasKeystore |= app.hasKeystore;
+                item.usesSaf |= app.usesSaf;
+                if (app.ssaid != null) {
+                    item.ssaid = app.ssaid;
+                }
+                item.totalSize += app.codeSize + app.dataSize;
+                item.dataUsage += app.wifiDataUsage + app.mobileDataUsage;
+                if (!newItem && app.userId != thisUser) {
+                    // This user has the highest priority
+                    continue;
                 }
             } else {
                 // App not installed but may be installed in other profiles
-                if (applicationItems.containsKey(app.packageName)) {
+                if (oldItem != null) {
                     // Item exists, use the previous status
                     continue;
                 } else {
                     // Item doesn't exist, don't add user handle
+                    item = new ApplicationItem();
+                    item.packageName = app.packageName;
+                    applicationItems.put(app.packageName, item);
                     item.isInstalled = false;
+                    item.hasKeystore |= app.hasKeystore;
                 }
-                applicationItems.put(app.packageName, item);
             }
-            if (backups.containsKey(item.packageName)) {
-                item.backup = backups.get(item.packageName);
-                backups.remove(item.packageName);
-            }
+            item.backup = backups.remove(item.packageName);
             item.flags = app.flags;
             item.uid = app.uid;
             item.debuggable = (app.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
@@ -235,12 +241,6 @@ public final class PackageUtils {
             item.blockedCount = app.rulesCount;
             item.trackerCount = app.trackerCount;
             item.lastActionTime = app.lastActionTime;
-            for (int userId : item.userHandles) {
-                PackageSizeInfo sizeInfo = getPackageSizeInfo(context, item.packageName, userId, null);
-                if (sizeInfo != null) {
-                    item.totalSize += sizeInfo.getTotalSize();
-                }
-            }
         }
         // Add rest of the backups
         for (String packageName : backups.keySet()) {
@@ -248,6 +248,7 @@ public final class PackageUtils {
             if (backup == null) continue;
             ApplicationItem item = new ApplicationItem();
             item.packageName = backup.packageName;
+            applicationItems.put(backup.packageName, item);
             item.backup = backup;
             item.versionName = backup.versionName;
             item.versionCode = backup.versionCode;
@@ -258,7 +259,16 @@ public final class PackageUtils {
             item.isDisabled = false;
             item.isInstalled = false;
             item.hasSplits = backup.hasSplits;
-            applicationItems.put(backup.packageName, item);
+            item.hasKeystore = backup.hasKeyStore;
+        }
+        if (loadInBackground) {
+            // Update list of apps safely in the background.
+            // We need to do this here to avoid locks in AppDb
+            executor.submit(() -> {
+                if (loadBackups) {
+                    appDb.loadInstalledOrBackedUpApplications(context);
+                } else appDb.updateApplications(context);
+            });
         }
         return new ArrayList<>(applicationItems.values());
     }
@@ -327,7 +337,7 @@ public final class PackageUtils {
                 StorageStats storageStats = storageStatsManager.queryStatsForPackage(uuidString, packageName,
                         userHandle, context.getPackageName());
                 packageSizeInfo.set(new PackageSizeInfo(packageName, storageStats, userHandle));
-            } catch (RemoteException e) {
+            } catch (Throwable e) {
                 Log.e(TAG, e);
             }
         }
@@ -855,8 +865,9 @@ public final class PackageUtils {
         if (critSet != null && !critSet.isEmpty()) {
             builder.append("\n").append(getTitleText(ctx, ctx.getString(R.string.critical_exts)));
             for (String oid : critSet) {
+                String oidName = OidMap.getName(oid);
                 builder.append("\n- ")
-                        .append(getPrimaryText(ctx, oid + separator))
+                        .append(getPrimaryText(ctx, (oidName != null ? oidName : oid) + separator))
                         .append(getMonospacedText(Utils.bytesToHex(certificate.getExtensionValue(oid))));
             }
         }
@@ -864,8 +875,9 @@ public final class PackageUtils {
         if (nonCritSet != null && !nonCritSet.isEmpty()) {
             builder.append("\n").append(getTitleText(ctx, ctx.getString(R.string.non_critical_exts)));
             for (String oid : nonCritSet) {
+                String oidName = OidMap.getName(oid);
                 builder.append("\n- ")
-                        .append(getPrimaryText(ctx, oid + separator))
+                        .append(getPrimaryText(ctx, (oidName != null ? oidName : oid) + separator))
                         .append(getMonospacedText(Utils.bytesToHex(certificate.getExtensionValue(oid))));
             }
         }
@@ -893,14 +905,14 @@ public final class PackageUtils {
         }
         if (result.isVerified()) {
             if (warnCount == 0) {
-                builder.append(getColoredText(getTitleText(ctx, "\u2714 " +
+                builder.append(getColoredText(getTitleText(ctx, "✔ " +
                         ctx.getString(R.string.verified)), colorSuccess));
             } else {
-                builder.append(getColoredText(getTitleText(ctx, "\u2714 " + ctx.getResources()
+                builder.append(getColoredText(getTitleText(ctx, "✔ " + ctx.getResources()
                         .getQuantityString(R.plurals.verified_with_warning, warnCount, warnCount)), colorSuccess));
             }
             if (result.isSourceStampVerified()) {
-                builder.append("\n\u2714 ").append(ctx.getString(R.string.source_stamp_verified));
+                builder.append("\n✔ ").append(ctx.getString(R.string.source_stamp_verified));
             }
             List<CharSequence> sigSchemes = new LinkedList<>();
             if (result.isVerifiedUsingV1Scheme()) sigSchemes.add("v1");
@@ -909,13 +921,13 @@ public final class PackageUtils {
             if (result.isVerifiedUsingV4Scheme()) sigSchemes.add("v4");
             builder.append("\n").append(getPrimaryText(ctx, ctx.getResources()
                     .getQuantityString(R.plurals.app_signing_signature_schemes_pl, sigSchemes.size()) + LangUtils.getSeparatorString()));
-            builder.append(TextUtils.joinSpannable(", ", sigSchemes));
+            builder.append(TextUtilsCompat.joinSpannable(", ", sigSchemes));
         } else {
-            builder.append(getColoredText(getTitleText(ctx, "\u2718 " + ctx.getString(R.string.not_verified)), colorFailure));
+            builder.append(getColoredText(getTitleText(ctx, "✘ " + ctx.getString(R.string.not_verified)), colorFailure));
         }
         builder.append("\n");
         // If there are errors, no certificate info will be loaded
-        builder.append(TextUtils.joinSpannable("\n", errors)).append("\n");
+        builder.append(TextUtilsCompat.joinSpannable("\n", errors)).append("\n");
         return builder;
     }
 

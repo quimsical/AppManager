@@ -125,7 +125,6 @@ import io.github.muntashirakon.AppManager.rules.RulesTypeSelectionDialogFragment
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.runner.Runner;
-import io.github.muntashirakon.AppManager.runner.RunnerUtils;
 import io.github.muntashirakon.AppManager.scanner.ScannerActivity;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
@@ -134,6 +133,8 @@ import io.github.muntashirakon.AppManager.ssaid.ChangeSsaidDialog;
 import io.github.muntashirakon.AppManager.types.PackageSizeInfo;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.usage.AppUsageStatsManager;
+import io.github.muntashirakon.AppManager.users.UserInfo;
+import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.BetterActivityResult;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
@@ -302,6 +303,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         });
         model.getTagCloud().observe(getViewLifecycleOwner(), this::setupTagCloud);
         model.getAppInfo().observe(getViewLifecycleOwner(), this::setupVerticalView);
+        model.getInstallExistingResult().observe(getViewLifecycleOwner(), statusMessagePair ->
+                new MaterialAlertDialogBuilder(requireActivity())
+                        .setTitle(mPackageLabel)
+                        .setIcon(mApplicationInfo.loadIcon(mPackageManager))
+                        .setMessage(statusMessagePair.second)
+                        .setNegativeButton(R.string.close, null)
+                        .show());
     }
 
     @Override
@@ -313,6 +321,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             menu.findItem(R.id.action_open_in_termux).setVisible(Ops.isRoot());
             menu.findItem(R.id.action_battery_opt).setVisible(Ops.isPrivileged());
             menu.findItem(R.id.action_net_policy).setVisible(Ops.isPrivileged());
+            menu.findItem(R.id.action_install).setVisible(Ops.isPrivileged() && Users.getUsersIds().length > 1);
         }
     }
 
@@ -466,6 +475,21 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     displayShortToast(R.string.saving_failed);
                 }
             });
+        } else if (itemId == R.id.action_install) {
+            List<UserInfo> users = Users.getUsers();
+            String[] userNames = new String[users.size()];
+            int i = 0;
+            for (UserInfo info : users) {
+                userNames[i++] = info.name == null ? String.valueOf(info.id) : info.name;
+            }
+            new SearchableItemsDialogBuilder<>(mActivity, userNames)
+                    .setTitle(R.string.select_user)
+                    .setOnItemClickListener((dialog, which, item1) -> {
+                        model.installExisting(users.get(which).id);
+                        dialog.dismiss();
+                    })
+                    .setNegativeButton(R.string.cancel, null)
+                    .show();
         } else if (itemId == R.id.action_add_to_profile) {
             List<ProfileMetaManager> profiles = ProfileManager.getProfileMetadata();
             List<CharSequence> profileNames = new ArrayList<>(profiles.size());
@@ -539,16 +563,15 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
 
     private void install() {
         if (mainModel == null) return;
-        Intent intent = new Intent(this.getContext(), PackageInstallerActivity.class);
-        intent.putExtra(PackageInstallerActivity.EXTRA_APK_FILE_KEY, mainModel.getApkFileKey());
+        int apkFileKey = mainModel.getApkFileKey();
         try {
             // Reserve ApkFile in case the activity is destroyed
-            ApkFile.getInAdvance(mainModel.getApkFileKey());
-            startActivity(intent);
+            ApkFile.getInAdvance(apkFileKey);
+            startActivity(PackageInstallerActivity.getLaunchableInstance(requireContext(), apkFileKey));
         } catch (Exception e) {
             // Error occurred, so the APK file wasn't used by the installer.
             // Close the APK file to remove one instance.
-            ApkFile.getInstance(mainModel.getApkFileKey()).close();
+            ApkFile.getInstance(apkFileKey).close();
         }
     }
 
@@ -739,7 +762,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     .setNegativeButton(R.string.close, null)
                     .show());
         }
-        if (tagCloud.backups.length > 0) {
+        if (!tagCloud.backups.isEmpty()) {
             addChip(R.string.backup).setOnClickListener(v -> {
                 BackupRestoreDialogFragment fragment = BackupRestoreDialogFragment.getInstance(
                         Collections.singletonList(new UserPackagePair(mPackageName, mainModel.getUserHandle())),
@@ -915,48 +938,57 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             }
             // Set uninstall
             addToHorizontalLayout(R.string.uninstall, R.drawable.ic_trash_can).setOnClickListener(v -> {
-                final boolean isSystemApp = (mApplicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-                if (Ops.isPrivileged()) {
-                    ScrollableDialogBuilder builder = new ScrollableDialogBuilder(mActivity,
-                            isSystemApp ? R.string.uninstall_system_app_message : R.string.uninstall_app_message)
-                            .setCheckboxLabel(R.string.keep_data_and_app_signing_signatures)
-                            .setTitle(mPackageLabel)
-                            .setPositiveButton(R.string.uninstall, (dialog, which, keepData) -> executor.submit(() -> {
-                                try {
-                                    PackageInstallerCompat.uninstall(mPackageName, mainModel.getUserHandle(), keepData);
-                                    runOnUiThread(() -> {
-                                        displayLongToast(R.string.uninstalled_successfully, mPackageLabel);
-                                        mActivity.finish();
-                                    });
-                                } catch (Exception e) {
-                                    Log.e(TAG, e);
-                                    runOnUiThread(() -> displayLongToast(R.string.failed_to_uninstall, mPackageLabel));
-                                }
-                            }))
-                            .setNegativeButton(R.string.cancel, (dialog, which, keepData) -> {
-                                if (dialog != null) dialog.cancel();
-                            });
-                    if ((mApplicationInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
-                        builder.setNeutralButton(R.string.uninstall_updates, (dialog, which, keepData) ->
-                                executor.submit(() -> {
-                                    Runner.Result result = RunnerUtils.uninstallPackageUpdate(mPackageName, mainModel.getUserHandle(), keepData);
-                                    if (result.isSuccessful()) {
-                                        runOnUiThread(() -> displayLongToast(R.string.update_uninstalled_successfully, mPackageLabel));
-                                    } else {
-                                        runOnUiThread(() -> displayLongToast(R.string.failed_to_uninstall_updates, mPackageLabel));
-                                    }
-                                }));
-                    }
-                    builder.show();
-                } else {
+                int userId = mainModel.getUserHandle();
+                if (!Ops.isPrivileged() && userId != UserHandleHidden.myUserId()) {
+                    // Could be work profile
+                    // FIXME: 22/1/23 Find a way to communicate the result to App Manager
                     try {
                         Intent uninstallIntent = new Intent(Intent.ACTION_DELETE);
                         uninstallIntent.setData(Uri.parse("package:" + mPackageName));
-                        ActivityManagerCompat.startActivity(requireContext(), uninstallIntent, mainModel.getUserHandle());
+                        ActivityManagerCompat.startActivity(requireContext(), uninstallIntent, userId);
                     } catch (Throwable th) {
                         UIUtils.displayLongToast(th.getLocalizedMessage());
                     }
+                    return;
                 }
+                final boolean isSystemApp = (mApplicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                ScrollableDialogBuilder builder = new ScrollableDialogBuilder(mActivity,
+                        isSystemApp ? R.string.uninstall_system_app_message : R.string.uninstall_app_message)
+                        .setTitle(mPackageLabel)
+                        .setPositiveButton(R.string.uninstall, (dialog, which, keepData) -> executor.submit(() -> {
+                            PackageInstallerCompat installer = PackageInstallerCompat
+                                    .getNewInstance();
+                            installer.setAppLabel(mPackageLabel);
+                            boolean uninstalled = installer.uninstall(mPackageName, userId, keepData);
+                            runOnUiThread(() -> {
+                                if (uninstalled) {
+                                    displayLongToast(R.string.uninstalled_successfully, mPackageLabel);
+                                    mActivity.finish();
+                                } else {
+                                    displayLongToast(R.string.failed_to_uninstall, mPackageLabel);
+                                }
+                            });
+                        }))
+                        .setNegativeButton(R.string.cancel, (dialog, which, keepData) -> {
+                            if (dialog != null) dialog.cancel();
+                        });
+                if (Ops.isPrivileged()) {
+                    builder.setCheckboxLabel(R.string.keep_data_and_app_signing_signatures);
+                }
+                if ((mApplicationInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
+                    builder.setNeutralButton(R.string.uninstall_updates, (dialog, which, keepData) ->
+                            executor.submit(() -> {
+                                PackageInstallerCompat installer = PackageInstallerCompat.getNewInstance();
+                                installer.setAppLabel(mPackageLabel);
+                                boolean isSuccessful = installer.uninstall(mPackageName, UserHandleHidden.USER_ALL, keepData);
+                                if (isSuccessful) {
+                                    runOnUiThread(() -> displayLongToast(R.string.update_uninstalled_successfully, mPackageLabel));
+                                } else {
+                                    runOnUiThread(() -> displayLongToast(R.string.failed_to_uninstall_updates, mPackageLabel));
+                                }
+                            }));
+                }
+                builder.show();
             });
             // Enable/disable app (root/ADB only)
             if (Ops.isPrivileged() && isFrozen) {

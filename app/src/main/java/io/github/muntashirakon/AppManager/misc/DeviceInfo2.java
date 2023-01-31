@@ -2,6 +2,9 @@
 
 package io.github.muntashirakon.AppManager.misc;
 
+import static io.github.muntashirakon.AppManager.utils.UIUtils.getStyledKeyValue;
+import static io.github.muntashirakon.AppManager.utils.UIUtils.getTitleText;
+
 import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.content.Context;
@@ -11,6 +14,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.UserHandleHidden;
 import android.text.SpannableStringBuilder;
+import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.format.Formatter;
 import android.util.DisplayMetrics;
@@ -26,9 +30,6 @@ import androidx.core.os.LocaleListCompat;
 import androidx.core.util.Pair;
 import androidx.fragment.app.FragmentActivity;
 
-import com.android.internal.util.TextUtils;
-
-import java.io.BufferedReader;
 import java.security.Provider;
 import java.security.Security;
 import java.text.ParseException;
@@ -45,14 +46,10 @@ import io.github.muntashirakon.AppManager.runner.Runner;
 import io.github.muntashirakon.AppManager.runner.RunnerUtils;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
+import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
 import io.github.muntashirakon.AppManager.utils.Utils;
-import io.github.muntashirakon.io.Path;
-import io.github.muntashirakon.io.PathReader;
-import io.github.muntashirakon.io.Paths;
+import io.github.muntashirakon.proc.ProcFs;
 import io.github.muntashirakon.util.LocalizedString;
-
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getStyledKeyValue;
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getTitleText;
 
 public class DeviceInfo2 implements LocalizedString {
     public final String osVersion = Build.VERSION.RELEASE;
@@ -183,7 +180,7 @@ public class DeviceInfo2 implements LocalizedString {
             securityProviders.add(provider.getName() + " (v" + provider.getVersion() + ")");
         }
         builder.append(getStyledKeyValue(ctx, R.string.security_providers,
-                TextUtils.joinSpannable(", ", securityProviders))).append("\n");
+                TextUtilsCompat.joinSpannable(", ", securityProviders))).append("\n");
         // CPU info
         builder.append("\n").append(getTitleText(ctx, R.string.cpu)).append("\n");
         if (cpuHardware != null) {
@@ -222,7 +219,7 @@ public class DeviceInfo2 implements LocalizedString {
             localeStrings.add(systemLocales.get(i).getDisplayName());
         }
         builder.append("\n").append(getTitleText(ctx, R.string.languages))
-                .append("\n").append(TextUtils.joinSpannable(", ", localeStrings))
+                .append("\n").append(TextUtilsCompat.joinSpannable(", ", localeStrings))
                 .append("\n");
         if (users != null) {
             // Users
@@ -233,7 +230,7 @@ public class DeviceInfo2 implements LocalizedString {
                 userNames.add(user.name);
             }
             builder.append(String.format(Locale.getDefault(), "%d", users.size())).append(" (")
-                    .append(TextUtils.joinSpannable(", ", userNames))
+                    .append(TextUtilsCompat.joinSpannable(", ", userNames))
                     .append(")\n");
             // App stats per user
             builder.append("\n").append(getTitleText(ctx, R.string.apps)).append("\n");
@@ -274,7 +271,7 @@ public class DeviceInfo2 implements LocalizedString {
                 } else featureStrings.add(info.name);
             }
         }
-        builder.append(TextUtils.joinSpannable("\n", featureStrings)).append("\n");
+        builder.append(TextUtilsCompat.joinSpannable("\n", featureStrings)).append("\n");
         return builder;
     }
 
@@ -364,21 +361,7 @@ public class DeviceInfo2 implements LocalizedString {
 
     @Nullable
     private String getCpuHardware() {
-        Path cpuInfoPath = Paths.getUnprivileged("/proc/cpuinfo");
-        try (BufferedReader reader = new BufferedReader(new PathReader(cpuInfoPath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.trim().startsWith("Hardware")) {
-                    int colonLoc = line.indexOf(':');
-                    if (colonLoc == -1) continue;
-                    colonLoc += 2;
-                    return line.substring(colonLoc).trim();
-                }
-            }
-        } catch (Throwable e) {
-            e.printStackTrace();
-        }
-        return null;
+        return ProcFs.getInstance().getCpuInfoHardware();
     }
 
     @SuppressLint("PrivateApi")

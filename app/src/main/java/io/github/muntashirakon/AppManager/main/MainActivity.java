@@ -42,6 +42,7 @@ import org.xmlpull.v1.XmlPullParserException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
@@ -64,6 +65,8 @@ import io.github.muntashirakon.AppManager.profiles.ProfileMetaManager;
 import io.github.muntashirakon.AppManager.profiles.ProfilesActivity;
 import io.github.muntashirakon.AppManager.rules.RulesTypeSelectionDialogFragment;
 import io.github.muntashirakon.AppManager.runningapps.RunningAppsActivity;
+import io.github.muntashirakon.AppManager.self.filecache.InternalCacheCleanerService;
+import io.github.muntashirakon.AppManager.self.life.FundingCampaignChecker;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.SettingsActivity;
@@ -75,6 +78,7 @@ import io.github.muntashirakon.AppManager.utils.DateUtils;
 import io.github.muntashirakon.AppManager.utils.StoragePermission;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.dialog.AlertDialogBuilder;
+import io.github.muntashirakon.dialog.ScrollableDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableSingleChoiceDialogBuilder;
 import io.github.muntashirakon.io.Paths;
@@ -229,10 +233,6 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         mModel.getApplicationItems().observe(this, applicationItems -> {
             if (mAdapter != null) mAdapter.setDefaultList(applicationItems);
             showProgressIndicator(false);
-            if (recyclerView.getFocusedChild() == null) {
-                View v = recyclerView.getChildAt(0);
-                if (v != null) v.requestFocus();
-            }
         });
         mModel.getOperationStatus().observe(this, status -> {
             mProgressIndicator.hide();
@@ -496,7 +496,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         // TODO: 11/10/21 There is an efficient way to handle this:
         //  1. Declare MenuItems as field variables
         //  2. Check for properties during selection
-        ArrayList<ApplicationItem> selectedItems = mModel.getSelectedApplicationItems();
+        Collection<ApplicationItem> selectedItems = mModel.getSelectedApplicationItems();
         MenuItem uninstallMenu = selectionMenu.findItem(R.id.action_uninstall);
         MenuItem enableDisableMenu = selectionMenu.findItem(R.id.action_freeze_unfreeze);
         MenuItem forceStopMenu = selectionMenu.findItem(R.id.action_force_stop);
@@ -545,7 +545,6 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         addToProfileMenu.setEnabled(nonZeroSelection);
         /* === Visible/Invisible === */
         boolean privileged = Ops.isPrivileged();
-        uninstallMenu.setVisible(privileged);
         enableDisableMenu.setVisible(privileged);
         forceStopMenu.setVisible(privileged);
         clearDataCacheMenu.setVisible(privileged);
@@ -616,6 +615,13 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     private void displayChangelogIfRequired() {
         if (!AppPref.getBoolean(AppPref.PrefKey.PREF_DISPLAY_CHANGELOG_BOOL)) {
             return;
+        }
+        InternalCacheCleanerService.scheduleAlarm(getApplicationContext());
+        if (FundingCampaignChecker.campaignRunning()) {
+            new ScrollableDialogBuilder(this)
+                    .setMessage(R.string.funding_campaign_dialog_message)
+                    .enableAnchors()
+                    .show();
         }
         Snackbar.make(findViewById(android.R.id.content), R.string.view_changelog, 3 * 60 * 1000)
                 .setAction(R.string.ok, v -> {
