@@ -18,6 +18,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
 
 import java.util.ArrayList;
 import java.util.Objects;
@@ -162,6 +163,7 @@ public class BatchOpsService extends ForegroundService {
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
                 PendingIntentCompat.FLAG_IMMUTABLE);
         builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setOngoing(true)
                 .setContentText(getString(R.string.operation_running))
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .setSubText(header)
@@ -246,7 +248,7 @@ public class BatchOpsService extends ForegroundService {
     @Override
     public void onDestroy() {
         unregisterReceiver(broadcastReceiver);
-        stopForeground(true);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
 
@@ -355,6 +357,8 @@ public class BatchOpsService extends ForegroundService {
                 return getString(R.string.set_mode_for_app_ops_dots);
             case BatchOpsManager.OP_IMPORT_BACKUPS:
                 return getString(R.string.pref_import_backups);
+            case BatchOpsManager.OP_DEXOPT:
+                return getString(R.string.batch_ops_runtime_optimization);
             case BatchOpsManager.OP_NONE:
                 break;
         }
@@ -396,6 +400,8 @@ public class BatchOpsService extends ForegroundService {
                 return getResources().getQuantityString(R.plurals.alert_failed_to_set_app_ops, failedCount, failedCount);
             case BatchOpsManager.OP_IMPORT_BACKUPS:
                 return getResources().getQuantityString(R.plurals.alert_failed_to_import_backups, failedCount, failedCount);
+            case BatchOpsManager.OP_DEXOPT:
+                return getResources().getQuantityString(R.plurals.alert_failed_to_optimize_apps, failedCount, failedCount);
         }
         return getString(R.string.error);
     }

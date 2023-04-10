@@ -15,7 +15,7 @@ import java.util.Arrays;
 import java.util.Locale;
 
 import io.github.muntashirakon.AppManager.settings.Ops;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 
 public class DeviceInfo {
     private final String[] abis = Build.SUPPORTED_ABIS;
@@ -70,8 +70,8 @@ public class DeviceInfo {
                 + "ABIs (32bit): " + Arrays.toString(abis32Bits) + "\n"
                 + "ABIs (64bit): " + Arrays.toString(abis64Bits) + "\n"
                 + "System language: " + Locale.getDefault().toLanguageTag() + "\n"
-                + "In-App Language: " + AppPref.get(AppPref.PrefKey.PREF_CUSTOM_LOCALE_STR) + "\n"
-                + "Mode: " + AppPref.get(AppPref.PrefKey.PREF_MODE_OF_OPS_STR) + "\n"
+                + "In-App Language: " + Prefs.Appearance.getLanguage() + "\n"
+                + "Mode: " + Ops.getMode() + "\n"
                 + "Inferred Mode: " + getInferredMode();
     }
 

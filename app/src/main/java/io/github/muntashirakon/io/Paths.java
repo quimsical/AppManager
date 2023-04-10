@@ -5,6 +5,7 @@ package io.github.muntashirakon.io;
 import android.content.ContentResolver;
 import android.net.Uri;
 import android.os.RemoteException;
+import android.os.UserHandleHidden;
 import android.system.ErrnoException;
 import android.system.OsConstants;
 
@@ -111,9 +112,26 @@ public final class Paths {
         }
     }
 
-    @Nullable
-    public static String getSanitizedPath(@NonNull String name) {
-        return getSanitizedPath(name, false);
+    /**
+     * Replace /storage/emulated with /data/media if the directory is inaccessible
+     */
+    @NonNull
+    public static Path getAccessiblePath(@NonNull Path path) {
+        if (!path.getUri().getScheme().equals(ContentResolver.SCHEME_FILE)) {
+            // Scheme other than file are already readable at their best notion
+            return path;
+        }
+        if (path.canRead()) {
+            return path;
+        }
+        String pathString = Objects.requireNonNull(path.getFilePath());
+        if (pathString.startsWith("/storage/emulated/")) {
+            // The only inaccessible path is /storage/emulated/{!myUserId} and it has to be replaced with /data/media/{!myUserId}
+            if (!String.format(Locale.ROOT, "/storage/emulated/%d", UserHandleHidden.myUserId()).equals(pathString)) {
+                return get(pathString.replaceFirst("/storage/emulated/", "/data/media/"));
+            }
+        }
+        return path;
     }
 
     @Nullable
@@ -122,20 +140,23 @@ public final class Paths {
         //noinspection RegExpRedundantEscape,RegExpSimplifiable
         name = name.replaceAll("[\\/\\\\]+", File.separator);
         if (name.equals(File.separator)) {
+            // Name is a separator AKA root
             return File.separator;
         }
+        // Name isn't a root but could still be ../ or ./, we only consider ./ because we cannot allow it
         if (name.startsWith("./")) {
             // Omit ./
             name = name.substring(2);
         }
+        // Omit last separator if present, this also means ../ will become ..
         if (name.endsWith(File.separator)) {
-            // Omit last separator if present
             name = name.substring(0, name.length() - 1);
         }
+        // Omit root if requested
         if (omitRoot && name.startsWith(File.separator)) {
-            // Omit root
             name = name.substring(1);
         }
+        // At this point, name could contain nothing at all
         return name.isEmpty() ? null : name;
     }
 
@@ -229,17 +250,27 @@ public final class Paths {
 
     @NonNull
     public static String appendPathSegment(@NonNull String path, @NonNull String lastPathSegment) {
-        // TODO: 3/12/22 Add tests
+        if (lastPathSegment.isEmpty()) {
+            return path;
+        }
+        boolean pathEndsWithSeparator = path.endsWith(File.separator);
         if (lastPathSegment.startsWith(File.separator)) {
             if (lastPathSegment.length() == 1) {
+                // There's only a path separator, return path as is
                 return path;
             }
-            lastPathSegment = lastPathSegment.substring(1);
+            if (!pathEndsWithSeparator) {
+                // Path didn't end with a separator but lastPathSegment did
+                return path + lastPathSegment;
+            } else {
+                // Need to remove separator from at least one of the arguments
+                lastPathSegment = lastPathSegment.substring(1);
+            }
         }
-        if (path.endsWith(File.separator)) {
+        // lastPathSegment does not have a separator
+        if (pathEndsWithSeparator) {
             return path + lastPathSegment;
-        }
-        return path + File.separator + lastPathSegment;
+        } else return path + File.separator + lastPathSegment;
     }
 
     @AnyThread

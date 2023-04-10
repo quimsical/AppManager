@@ -158,7 +158,7 @@ public class AppDetailsActivity extends BaseActivity {
         // Check for the existence of package
         model.getIsPackageExistLiveData().observe(this, isPackageExist -> {
             if (!isPackageExist) {
-                if (!model.getIsExternalApk()) {
+                if (!model.isExternalApk()) {
                     UIUtils.displayShortToast(R.string.app_not_installed);
                 }
                 finish();
@@ -168,7 +168,7 @@ public class AppDetailsActivity extends BaseActivity {
         model.getUserInfo().observe(this, userInfo -> getSupportActionBar()
                 .setSubtitle(getString(R.string.user_profile_with_id, userInfo.name, userInfo.id)));
         // Check for package changes
-        model.getIsPackageChanged().observe(this, isPackageChanged -> {
+        model.isPackageChanged().observe(this, isPackageChanged -> {
             if (isPackageChanged && model.isPackageExist()) {
                 loadTabs();
             }
@@ -273,7 +273,6 @@ public class AppDetailsActivity extends BaseActivity {
         public Fragment getItem(@AppDetailsFragment.Property int position) {
             if (mTabFragments[position] == null) {
                 switch (position) {
-                    case AppDetailsFragment.NONE:
                     case AppDetailsFragment.APP_INFO:
                         mTabFragments[position] = new AppInfoFragment();
                         break;
@@ -283,18 +282,24 @@ public class AppDetailsActivity extends BaseActivity {
                     case AppDetailsFragment.PROVIDERS: {
                         mTabFragments[position] = new AppDetailsComponentsFragment();
                         Bundle args = new Bundle();
-                        args.putInt(AppDetailsComponentsFragment.ARG_TYPE, position);
+                        args.putInt(AppDetailsFragment.ARG_TYPE, position);
                         mTabFragments[position].setArguments(args);
                         break;
                     }
                     case AppDetailsFragment.APP_OPS:
                     case AppDetailsFragment.PERMISSIONS:
-                    case AppDetailsFragment.USES_PERMISSIONS:
+                    case AppDetailsFragment.USES_PERMISSIONS: {
+                        mTabFragments[position] = new AppDetailsPermissionsFragment();
+                        Bundle args = new Bundle();
+                        args.putInt(AppDetailsFragment.ARG_TYPE, position);
+                        mTabFragments[position].setArguments(args);
+                        break;
+                    }
                     case AppDetailsFragment.CONFIGURATIONS:
                     case AppDetailsFragment.FEATURES:
                     case AppDetailsFragment.SHARED_LIBRARIES:
                     case AppDetailsFragment.SIGNATURES: {
-                        mTabFragments[position] = new AppDetailsFragment();
+                        mTabFragments[position] = new AppDetailsOtherFragment();
                         Bundle args = new Bundle();
                         args.putInt(AppDetailsFragment.ARG_TYPE, position);
                         mTabFragments[position].setArguments(args);

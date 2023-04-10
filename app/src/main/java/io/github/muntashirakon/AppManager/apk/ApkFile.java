@@ -12,7 +12,6 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.text.SpannableStringBuilder;
@@ -67,8 +66,9 @@ import io.github.muntashirakon.AppManager.fm.FmProvider;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.misc.VMRuntime;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.LangUtils;
 import io.github.muntashirakon.io.IoUtils;
@@ -297,8 +297,8 @@ public final class ApkFile implements AutoCloseable {
             baseEntry = new Entry(cacheFilePath, manifest);
             entries.add(baseEntry);
         } else {
-            getCachePath();
             try {
+                getCachePath();
                 zipFile = new ZipFile(cacheFilePath);
             } catch (IOException e) {
                 throw new ApkFileException(e);
@@ -513,7 +513,7 @@ public final class ApkFile implements AutoCloseable {
 
     @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     public boolean needSigning() {
-        return AppPref.canSignApk();
+        return Prefs.Installer.canSignApk();
     }
 
     @Override
@@ -550,13 +550,8 @@ public final class ApkFile implements AutoCloseable {
     }
 
     @NonNull
-    private Path getCachePath() {
-        File destDir = AppManager.getContext().getExternalCacheDir();
-        if (destDir == null || !Environment.getExternalStorageState(destDir).equals(Environment.MEDIA_MOUNTED))
-            throw new RuntimeException("External media not present");
-        if (!destDir.exists()) //noinspection ResultOfMethodCallIgnored
-            destDir.mkdirs();
-        return Paths.get(destDir);
+    private Path getCachePath() throws IOException {
+        return Paths.get(FileUtils.getExternalCachePath(ContextUtils.getContext()));
     }
 
     public class Entry implements AutoCloseable, LocalizedString {
@@ -940,7 +935,7 @@ public final class ApkFile implements AutoCloseable {
                 builder.append(", ");
                 int start = builder.length();
                 builder.append(context.getString(R.string.unsupported_split_apk));
-                builder.setSpan(new ForegroundColorSpan(MaterialColors.getColor(context, R.attr.colorError, "null")),
+                builder.setSpan(new ForegroundColorSpan(MaterialColors.getColor(context, androidx.appcompat.R.attr.colorError, "null")),
                         start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             return new SpannableStringBuilder(localizedString).append("\n").append(getSmallerText(builder));

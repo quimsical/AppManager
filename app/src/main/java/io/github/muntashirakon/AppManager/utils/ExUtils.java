@@ -5,10 +5,13 @@ package io.github.muntashirakon.AppManager.utils;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import org.jetbrains.annotations.Contract;
+
 import java.io.IOException;
 
 import io.github.muntashirakon.AppManager.backup.BackupException;
 import io.github.muntashirakon.AppManager.logs.Log;
+import io.github.muntashirakon.compat.ObjectsCompat;
 
 public class ExUtils {
     public interface ThrowingRunnable<T> {
@@ -19,6 +22,7 @@ public class ExUtils {
         void run() throws Throwable;
     }
 
+    @Contract("_ -> fail")
     public static <T> T rethrowAsIOException(@NonNull Throwable e) throws IOException {
         IOException ioException = new IOException(e.getMessage());
         //noinspection UnnecessaryInitCause
@@ -26,6 +30,7 @@ public class ExUtils {
         throw ioException;
     }
 
+    @Contract("_, _ -> fail")
     public static <T> T rethrowAsBackupException(@NonNull String message, @NonNull Throwable e) throws BackupException {
         BackupException backupException = new BackupException(message);
         //noinspection UnnecessaryInitCause
@@ -38,9 +43,14 @@ public class ExUtils {
         try {
             return r.run();
         } catch (Throwable th) {
-            Log.e("ExUtils", "(Suppressed error)", th);
+            Log.w("ExUtils", "(Suppressed error)", th);
             return null;
         }
+    }
+
+    @NonNull
+    public static <T> T requireNonNullElse(ThrowingRunnable<T> r, T defaultObj) {
+        return ObjectsCompat.requireNonNullElse(exceptionAsNull(r), defaultObj);
     }
 
     @Nullable
@@ -56,7 +66,7 @@ public class ExUtils {
         try {
             r.run();
         } catch (Throwable th) {
-            Log.e("ExUtils", "(Suppressed error)", th);
+            Log.w("ExUtils", "(Suppressed error)", th);
         }
     }
 }

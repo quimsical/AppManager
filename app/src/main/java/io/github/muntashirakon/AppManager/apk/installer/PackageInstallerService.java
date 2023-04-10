@@ -27,6 +27,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
 
 import java.util.Collections;
 
@@ -37,12 +38,12 @@ import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
 import io.github.muntashirakon.AppManager.main.MainActivity;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.types.ForegroundService;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
-import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
-import io.github.muntashirakon.AppManager.utils.UiThreadHandler;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 
 public class PackageInstallerService extends ForegroundService {
     public static final String EXTRA_QUEUE_ITEM = "queue_item";
@@ -76,6 +77,7 @@ public class PackageInstallerService extends ForegroundService {
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
                 PendingIntentCompat.FLAG_IMMUTABLE);
         builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setOngoing(true)
                 .setContentTitle(null)
                 .setContentText(getString(R.string.install_in_progress))
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -104,17 +106,24 @@ public class PackageInstallerService extends ForegroundService {
                 PackageInstallerService.this.packageName = packageName;
             }
 
+            // MIUI-begin: MIUI 12.5+ workaround
+            @Override
+            public void onAnotherAttemptInMiui(@Nullable ApkFile apkFile) {
+                if (apkFile != null) {
+                    installer.install(apkFile, apkQueueItem.getUserId());
+                }
+            }
+            // MIUI-end
+
             @Override
             public void onFinishedInstall(int sessionId, String packageName, int result,
                                           @Nullable String blockingPackage, @Nullable String statusMessage) {
                 // Block trackers if requested
-                if (result == STATUS_SUCCESS
-                        && Ops.isRoot()
-                        && AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_BLOCK_TRACKERS_BOOL)) {
+                if (result == STATUS_SUCCESS && Ops.isRoot() && Prefs.Installer.blockTrackers()) {
                     ComponentUtils.blockTrackingComponents(Collections.singletonList(
                             new UserPackagePair(packageName, apkQueueItem.getUserId())));
                 }
-                UiThreadHandler.run(() -> {
+                ThreadUtils.postOnMainThread(() -> {
                     if (onInstallFinished != null) {
                         onInstallFinished.onFinished(packageName, result, blockingPackage, statusMessage);
                     } else sendNotification(result, apkQueueItem.getAppLabel(), blockingPackage, statusMessage);
@@ -196,7 +205,7 @@ public class PackageInstallerService extends ForegroundService {
 
     @Override
     public void onDestroy() {
-        stopForeground(true);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
 

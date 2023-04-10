@@ -9,8 +9,10 @@ import android.webkit.MimeTypeMap;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Locale;
 
 import io.github.muntashirakon.io.ExtendedFile;
 
@@ -35,6 +37,10 @@ public class ExtendedRawDocumentFile extends DocumentFile {
     @Override
     @Nullable
     public DocumentFile createFile(@NonNull String mimeType, @NonNull String displayName) {
+        if (displayName.contains(File.separator)) {
+            // displayName cannot contain a separator
+            return null;
+        }
         // Tack on extension when valid MIME type provided
         String extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
         if (extension != null) {
@@ -53,6 +59,10 @@ public class ExtendedRawDocumentFile extends DocumentFile {
     @Override
     @Nullable
     public DocumentFile createDirectory(@NonNull String displayName) {
+        if (displayName.contains(File.separator)) {
+            // displayName cannot contain a separator
+            return null;
+        }
         final ExtendedFile target = mFile.getChildFile(displayName);
         if (target.isDirectory() || target.mkdir()) {
             return new ExtendedRawDocumentFile(this, target);
@@ -85,7 +95,7 @@ public class ExtendedRawDocumentFile extends DocumentFile {
             String name = mFile.getName();
             final int lastDot = name.lastIndexOf('.');
             if (lastDot >= 0) {
-                final String extension = name.substring(lastDot + 1).toLowerCase();
+                final String extension = name.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                 return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
             }
         }
@@ -141,6 +151,10 @@ public class ExtendedRawDocumentFile extends DocumentFile {
     @Nullable
     @Override
     public DocumentFile findFile(@NonNull String displayName) {
+        if (displayName.contains(File.separator)) {
+            // displayName cannot contain a separator
+            return null;
+        }
         ExtendedFile file = mFile.getChildFile(displayName);
         return file.exists() ? new ExtendedRawDocumentFile(this, file) : null;
     }
@@ -160,6 +174,10 @@ public class ExtendedRawDocumentFile extends DocumentFile {
 
     @Override
     public boolean renameTo(@NonNull String displayName) {
+        if (displayName.contains(File.separator)) {
+            // displayName cannot contain a separator
+            return false;
+        }
         ExtendedFile parent = mFile.getParentFile();
         if (parent == null) return false;
         ExtendedFile target = mFile.getParentFile().getChildFile(displayName);
@@ -183,7 +201,7 @@ public class ExtendedRawDocumentFile extends DocumentFile {
     private static String getTypeForName(String name) {
         final int lastDot = name.lastIndexOf('.');
         if (lastDot >= 0) {
-            final String extension = name.substring(lastDot + 1).toLowerCase();
+            final String extension = name.substring(lastDot + 1).toLowerCase(Locale.ROOT);
             final String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
             if (mime != null) {
                 return mime;

@@ -3,15 +3,14 @@
 package io.github.muntashirakon.AppManager.oneclickops;
 
 import static io.github.muntashirakon.AppManager.utils.PackageUtils.getAppOpModeNames;
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.getAppOpModes;
 import static io.github.muntashirakon.AppManager.utils.PackageUtils.getAppOpNames;
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.getAppOps;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getSmallerText;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.SpannableStringBuilder;
 import android.view.MenuItem;
@@ -34,10 +33,12 @@ import java.util.List;
 import java.util.Set;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
+import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
-import io.github.muntashirakon.AppManager.appops.AppOpsManager;
+import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizationDialog;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsService;
+import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ListItemCreator;
@@ -174,6 +175,18 @@ public class OneClickOpsActivity extends BaseActivity {
                             })
                             .show();
                 });
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            mItemCreator.addItemWithTitleSubtitle(getString(R.string.title_perform_runtime_optimization_to_apps),
+                            getString(R.string.summary_perform_runtime_optimization_to_apps))
+                    .setOnClickListener(v -> {
+                        if (!Ops.isPrivileged()) {
+                            UIUtils.displayShortToast(R.string.only_works_in_root_or_adb_mode);
+                            return;
+                        }
+                        DexOptimizationDialog dialog = DexOptimizationDialog.getInstance(null);
+                        dialog.show(getSupportFragmentManager(), DexOptimizationDialog.TAG);
+                    });
+        }
         mProgressIndicator.hide();
     }
 
@@ -276,8 +289,8 @@ public class OneClickOpsActivity extends BaseActivity {
             UIUtils.displayShortToast(R.string.only_works_in_root_or_adb_mode);
             return;
         }
-        List<Integer> modes = getAppOpModes();
-        List<Integer> appOps = getAppOps();
+        List<Integer> modes = AppOpsManagerCompat.getModeConstants();
+        List<Integer> appOps = AppOpsManagerCompat.getAllOps();
         List<CharSequence> modeNames = Arrays.asList(getAppOpModeNames(modes));
         List<CharSequence> appOpNames = Arrays.asList(getAppOpNames(appOps));
         TextInputDropdownDialogBuilder builder = new TextInputDropdownDialogBuilder(this, R.string.input_app_ops);
@@ -373,7 +386,7 @@ public class OneClickOpsActivity extends BaseActivity {
     private List<String> appOpToNames(@NonNull Collection<Integer> appOps) {
         List<String> appOpNames = new ArrayList<>(appOps.size());
         for (int appOp : appOps) {
-            appOpNames.add(AppOpsManager.opToName(appOp));
+            appOpNames.add(AppOpsManagerCompat.opToName(appOp));
         }
         return appOpNames;
     }

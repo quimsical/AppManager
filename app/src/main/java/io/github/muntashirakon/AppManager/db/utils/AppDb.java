@@ -93,6 +93,13 @@ public class AppDb {
         }
     }
 
+    /**
+     * Fetch backups without a lock file. Necessary checks must be done to ensure that the backups actually exist.
+     */
+    public List<Backup> getAllBackupsNoLock(String packageName) {
+        return backupDao.get(packageName);
+    }
+
     public void insert(App app) {
         synchronized (sLock) {
             appDao.insert(app);
@@ -191,7 +198,7 @@ public class AppDb {
                         PackageManager.GET_META_DATA | flagSigningInfo | PackageManager.GET_ACTIVITIES
                                 | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
                                 | PackageManager.GET_SERVICES | flagDisabledComponents | flagMatchUninstalled, userId);
-            } catch (RemoteException | PackageManager.NameNotFoundException e) {
+            } catch (RemoteException | PackageManager.NameNotFoundException | SecurityException e) {
                 // Package does not exist
             }
             if (backup == null && packageInfo == null) {
@@ -352,7 +359,7 @@ public class AppDb {
             try {
                 packageUsageInfoList.addAll(AppUsageStatsManager.getInstance(context)
                         .getUsageStats(UsageUtils.USAGE_WEEKLY, userId));
-            } catch (RemoteException | SecurityException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

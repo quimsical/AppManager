@@ -274,7 +274,6 @@
     <string name="icon_picker">Selektor ikon</string>
     <string name="create_shortcut">Utwórz skrót</string>
     <string name="error_creating_shortcut">Wystąpił błąd podczas tworzenia skrótu</string>
-    <string name="instructions">Instrukcje</string>
     <string name="app_not_installed">Aplikacja nie jest zainstalowana</string>
     <string name="obb_size">Obb</string>
     <string name="cache_size">Pamięć podręczna</string>
@@ -358,7 +357,7 @@
     <string name="usage_today">Dziś</string>
     <string name="usage_weekly">Tygodniowe</string>
     <string name="app_usage">Użycie aplikacji</string>
-    <string name="no_tracker_class">Brak śledzącej klasy</string>
+    <string name="no_tracker_class">Brak klas śledzących</string>
     <string name="no_shared_libs">Brak współdzielonych bibliotek</string>
     <plurals name="main_list_date_days">
         <item quantity="one"><xliff:g id="last_update_date" example="20/10/2020">%1$s</xliff:g> <xliff:g id="day_no" example="5">%2$d</xliff:g> dzień</item>
@@ -436,7 +435,7 @@
     <string name="options">Opcje</string>
     <string name="on">Wł.</string>
     <string name="off">Wył.</string>
-    <string name="profile_block_trackers_msg">Komponenty śledzące będą blokowane</string>
+    <string name="profile_block_trackers_msg">Blokuje elementy śledzące w aplikacjach</string>
     <string name="allow_routine_ops_msg">Pozwól, aby profil był używany w rutynowych operacjach</string>
     <string name="adb_over_tcp">ADB przez TCP</string>
     <string name="pref_mode_of_operations">Tryb pracy</string>
@@ -679,10 +678,10 @@
     <string name="internal_storage">Pamięć wewnętrzna</string>
     <string name="failed_to_revoke_permission">Nie udało się odmówić uprawnienia</string>
     <plurals name="alert_failed_to_disable_trackers">
-        <item quantity="one">Nie udało się wyłączyć elementów śledzących z %1$d aplikacji</item>
-        <item quantity="few">Nie udało się wyłączyć elementów śledzących z %1$d aplikacji</item>
-        <item quantity="many">Nie udało się wyłączyć elementów śledzących z %1$d aplikacji</item>
-        <item quantity="other">Nie udało się wyłączyć elementów śledzących z %1$d aplikacji</item>
+        <item quantity="one">Nie udało się wyłączyć elementów śledzących w %1$d aplikacji</item>
+        <item quantity="few">Nie udało się wyłączyć elementów śledzących w %1$d aplikacjach</item>
+        <item quantity="many">Nie udało się wyłączyć elementów śledzących z %1$d aplikacjach</item>
+        <item quantity="other">Nie udało się wyłączyć elementów śledzących z %1$d aplikacjach</item>
     </plurals>
     <string name="input_keystore_pass_msg">Dotknij tutaj, aby podać hasło KeyStore</string>
     <string name="splits">Podziały</string>
@@ -777,22 +776,22 @@
     <string name="rules_not_applied">Reguły nie zostały wprowadzone</string>
     <string name="failed_to_disable_op">Nie udało się wyłączyć OP zażądanej aplikacji</string>
     <plurals name="other_trackers_and_classes">
-        <item quantity="one"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> trakery z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
-        <item quantity="few"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> trackery z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
-        <item quantity="many"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> trackery z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
-        <item quantity="other"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> trackery z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
+        <item quantity="one"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> element śledzący z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
+        <item quantity="few"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> elementy śledzące z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
+        <item quantity="many"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> elementów śledzących z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
+        <item quantity="other"><xliff:g id="tracker_no" example="8">%1$d</xliff:g> elementów śledzących z <xliff:g id="class_no" example="50">%2$d</xliff:g> klasami</item>
     </plurals>
     <plurals name="two_trackers_and_classes">
-        <item quantity="one">2 trackery z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
-        <item quantity="few">2 trackery z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
-        <item quantity="many">2 trackery z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
-        <item quantity="other">2 trackery z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="one">2 elementy śledzące z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="few">2 elementy śledzące z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="many">2 elementy śledzące z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="other">2 elementy śledzące z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
     </plurals>
     <plurals name="tracker_and_classes">
-        <item quantity="one">1 tracker z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasą</item>
-        <item quantity="few">1 tracker z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
-        <item quantity="many">1 tracker z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
-        <item quantity="other">1 tracker z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="one">1 element śledzący z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasą</item>
+        <item quantity="few">1 element śledzący z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="many">1 element śledzący z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
+        <item quantity="other">1 element śledzący z <xliff:g id="class_no" example="50">%1$d</xliff:g> klasami</item>
     </plurals>
     <string name="starting_activity">Rozpoczynanie aktywności: <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="keep_data_and_app_signing_signatures">Zachowaj dane i sygnatury</string>
@@ -856,7 +855,7 @@
     <string name="type_uri_array">Tablica URIs</string>
     <string name="pref_always_on_background_msg">Zawsze instaluj aplikacje w tle i wyświetl powiadomienia po skończeniu.</string>
     <string name="pref_always_on_background">Instaluj w tle</string>
-    <string name="pref_block_trackers_msg">Zablokuj komponenty śledzenia po zainstalowaniu aplikacji przy użyciu App Manager.</string>
+    <string name="pref_block_trackers_msg">Zablokuj komponenty śledzące po zainstalowaniu aplikacji używając aplikacji App Manager.</string>
     <string name="next">Następny</string>
     <string name="installer_app_installed">Aplikacja zainstalowana</string>
     <string name="staging_apk_files">Inscenizacja…</string>
@@ -949,7 +948,6 @@
     <string name="adb_connect_port_number_description">Numer portu znajduje się w sekcji <b>adres IP &amp; port</b> tuż pod sekcją <b>Nazwa urządzenia</b>.</string>
     <string name="port_number">Port</string>
     <string name="adb_connect">Połącz</string>
-    <string name="wireless_debugging_not_supported">Bezprzewodowe debugowanie nie jest obsługiwane na tej platformie.</string>
     <string name="wireless_debugging">Bezprzewodowe debugowanie</string>
     <string name="netpolicy_disable_network_access">Wyłącz dostęp do sieci</string>
     <string name="netpolicy_reject_vpn_data">Odrzuć dane VPN</string>
@@ -958,7 +956,7 @@
     <string name="netpolicy_allow_background_data">Zezwalaj na dane w tle, gdy Oszczędzanie danych jest włączone</string>
     <string name="netpolicy_reject_background_data">Odrzuć dane w tle</string>
     <string name="no_changes">Bez zmian</string>
-    <string name="pref_display_changes_msg">Wyświetla zmiany w wersji, trackery, komponenty, uprawnienia, sygnatury, SDK, itp. w sposób kontrolowany przez wersję.</string>
+    <string name="pref_display_changes_msg">Wyświetla zmiany w wersji, elementy śledzące, komponenty, uprawnienia, sygnatury, SDK, itp. w sposób kontrolowany przez wersję.</string>
     <string name="pref_display_changes">Wyświetl zmiany</string>
     <string name="hidden">Ukryty</string>
     <string name="suspended">Zawieszono</string>
@@ -984,10 +982,10 @@
     <string name="gz_bz2_compressed">%1$s skompresowano</string>
     <string name="no_encryption">Brak szyfrowania</string>
     <string name="base_backup">Podstawowa kopia zapasowa</string>
-    <string name="trackers_unblocked_successfully">Trackery są teraz odblokowane</string>
-    <string name="trackers_blocked_successfully">Trackery są teraz zablokowane</string>
-    <string name="failed_to_unblock_trackers">Nie udało się odblokować trackerów</string>
-    <string name="failed_to_block_trackers">Nie udało się zablokować trackerów</string>
+    <string name="trackers_unblocked_successfully">Elementy śledzące są teraz odblokowane</string>
+    <string name="trackers_blocked_successfully">Elementy śledzące są teraz zablokowane</string>
+    <string name="failed_to_unblock_trackers">Nie udało się odblokować elementów śledzących</string>
+    <string name="failed_to_block_trackers">Nie udało się zablokować elementów śledzących</string>
     <string name="profile_save_apk_msg">Zapisuje pliki APK w <tt>AppManager/apks</tt></string>
     <string name="save_apk">Zapisz APK</string>
     <string name="running_services">Usługi uruchomione</string>
@@ -1197,7 +1195,7 @@
     <string name="internal">Wewnętrzny</string>
     <string name="change_backup_volume">Zmień wolumin</string>
     <string name="screen_time">Czas ekranowy</string>
-    <string name="tracker">Tracker</string>
+    <string name="tracker">Element śledzący</string>
     <string name="type_string_set">Zestaw ciągów</string>
     <string name="accessibility_service_description">Ogólna usługa dostępności umożliwiająca wykonywanie pewnych operacji, takich jak czyszczenie pamięci podręcznej w trybie bez-roota.</string>
     <string name="vt_slowness_warning">W zależności od szybkości Internetu i obciążenia serwera może to trochę potrwać.</string>
@@ -1293,4 +1291,90 @@
     <string name="pref_privacy">Prywatność</string>
     <string name="pref_privacy_description">Blokada ekranu, autoryzacja itp.</string>
     <string name="failed_to_unfreeze">Nie można odmrozić <xliff:g id="app_name" example="App Manager">%1$s</xliff:g>.</string>
+    <string name="confirm_file_deletion">Tak, usuń</string>
+    <string name="freeze_on_phone_locked">Automatycznie zamrażaj aplikację, gdy telefon jest zablokowany</string>
+    <string name="file_creation_date">Utworzono</string>
+    <string name="file_modification_date">Zmodyfikowano</string>
+    <string name="file_accessed_date">Użyto</string>
+    <string name="file_open_with">Otwórz za pomocą</string>
+    <string name="file_change_open_with">Zmień otwórz za pomocą</string>
+    <string name="file_shortcut_target_file">Plik docelowy</string>
+    <string name="file_properties">Właściwości</string>
+    <string name="file_cut">Wytnij</string>
+    <string name="fm_always_open_with">Zawsze otwieraj</string>
+    <string name="fm_open_with_for_this_file_only">Tylko dla tego pliku</string>
+    <string name="file_open_as">Otwórz jako…</string>
+    <string name="file_open_with_custom_activity">Własny</string>
+    <string name="file_open_with_os_default_dialog">Otwórz w domyślnym oknie dialogowym systemu operacyjnego</string>
+    <string name="open_as_text">Tekst</string>
+    <string name="open_as_image">Obraz</string>
+    <string name="open_as_video">Wideo</string>
+    <string name="open_as_archive">Archiwum</string>
+    <string name="open_as_folder">Katalog</string>
+    <string name="open_as_other">Inne</string>
+    <string name="delete_filename">Usuń %s</string>
+    <string name="on_unfreeze_open_application">Otwórz aplikację po odmrożeniu</string>
+    <string name="on_open_application_no_recents">Nie pokazuj uruchomionej aplikacji w Ostatnich</string>
+    <string name="tap_to_freeze_app">Dotknij, aby zamrozić</string>
+    <string name="waiting_for_the_phone_to_be_locked">Oczekiwanie na zablokowanie telefonu…</string>
+    <string name="action_stop_service">Zatrzymaj</string>
+    <string name="app_can_write_and_execute_in_same_place">Aplikacja narusza zasady <a href="https://en.wikipedia.org/wiki/W%5EX">W^X </a> i może zapisywać i wykonywać w tym samym katalogu lub w tej samej części pamięci. Pozwala to na uruchamianie dowolnych plików wykonywalnych zarówno poprzez modyfikację plików wykonywalnych osadzonych w aplikacji, jak i pobieranie ich z Internetu. O ile nie jest to zamierzone działanie aplikacji (np. emulatory terminali), zaleca się znalezienie nowszej wersji aplikacji zaprojektowanej dla SDK 29 (Android 10) i nowszych lub znalezienie alternatyw.</string>
+    <string name="filter_apps_with_keystore">Z KeyStore</string>
+    <string name="filter_apps_with_saf">Z SAF</string>
+    <string name="filter_apps_with_ssaid">Z SSAID</string>
+    <string name="action_continue">Kontynuuj</string>
+    <string name="class_hierarchy">Hierarchia</string>
+    <string name="title_ui_tracker">Element śledzący interfejs użytkownika</string>
+    <string name="renamed_successfully">Zmieniono nazwę</string>
+    <string name="selinux_context">Kontekst SELinuksa</string>
+    <string name="unix_file_permissions">Tryb</string>
+    <string name="calculating_file_size">Obliczanie…</string>
+    <string name="export_option_markdown">Markdown (formatowanie tekstu)</string>
+    <string name="funding_campaign_dialog_message">Prowadzimy <b>kampanię finansowania</b> dla aplikacji App Manager przez ograniczony czas. Odwiedź
+\n stronę <a href="https://opencollective.com/app-manager#category-ABOUT">opencollective.com/app-manager</a>, aby dowiedzieć się więcej o kampanii. To powiadomienie nie zostanie wyświetlone ponownie, ale można je znaleźć na stronie ustawień podczas trwania kampanii.</string>
+    <string name="sort_by_data_usage">Użycie danych</string>
+    <string name="install_for_another_user">Zainstaluj dla…</string>
+    <string name="confirm_uninstallation">Potwierdź odinstalowanie</string>
+    <string name="grant_required_permission">Udziel wymaganego pozwolenia</string>
+    <string name="grant_overlay_permission_message">Pozwól, aby App Manager wyświetlał pływające okno nad wszystkimi innymi oknami</string>
+    <string name="title_terminal_emulator">Terminal</string>
+    <string name="title_labs_activity">Laboratoria</string>
+    <string name="grant_accessibility_permission_for_tracking_window_contents">Zezwól Menedżerowi aplikacji na korzystanie z funkcji ułatwień dostępu w celu śledzenia zawartości głównego okna.</string>
+    <string name="app_manager_build_expired">Wymagana jest aktualizacja</string>
+    <string name="app_manager_build_expiring_soon_warning">Ta wersja App Managera niedługo wygaśnie. Proszę zaktualizować ją do najnowszej wersji.</string>
+    <string name="sort_by_filename">Nazwa</string>
+    <string name="file_group_id">Grupa (GID)</string>
+    <string name="file_owner_id">Właściciel (UID)</string>
+    <string name="sort_by_last_modified">Ostatnio zmodyfikowane</string>
+    <string name="sort_by_file_size">Rozmiar pliku</string>
+    <string name="sort_by_file_type">Typ pliku</string>
+    <string name="option_display_dot_files">Ukryte pliki</string>
+    <string name="option_display_folders_on_top">Foldery na górze</string>
+    <string name="app_manager_build_expired_message">Aby zapewnić bezpieczeństwo Twojego urządzenia i danych, wersja App Managera, z której korzystasz, została wycofana. Musisz zaktualizować ją do najnowszej wersji, aby nadal z niej korzystać, lub odinstalować ją, jeśli nie jest dostępna żadna aktualizacja.</string>
+    <string name="export_option_xml">XML</string>
+    <string name="export_app_list">Eksportuj listę aplikacji</string>
+    <string name="export_app_list_select_format">Wybierz format eksportu listy aplikacji</string>
+    <string name="adb_incomplete_usb_debugging_title">Niekompletne debugowanie USB</string>
+    <string name="funding_campaign_text">Prowadzimy <b>kampanię finansowania</b> dla App Managera przez ograniczony okres. <a href="https://opencollective.com/app-manager#category-ABOUT">dowiedz się więcej...</a></string>
+    <string name="adb_incomplete_usb_debugging_message">Wygląda na to, że debugowanie USB nie jest skonfigurowane prawidłowo. Proszę przeczytać <a href="https://muntashirakon.github.io/AppManager/#subsec:enable-usb-debugging">dokumentację</a> w celu uzyskania dodatkowych kroków. Jeśli znasz już te kroki, kliknij \"Otwórz\", aby otworzyć opcje deweloperskie, lub kliknij \"Zamknij\", aby kontynuować korzystanie z trybu no-root.</string>
+    <string name="select_a_dex2oat_compiler_filter"><tt>dex2oat</tt> filtr kompilatora</string>
+    <string name="optimize_option_compile_layouts">Skompiluj zasoby układu</string>
+    <string name="optimize_option_clear_profile_data">Wyczyść poprzednie dane profilu</string>
+    <string name="optimize_option_force_compilation">Wymuś kompilację, nawet jeśli nie jest wymagana</string>
+    <string name="optimize_option_force_dexopt">Natychmiast wykonaj optymalizację DEX</string>
+    <string name="title_perform_runtime_optimization_to_apps">Przeprowadź optymalizację środowiska wykonawczego</string>
+    <string name="action_run">Uruchom</string>
+    <string name="summary_perform_runtime_optimization_to_apps">Zoptymalizuj DEX oraz (w systemie Android 10 i nowszych) układy, aby poprawić wydajność aplikacji.</string>
+    <string name="action_optimize_app">Optymalizuj</string>
+    <string name="batch_ops_runtime_optimization">Optymalizacja środowiska wykonawczego</string>
+    <string name="optimize_option_check_profiles">Uwzględnij dane profilu podczas optymalizacji DEX</string>
+    <plurals name="alert_failed_to_optimize_apps">
+        <item quantity="one">Nie udało się zoptymalizować aplikacji %1$d</item>
+        <item quantity="few">Nie udało się zoptymalizować aplikacji %1$d</item>
+        <item quantity="many">Nie udało się zoptymalizować aplikacji %1$d</item>
+        <item quantity="other">Nie udało się zoptymalizować aplikacji %1$d</item>
+    </plurals>
+    <string name="title_domains_supported_by_the_app">Obsługiwane domeny</string>
+    <string name="app_info_tag_open_links">Otwórz linki</string>
+    <string name="source_stamp_verified_and_identified_to_be_from_source">SourceStamp zweryfikowany i zidentyfikowany jako pochodzący z <xliff:g id="source" example="Google Play">%1$s</xliff:g>.</string>
 </resources>

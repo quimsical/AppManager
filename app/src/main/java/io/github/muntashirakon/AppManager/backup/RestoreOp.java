@@ -2,24 +2,19 @@
 
 package io.github.muntashirakon.AppManager.backup;
 
-import static io.github.muntashirakon.AppManager.appops.AppOpsManager.OP_NONE;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.DATA_PREFIX;
-import static io.github.muntashirakon.AppManager.backup.BackupManager.EXT_DATA;
-import static io.github.muntashirakon.AppManager.backup.BackupManager.EXT_MEDIA;
-import static io.github.muntashirakon.AppManager.backup.BackupManager.EXT_OBB;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.KEYSTORE_PLACEHOLDER;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.KEYSTORE_PREFIX;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.MASTER_KEY;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.SOURCE_PREFIX;
 
-import android.annotation.SuppressLint;
+import android.app.AppOpsManager;
 import android.app.INotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.os.Build;
 import android.system.ErrnoException;
-import android.util.Pair;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -36,9 +31,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
+import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat;
-import io.github.muntashirakon.AppManager.appops.AppOpsManager;
-import io.github.muntashirakon.AppManager.appops.AppOpsService;
+import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.crypto.Crypto;
@@ -64,6 +59,7 @@ import io.github.muntashirakon.AppManager.runner.Runner;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.ssaid.SsaidSettings;
 import io.github.muntashirakon.AppManager.uri.UriManager;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
 import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
@@ -78,6 +74,8 @@ class RestoreOp implements Closeable {
     static final String TAG = RestoreOp.class.getSimpleName();
     private static final Object sLock = new Object();
 
+    @NonNull
+    private final Context context = ContextUtils.getContext();
     @NonNull
     private final String packageName;
     @NonNull
@@ -140,8 +138,7 @@ class RestoreOp implements Closeable {
         }
         // Get checksums
         try {
-            checksumFile = this.backupFile.getChecksumFile(CryptoUtils.MODE_NO_ENCRYPTION);
-            this.checksum = new BackupFiles.Checksum(checksumFile, "r");
+            this.checksum = this.backupFile.getChecksum(CryptoUtils.MODE_NO_ENCRYPTION);
         } catch (Throwable e) {
             this.backupFile.cleanup();
             throw new BackupException("Failed to get checksums.", e);
@@ -332,6 +329,22 @@ class RestoreOp implements Closeable {
             }
             // A normal update will do it now
             PackageInstallerCompat packageInstaller = PackageInstallerCompat.getNewInstance(metadata.installer);
+            packageInstaller.setOnInstallListener(new PackageInstallerCompat.OnInstallListener() {
+                @Override
+                public void onStartInstall(int sessionId, String packageName) {
+                }
+
+                @Override
+                public void onAnotherAttemptInMiui(@Nullable ApkFile apkFile) {
+                    // This works because the parent install method still remains active until a final status is
+                    // received after all the attempts are finished, which is, then, returned to the parent.
+                    packageInstaller.install(allApks, packageName, userHandle);
+                }
+
+                @Override
+                public void onFinishedInstall(int sessionId, String packageName, int result, @Nullable String blockingPackage, @Nullable String statusMessage) {
+                }
+            });
             try {
                 if (!packageInstaller.install(allApks, packageName, userHandle)) {
                     throw new BackupException("A (re)install was necessary but couldn't perform it.");
@@ -414,19 +427,17 @@ class RestoreOp implements Closeable {
         Runner.runCommand(new String[]{"restorecon", "-R", keyStorePath.getFilePath()});
     }
 
-    @SuppressLint("SdCardPath")
     private void restoreData() throws BackupException {
         // Data restore is requested: Data restore is only possible if the app is actually
         // installed. So, check if it's installed first.
         if (packageInfo == null) {
             throw new BackupException("Data restore is requested but the app isn't installed.");
         }
-        Path[] dataFiles;
         if (!requestedFlags.skipSignatureCheck()) {
             // Verify integrity of the data backups
             String checksum;
             for (int i = 0; i < metadata.dataDirs.length; ++i) {
-                dataFiles = getDataFiles(backupPath, i);
+                Path[] dataFiles = getDataFiles(backupPath, i);
                 if (dataFiles.length == 0) {
                     throw new BackupException("Data restore is requested but there are no data files for index " + i + ".");
                 }
@@ -444,44 +455,56 @@ class RestoreOp implements Closeable {
         // Force-stop and clear app data
         PackageManagerCompat.clearApplicationUserData(packageName, userHandle);
         // Restore backups
-        String dataSource;
-        boolean isExternal;
         for (int i = 0; i < metadata.dataDirs.length; ++i) {
-            dataSource = Utils.replaceOnce(metadata.dataDirs[i], "/" + metadata.userHandle + "/", "/" + userHandle + "/");
-            dataFiles = getDataFiles(backupPath, i);
+            String dataSource = BackupUtils.getWritableDataDirectory(metadata.dataDirs[i], metadata.userHandle, userHandle);
+            BackupDataDirectoryInfo dataDirectoryInfo = BackupDataDirectoryInfo.getInfo(dataSource, userHandle);
+            Path dataSourceFile = Paths.get(dataSource);
+
+            Path[] dataFiles = getDataFiles(backupPath, i);
             if (dataFiles.length == 0) {
                 throw new BackupException("Data restore is requested but there are no data files for index " + i + ".");
             }
-            // External storage checks
-            if (dataSource.startsWith("/storage") || dataSource.startsWith("/sdcard")) {
-                isExternal = true;
+            UidGidPair uidGidPair = dataSourceFile.getUidGid();
+            if (uidGidPair == null) {
+                // Fallback to app UID
+                uidGidPair = new UidGidPair(packageInfo.applicationInfo.uid, packageInfo.applicationInfo.uid);
+            }
+            if (dataDirectoryInfo.isExternal()) {
                 // Skip if external data restore is not requested
-                if (!requestedFlags.backupExternalData() && dataSource.contains(EXT_DATA))
-                    continue;
-                // Skip if media/obb restore not requested
-                if (!requestedFlags.backupMediaObb() && (dataSource.contains(EXT_MEDIA)
-                        || dataSource.contains(EXT_OBB))) continue;
+                switch (dataDirectoryInfo.subtype) {
+                    case BackupDataDirectoryInfo.TYPE_ANDROID_DATA:
+                        // Skip restoring Android/data directory if not requested
+                        if (!requestedFlags.backupExternalData()) {
+                            continue;
+                        }
+                        break;
+                    case BackupDataDirectoryInfo.TYPE_ANDROID_OBB:
+                    case BackupDataDirectoryInfo.TYPE_ANDROID_MEDIA:
+                        // Skip restoring Android/data or Android/media if media/obb restore not requested
+                        if (!requestedFlags.backupMediaObb()) {
+                            continue;
+                        }
+                        break;
+                    case BackupDataDirectoryInfo.TYPE_CREDENTIAL_PROTECTED:
+                    case BackupDataDirectoryInfo.TYPE_CUSTOM:
+                    case BackupDataDirectoryInfo.TYPE_DEVICE_PROTECTED:
+                        // NOP
+                        break;
+                }
             } else {
-                isExternal = false;
                 // Skip if internal data restore is not requested.
                 if (!requestedFlags.backupInternalData()) continue;
             }
-            // Fix problem accessing external directory in Android API < 23
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                if (dataSource.contains("/storage/emulated/")) {
-                    dataSource = dataSource.replace("/storage/emulated/", "/mnt/shell/emulated/");
-                }
-            }
             // Create data folder if not exists
-            Path dataSourceFile = Paths.get(dataSource);
-            Pair<Integer, Integer> uidAndGid = null;
-            if (dataSourceFile.exists()) {
-                uidAndGid = BackupUtils.getUidAndGid(dataSourceFile, packageInfo.applicationInfo.uid);
-            } else {
-                // FIXME(10/9/20): Check if the media is mounted and writable before running
-                //  mkdir, otherwise it may create a folder to a path that will be gone
-                //  after a restart
+            if (!dataSourceFile.exists()) {
+                if (dataDirectoryInfo.isExternal() && !dataDirectoryInfo.isMounted) {
+                    throw new BackupException("External directory containing " + dataSource + " is not mounted.");
+                }
                 dataSourceFile.mkdirs();
+                if (!dataDirectoryInfo.isExternal()) {
+                    // Restore UID, GID
+                    dataSourceFile.setUidGid(uidGidPair);
+                }
             }
             // Decrypt data
             try {
@@ -497,12 +520,14 @@ class RestoreOp implements Closeable {
             } catch (Throwable th) {
                 throw new BackupException("Failed to restore data files for index " + i + ".", th);
             }
-            // Fix UID and GID
-            if (uidAndGid != null && !Runner.runCommand(String.format(Locale.ROOT, "chown -R %d:%d \"%s\"", uidAndGid.first, uidAndGid.second, dataSource)).isSuccessful()) {
+            // Restore UID and GID
+            if (!Runner.runCommand(String.format(Locale.ROOT, "chown -R %d:%d \"%s\"", uidGidPair.uid, uidGidPair.gid, dataSource)).isSuccessful()) {
                 throw new BackupException("Failed to restore ownership info for index " + i + ".");
             }
-            // Restore permissions
-            if (!isExternal) Runner.runCommand(new String[]{"restorecon", "-R", dataSource});
+            // Restore context
+            if (!dataDirectoryInfo.isExternal()) {
+                Runner.runCommand(new String[]{"restorecon", "-R", dataSource});
+            }
         }
     }
 
@@ -515,14 +540,14 @@ class RestoreOp implements Closeable {
         loadMiscRules(rules);
         // Apply rules
         List<RuleEntry> entries = rules.getAll();
-        AppOpsService appOpsService = new AppOpsService();
+        AppOpsManagerCompat appOpsManager = new AppOpsManagerCompat(context);
         INotificationManager notificationManager = INotificationManager.Stub.asInterface(ProxyBinder.getService(Context.NOTIFICATION_SERVICE));
         boolean magiskHideAvailable = MagiskHide.available();
         for (RuleEntry entry : entries) {
             try {
                 switch (entry.type) {
                     case APP_OP:
-                        appOpsService.setMode(Integer.parseInt(entry.name), packageInfo.applicationInfo.uid,
+                        appOpsManager.setMode(Integer.parseInt(entry.name), packageInfo.applicationInfo.uid,
                                 packageName, ((AppOpRule) entry).getMode());
                         break;
                     case NET_POLICY:
@@ -532,13 +557,13 @@ class RestoreOp implements Closeable {
                     case PERMISSION: {
                         PermissionRule permissionRule = (PermissionRule) entry;
                         Permission permission = permissionRule.getPermission(true);
-                        permission.setAppOpAllowed(permission.getAppOp() != OP_NONE && appOpsService
+                        permission.setAppOpAllowed(permission.getAppOp() != AppOpsManagerCompat.OP_NONE && appOpsManager
                                 .checkOperation(permission.getAppOp(), packageInfo.applicationInfo.uid,
                                         packageName) == AppOpsManager.MODE_ALLOWED);
                         if (permissionRule.isGranted()) {
-                            PermUtils.grantPermission(packageInfo, permission, appOpsService, true, true);
+                            PermUtils.grantPermission(packageInfo, permission, appOpsManager, true, true);
                         } else {
-                            PermUtils.revokePermission(packageInfo, permission, appOpsService, true);
+                            PermUtils.revokePermission(packageInfo, permission, appOpsManager, true);
                         }
                         break;
                     }

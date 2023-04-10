@@ -17,6 +17,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
 
 import java.io.IOException;
 import java.util.Random;
@@ -33,8 +34,8 @@ import io.github.muntashirakon.AppManager.logcat.reader.LogcatReaderLoader;
 import io.github.muntashirakon.AppManager.logcat.struct.LogLine;
 import io.github.muntashirakon.AppManager.logcat.struct.SearchCriteria;
 import io.github.muntashirakon.AppManager.logs.Log;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.types.ForegroundService;
-import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
 
 /**
@@ -101,7 +102,7 @@ public class LogcatRecordingService extends ForegroundService {
         super.onDestroy();
         killProcess();
         unregisterReceiver(mReceiver);
-        stopForeground(true);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         WidgetHelper.updateWidgets(getApplicationContext(), false);
     }
 
@@ -120,13 +121,14 @@ public class LogcatRecordingService extends ForegroundService {
 
         final String CHANNEL_ID = "matlog_logging_channel";
         // Set the icon, scrolling text and timestamp
-        NotificationCompat.Builder notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID);
-        notification.setSmallIcon(R.drawable.ic_launcher_foreground);
-        notification.setTicker(getText(R.string.notification_ticker));
-        notification.setWhen(System.currentTimeMillis());
-        notification.setContentTitle(getString(R.string.notification_title));
-        notification.setContentText(getString(R.string.notification_subtext));
-        notification.setContentIntent(pendingIntent);
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+                .setOngoing(true)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setTicker(getText(R.string.notification_ticker))
+                .setWhen(System.currentTimeMillis())
+                .setContentTitle(getString(R.string.notification_title))
+                .setContentText(getString(R.string.notification_subtext))
+                .setContentIntent(pendingIntent);
 
         NotificationUtils.getNewNotificationManager(this, CHANNEL_ID, "Logcat Recording Service",
                 NotificationManagerCompat.IMPORTANCE_DEFAULT);
@@ -143,7 +145,7 @@ public class LogcatRecordingService extends ForegroundService {
         String filename = intent.getStringExtra(EXTRA_FILENAME);
         String queryText = intent.getStringExtra(EXTRA_QUERY_FILTER);
         SearchCriteria searchCriteria = new SearchCriteria(queryText);
-        int logLevel = intent.getIntExtra(EXTRA_LEVEL, AppPref.getInt(AppPref.PrefKey.PREF_LOG_VIEWER_DEFAULT_LOG_LEVEL_INT));
+        int logLevel = intent.getIntExtra(EXTRA_LEVEL, Prefs.LogViewer.getLogLevel());
         boolean searchCriteriaWillAlwaysMatch = searchCriteria.isEmpty();
         boolean logLevelAcceptsEverything = logLevel == android.util.Log.VERBOSE;
         StringBuilder stringBuilder = new StringBuilder();
@@ -158,8 +160,8 @@ public class LogcatRecordingService extends ForegroundService {
         try {
             String line;
             int lineCount = 0;
-            int logLinePeriod = AppPref.getInt(AppPref.PrefKey.PREF_LOG_VIEWER_WRITE_PERIOD_INT);
-            Pattern filterPattern = Pattern.compile(AppPref.getString(AppPref.PrefKey.PREF_LOG_VIEWER_FILTER_PATTERN_STR));
+            int logLinePeriod = Prefs.LogViewer.getLogWritingInterval();
+            Pattern filterPattern = Pattern.compile(Prefs.LogViewer.getFilterPattern());
             while (mReader != null && (line = mReader.readLine()) != null && !mKilled) {
                 // filter
                 if (!searchCriteriaWillAlwaysMatch || !logLevelAcceptsEverything) {

@@ -21,9 +21,6 @@ import io.github.muntashirakon.AppManager.utils.TarUtils;
 public class BackupManager {
     public static final String TAG = "BackupManager";
 
-    static final String EXT_DATA = "/Android/data/";
-    static final String EXT_MEDIA = "/Android/media/";
-    static final String EXT_OBB = "/Android/obb/";
     /* language=regexp */
     static final String[] CACHE_DIRS = new String[]{"cache/.*", "code_cache/.*", "no_backup/.*"};
     /* language=regexp */
@@ -86,6 +83,9 @@ public class BackupManager {
         if (requestedFlags.isEmpty()) {
             throw new BackupException("Backup is requested without any flags.");
         }
+        if (targetPackage.getPackageName().equals("android")) {
+            throw new BackupException("Android System (android) cannot be backed up.");
+        }
         backupNames = getProcessedBackupNames(backupNames);
         try {
             // Get backup files based on the number of backupNames
@@ -132,6 +132,9 @@ public class BackupManager {
     public void restore(@Nullable String[] backupNames) throws BackupException {
         if (requestedFlags.isEmpty()) {
             throw new BackupException("Restore is requested without any flags.");
+        }
+        if (targetPackage.getPackageName().equals("android")) {
+            throw new BackupException("Android System (android) cannot be restored.");
         }
         if (backupNames != null && backupNames.length != 1) {
             throw new BackupException("Restore is requested from more than one backups!");

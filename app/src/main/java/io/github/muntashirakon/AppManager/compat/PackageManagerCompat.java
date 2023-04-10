@@ -48,7 +48,6 @@ import java.util.List;
 import java.util.Objects;
 
 import dev.rikka.tools.refine.Refine;
-import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.ipc.ProxyBinder;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
@@ -103,7 +102,7 @@ public final class PackageManagerCompat {
             return packageInfoList;
         }
         IPackageManager pm = getPackageManager();
-        if (CompatUtils.isAndroid13AndUp()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return pm.getInstalledPackages((long) flags, userHandle).getList();
         }
         return pm.getInstalledPackages(flags, userHandle).getList();
@@ -115,7 +114,7 @@ public final class PackageManagerCompat {
     public static List<ApplicationInfo> getInstalledApplications(int flags, @UserIdInt int userHandle)
             throws RemoteException {
         IPackageManager pm = getPackageManager();
-        if (CompatUtils.isAndroid13AndUp()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return pm.getInstalledApplications((long) flags, userHandle).getList();
         }
         return pm.getInstalledApplications(flags, userHandle).getList();
@@ -192,12 +191,16 @@ public final class PackageManagerCompat {
     @SuppressWarnings("deprecation")
     @NonNull
     public static ApplicationInfo getApplicationInfo(String packageName, int flags, @UserIdInt int userHandle)
-            throws RemoteException {
+            throws RemoteException, PackageManager.NameNotFoundException {
         IPackageManager pm = getPackageManager();
-        if (CompatUtils.isAndroid13AndUp()) {
-            return pm.getApplicationInfo(packageName, (long) flags, userHandle);
+        ApplicationInfo applicationInfo;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            applicationInfo = pm.getApplicationInfo(packageName, (long) flags, userHandle);
+        } else applicationInfo = pm.getApplicationInfo(packageName, flags, userHandle);
+        if (applicationInfo == null) {
+            throw new PackageManager.NameNotFoundException("Package " + packageName + " not found.");
         }
-        return pm.getApplicationInfo(packageName, flags, userHandle);
+        return applicationInfo;
     }
 
     public static String getInstallerPackageName(@NonNull String packageName) throws RemoteException {
@@ -224,7 +227,7 @@ public final class PackageManagerCompat {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             IPackageManagerN pmN = Refine.unsafeCast(pm);
             ParceledListSlice<ResolveInfo> resolveInfoList;
-            if (CompatUtils.isAndroid13AndUp()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 resolveInfoList = pmN.queryIntentActivities(intent,
                         intent.resolveTypeIfNeeded(context.getContentResolver()), (long) flags, userId);
             } else {
@@ -310,9 +313,12 @@ public final class PackageManagerCompat {
             return getPackageManager().getApplicationHiddenSettingAsUser(packageName, userId);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // Find using private flags
-            ApplicationInfo info = getApplicationInfo(packageName, 0, userId);
-            return (ApplicationInfoCompat.getPrivateFlags(info) & ApplicationInfoCompat.PRIVATE_FLAG_HIDDEN) != 0;
+            try {
+                // Find using private flags
+                ApplicationInfo info = getApplicationInfo(packageName, 0, userId);
+                return (ApplicationInfoCompat.getPrivateFlags(info) & ApplicationInfoCompat.PRIVATE_FLAG_HIDDEN) != 0;
+            } catch (PackageManager.NameNotFoundException ignore) {
+            }
         }
         // Otherwise, there is no way to detect if the package is hidden
         return false;
@@ -418,7 +424,7 @@ public final class PackageManagerCompat {
             throws RemoteException {
         IPackageManager pm;
         ClearDataObserver obs = new ClearDataObserver();
-        if (PermissionUtils.hasPermission(AppManager.getContext(), Manifest.permission.CLEAR_APP_CACHE)) {
+        if (PermissionUtils.hasSelfPermission(Manifest.permission.CLEAR_APP_CACHE)) {
             // Clear cache using unprivileged method: Mostly applicable for Android Lollipop
             pm = getUnprivilegedPackageManager();
         } else { // Use privileged mode
@@ -456,7 +462,7 @@ public final class PackageManagerCompat {
     @SuppressWarnings("deprecation")
     private static PackageInfo getPackageInfoInternal(IPackageManager pm, String packageName, int flags, @UserIdInt int userId)
             throws RemoteException {
-        if (CompatUtils.isAndroid13AndUp()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return pm.getPackageInfo(packageName, (long) flags, userId);
         }
         return pm.getPackageInfo(packageName, flags, userId);

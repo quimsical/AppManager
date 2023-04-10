@@ -46,7 +46,7 @@ import io.github.muntashirakon.AppManager.backup.MetadataManager;
 import io.github.muntashirakon.AppManager.crypto.Crypto;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
@@ -135,7 +135,7 @@ public class OABConverter extends Converter {
                 mTempBackupPath = backupFile.getBackupPath();
                 mCrypto = ConvertUtils.setupCrypto(mDestMetadata);
                 try {
-                    mChecksum = new BackupFiles.Checksum(backupFile.getChecksumFile(CryptoUtils.MODE_NO_ENCRYPTION), "w");
+                    mChecksum = backupFile.getChecksum(CryptoUtils.MODE_NO_ENCRYPTION);
                 } catch (IOException e) {
                     throw new BackupException("Failed to create checksum file.", e);
                 }
@@ -258,9 +258,9 @@ public class OABConverter extends Converter {
             mSourceMetadata.userHandle = UserHandleHidden.myUserId();
             mSourceMetadata.dataDirs = ConvertUtils.getDataDirs(mPackageName, mUserId, mSourceMetadata.flags
                     .backupInternalData(), mSourceMetadata.flags.backupExternalData(), false);
-            mSourceMetadata.tarType = ConvertUtils.getTarTypeFromPref();
+            mSourceMetadata.tarType = Prefs.BackupRestore.getCompressionMethod();
             mSourceMetadata.keyStore = false;
-            mSourceMetadata.installer = (String) AppPref.get(AppPref.PrefKey.PREF_INSTALLER_INSTALLER_APP_STR);
+            mSourceMetadata.installer = Prefs.Installer.getInstallerPackageName();
             mSourceMetadata.version = 2;  // Old version is used so that we know that it needs permission fixes
         } catch (JSONException | IOException e) {
             ExUtils.rethrowAsBackupException("Could not parse JSON file.", e);

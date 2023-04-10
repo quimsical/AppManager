@@ -93,7 +93,7 @@
     <string name="license">License</string>
     <string name="license_message" translatable="false"><a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General
         Public License v3.0</a></string>
-    <string name="copyright_message" translatable="false">© 2020–2022 <a href="https://github.com/MuntashirAkon">Muntashir Al-Islam</a></string>
+    <string name="copyright_message" translatable="false">© 2020–2023 <a href="https://github.com/MuntashirAkon">Muntashir Al-Islam</a></string>
     <string name="third_party">Third-party Libraries and Icons</string>
     <string name="third_party_message" translatable="false">-
         <a href="https://github.com/zhanghai/AndroidFastScroll">AndroidFastScroll</a> (Apache 2.0)
@@ -735,6 +735,7 @@
     <string name="verified">Verified</string>
     <string name="not_verified">Not verified</string>
     <string name="source_stamp_verified">SourceStamp verified.</string>
+    <string name="source_stamp_verified_and_identified_to_be_from_source">SourceStamp verified and identified to be from <xliff:g id="source" example="Google Play">%1$s</xliff:g>.</string>
     <string name="splits">Splits</string>
     <string name="input_keystore_pass">Input KeyStore password</string>
     <string name="input_keystore_pass_description">Enter the App Manager KeyStore password. If you\'re seeing this for the first time, please use a password generator to generate a password and save it in a secure place before inserting it here.</string>
@@ -1026,7 +1027,7 @@
     <string name="failed">Failed</string>
     <string name="pref_rules_msg">Instant blocking, import/export/remove rules, etc.</string>
     <string name="saf">SAF</string>
-    <string name="pref_layout_orientation">Layout orientation</string>
+    <string name="pref_layout_direction">Layout direction</string>
     <string name="orientation_follow_locale">Follow locale</string>
     <string name="orientation_left_to_right">Left to right</string>
     <string name="orientation_right_to_left">Right to left</string>
@@ -1313,4 +1314,28 @@
     <string name="action_continue">Continue</string>
     <string name="install_for_another_user">Install for…</string>
     <string name="confirm_uninstallation">Confirm uninstallation</string>
+    <string name="grant_required_permission">Grant required permission</string>
+    <string name="grant_overlay_permission_message">Allow App Manager to display a floating window on top of all other windows</string>
+    <string name="grant_accessibility_permission_for_tracking_window_contents">Allow App Manager to utilise the accessibility feature to track the contents of the leading window.</string>
+    <string name="class_hierarchy">Hierarchy</string>
+    <string name="title_ui_tracker">UI Tracker</string>
+    <string name="title_terminal_emulator">Terminal</string>
+    <string name="title_labs_activity">Labs</string>
+    <string name="select_a_dex2oat_compiler_filter"><tt>dex2oat</tt> compiler filter</string>
+    <string name="optimize_option_compile_layouts">Compile layout resources</string>
+    <string name="optimize_option_clear_profile_data">Clear previous profile data</string>
+    <string name="optimize_option_check_profiles">Consider profile data during DEX optimization</string>
+    <string name="optimize_option_force_compilation">Force compilation even when not required</string>
+    <string name="optimize_option_force_dexopt">Immediately perform DEX optimization</string>
+    <string name="title_perform_runtime_optimization_to_apps">Perform runtime optimization</string>
+    <string name="action_run">Run</string>
+    <string name="summary_perform_runtime_optimization_to_apps">Optimize DEX and (in Android 10 and later) layouts to improve the performance of the applications.</string>
+    <string name="action_optimize_app">Optimize</string>
+    <string name="batch_ops_runtime_optimization">Runtime optimization</string>
+    <string name="app_info_tag_open_links">Open links</string>
+    <string name="title_domains_supported_by_the_app">Supported Domains</string>
+    <plurals name="alert_failed_to_optimize_apps">
+        <item quantity="one">Could not optimize %1$d app</item>
+        <item quantity="other">Could not optimize %1$d apps</item>
+    </plurals>
 </resources>

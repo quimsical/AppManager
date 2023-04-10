@@ -47,10 +47,10 @@ import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.runner.Runner;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
 import io.github.muntashirakon.AppManager.settings.Ops;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
 import io.github.muntashirakon.AppManager.utils.PermissionUtils;
-import io.github.muntashirakon.AppManager.utils.UiThreadHandler;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.io.IoUtils;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
@@ -85,7 +85,7 @@ public class LogViewerViewModel extends AndroidViewModel {
 
     public LogViewerViewModel(@NonNull Application application) {
         super(application);
-        mFilterPattern = Pattern.compile(AppPref.getString(AppPref.PrefKey.PREF_LOG_VIEWER_FILTER_PATTERN_STR));
+        mFilterPattern = Pattern.compile(Prefs.LogViewer.getFilterPattern());
     }
 
     @Override
@@ -97,7 +97,7 @@ public class LogViewerViewModel extends AndroidViewModel {
 
     @AnyThread
     public void grantReadLogsPermission() {
-        if (!PermissionUtils.hasPermission(getApplication(), Manifest.permission.READ_LOGS) && Ops.isPrivileged()) {
+        if (!PermissionUtils.hasSelfPermission(Manifest.permission.READ_LOGS) && Ops.isPrivileged()) {
             mExecutor.submit(() -> {
                 try {
                     PermissionCompat.grantPermission(getApplication().getPackageName(), Manifest.permission.READ_LOGS,
@@ -148,7 +148,7 @@ public class LogViewerViewModel extends AndroidViewModel {
             try {
                 mReader = LogcatReaderLoader.create(true).loadReader();
 
-                int maxLines = AppPref.getInt(AppPref.PrefKey.PREF_LOG_VIEWER_DISPLAY_LIMIT_INT);
+                int maxLines = Prefs.LogViewer.getDisplayLimit();
 
                 String line;
                 LinkedList<LogLine> initialLines = new LinkedList<>();
@@ -217,7 +217,7 @@ public class LogViewerViewModel extends AndroidViewModel {
             LogLinesAvailableInterface i = logLinesAvailableInterface.get();
             List<LogLine> logLines1 = new ArrayList<>(logLines);
             if (i != null) {
-                UiThreadHandler.run(() -> i.onNewLogsAvailable(logLines1));
+                ThreadUtils.postOnMainThread(() -> i.onNewLogsAvailable(logLines1));
             }
         }
     }
@@ -288,7 +288,7 @@ public class LogViewerViewModel extends AndroidViewModel {
     public void openLogsFromFile(Uri filename, @Nullable WeakReference<LogLinesAvailableInterface> logLinesAvailableInterface) {
         mExecutor.submit(() -> {
             // remove any lines at the beginning if necessary
-            final int maxLines = AppPref.getInt(AppPref.PrefKey.PREF_LOG_VIEWER_DISPLAY_LIMIT_INT);
+            final int maxLines = Prefs.LogViewer.getDisplayLimit();
             SavedLog savedLog;
             savedLog = SaveLogHelper.openLog(filename, maxLines);
             List<String> lines = savedLog.getLogLines();

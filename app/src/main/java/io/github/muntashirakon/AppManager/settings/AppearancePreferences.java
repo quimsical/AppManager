@@ -7,7 +7,6 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
-import androidx.core.app.ActivityCompat;
 import androidx.preference.Preference;
 import androidx.preference.SwitchPreferenceCompat;
 
@@ -19,7 +18,7 @@ import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.utils.appearance.AppearanceUtils;
 import io.github.muntashirakon.dialog.SearchableFlagsDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableSingleChoiceDialogBuilder;
 
@@ -35,7 +34,7 @@ public class AppearancePreferences extends PreferenceFragment {
             View.LAYOUT_DIRECTION_RTL);
 
     private int currentTheme;
-    private int currentLayoutOrientation;
+    private int currentLayoutDirection;
 
     @Override
     public void onCreatePreferences(@Nullable Bundle savedInstanceState, @Nullable String rootKey) {
@@ -43,7 +42,7 @@ public class AppearancePreferences extends PreferenceFragment {
         getPreferenceManager().setPreferenceDataStore(new SettingsDataStore());
         // App theme
         final String[] themes = getResources().getStringArray(R.array.themes);
-        currentTheme = AppPref.getInt(AppPref.PrefKey.PREF_APP_THEME_INT);
+        currentTheme = Prefs.Appearance.getNightMode();
         Preference appTheme = Objects.requireNonNull(findPreference("app_theme"));
         appTheme.setSummary(themes[THEME_CONST.indexOf(currentTheme)]);
         appTheme.setOnPreferenceClickListener(preference -> {
@@ -51,9 +50,9 @@ public class AppearancePreferences extends PreferenceFragment {
                     .setTitle(R.string.select_theme)
                     .setSelection(currentTheme)
                     .setPositiveButton(R.string.apply, (dialog, which, selectedTheme) -> {
-                        currentTheme = selectedTheme;
-                        if (AppPref.getInt(AppPref.PrefKey.PREF_APP_THEME_INT) != currentTheme) {
-                            AppPref.set(AppPref.PrefKey.PREF_APP_THEME_INT, currentTheme);
+                        if (selectedTheme != null && selectedTheme != currentTheme) {
+                            currentTheme = selectedTheme;
+                            Prefs.Appearance.setNightMode(currentTheme);
                             AppCompatDelegate.setDefaultNightMode(currentTheme);
                             appTheme.setSummary(themes[THEME_CONST.indexOf(currentTheme)]);
                         }
@@ -65,26 +64,26 @@ public class AppearancePreferences extends PreferenceFragment {
         // Black theme/custom theme
         SwitchPreferenceCompat fullBlackTheme = Objects.requireNonNull(findPreference("app_theme_pure_black"));
         fullBlackTheme.setVisible(BuildConfig.DEBUG);
-        fullBlackTheme.setChecked(AppPref.isPureBlackTheme());
+        fullBlackTheme.setChecked(Prefs.Appearance.isPureBlackTheme());
         fullBlackTheme.setOnPreferenceChangeListener((preference, newValue) -> {
             boolean enabled = (boolean) newValue;
-            AppPref.setPureBlackTheme(enabled);
-            ActivityCompat.recreate(requireActivity());
+            Prefs.Appearance.setPureBlackTheme(enabled);
+            AppearanceUtils.applyConfigurationChangesToActivities();
             return true;
         });
         // Layout orientation
         final String[] layoutOrientations = getResources().getStringArray(R.array.layout_orientations);
-        currentLayoutOrientation = AppPref.getLayoutOrientation();
+        currentLayoutDirection = Prefs.Appearance.getLayoutDirection();
         Preference layoutOrientation = Objects.requireNonNull(findPreference("layout_orientation"));
-        layoutOrientation.setSummary(layoutOrientations[LAYOUT_ORIENTATION_CONST.indexOf(currentLayoutOrientation)]);
+        layoutOrientation.setSummary(layoutOrientations[LAYOUT_ORIENTATION_CONST.indexOf(currentLayoutDirection)]);
         layoutOrientation.setOnPreferenceClickListener(preference -> {
             new SearchableSingleChoiceDialogBuilder<>(requireActivity(), LAYOUT_ORIENTATION_CONST, layoutOrientations)
-                    .setTitle(R.string.pref_layout_orientation)
-                    .setSelection(currentLayoutOrientation)
+                    .setTitle(R.string.pref_layout_direction)
+                    .setSelection(currentLayoutDirection)
                     .setPositiveButton(R.string.apply, (dialog, which, selectedLayoutOrientation) -> {
-                        currentLayoutOrientation = Objects.requireNonNull(selectedLayoutOrientation);
-                        AppPref.set(AppPref.PrefKey.PREF_LAYOUT_ORIENTATION_INT, currentLayoutOrientation);
-                        ActivityCompat.recreate(requireActivity());
+                        currentLayoutDirection = Objects.requireNonNull(selectedLayoutOrientation);
+                        Prefs.Appearance.setLayoutDirection(currentLayoutDirection);
+                        AppearanceUtils.applyConfigurationChangesToActivities();
                     })
                     .setNegativeButton(R.string.cancel, null)
                     .show();

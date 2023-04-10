@@ -14,6 +14,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -24,6 +25,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
@@ -93,6 +95,7 @@ public class FreezeUnfreezeService extends Service {
                 .setAuthenticationRequired(true)
                 .build();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setOngoing(true)
                 .setContentTitle(null)
                 .setContentText(getString(R.string.waiting_for_the_phone_to_be_locked))
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -111,7 +114,7 @@ public class FreezeUnfreezeService extends Service {
     @Override
     public void onDestroy() {
         unregisterReceiver(screenLockedReceiver);
-        stopForeground(true);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         executor.shutdownNow();
         super.onDestroy();
     }
@@ -174,7 +177,7 @@ public class FreezeUnfreezeService extends Service {
                     dimBitmap(icon);
                     shortcutInfo.setIcon(icon);
                     updateShortcuts(shortcutInfo);
-                } catch (RemoteException e) {
+                } catch (RemoteException | PackageManager.NameNotFoundException e) {
                     e.printStackTrace();
                 }
             }

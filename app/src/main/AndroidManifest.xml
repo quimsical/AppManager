@@ -1,7 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 AND GPL-3.0-or-later -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="io.github.muntashirakon.AppManager"
     android:installLocation="auto">
 
     <uses-feature
@@ -12,6 +11,12 @@
         android:required="false" />
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission
+        android:name="android.permission.ADJUST_RUNTIME_PERMISSIONS_POLICY"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
+        android:name="android.permission.BACKUP"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission
         android:name="android.permission.CLEAR_APP_CACHE"
         tools:ignore="ProtectedPermissions" />
@@ -29,7 +34,16 @@
         android:name="android.permission.GET_APP_OPS_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission
+        android:name="android.permission.GET_RUNTIME_PERMISSIONS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
+        android:name="android.permission.GRANT_RUNTIME_PERMISSIONS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
         android:name="android.permission.INTERACT_ACROSS_USERS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
+        android:name="android.permission.INTERACT_ACROSS_USERS_FULL"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission
@@ -41,6 +55,7 @@
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -52,6 +67,13 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.REVOKE_RUNTIME_PERMISSIONS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission
+        android:name="android.permission.UPDATE_DOMAIN_VERIFICATION_USER_SELECTION"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
@@ -181,10 +203,20 @@
         </activity>
         <activity
             android:name=".runner.TermActivity"
-            android:label="Term"
-            android:exported="true"
+            android:label="@string/title_terminal_emulator"
+            android:exported="false"
             android:taskAffinity=""
             android:windowSoftInputMode="stateUnchanged" />
+        <activity
+            android:name=".accessibility.activity.LeadingActivityTrackerActivity"
+            android:label="@string/title_ui_tracker"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/AppTheme.TransparentBackground" />
+        <activity
+            android:name=".misc.LabsActivity"
+            android:exported="true"
+            android:label="@string/title_labs_activity" />
 
         <activity-alias
             android:name=".details.AppInfoActivity"

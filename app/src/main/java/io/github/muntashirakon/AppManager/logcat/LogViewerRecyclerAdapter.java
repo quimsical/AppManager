@@ -30,7 +30,7 @@ import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.logcat.struct.LogLine;
 import io.github.muntashirakon.AppManager.logcat.struct.SearchCriteria;
 import io.github.muntashirakon.AppManager.logs.Log;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
 import io.github.muntashirakon.widget.MultiSelectionView;
@@ -47,25 +47,25 @@ public class LogViewerRecyclerAdapter extends MultiSelectionView.Adapter<LogView
 
     private static final SparseArrayCompat<Integer> BACKGROUND_COLORS = new SparseArrayCompat<Integer>(7) {
         {
-            put(android.util.Log.VERBOSE, R.color.the_brown_shirts);
-            put(android.util.Log.DEBUG, R.color.night_blue_shadow);
-            put(android.util.Log.INFO, R.color.blue_popsicle);
-            put(android.util.Log.WARN, R.color.red_orange);
-            put(android.util.Log.ERROR, R.color.pure_red);
-            put(android.util.Log.ASSERT, R.color.pure_red);
-            put(LogLine.LOG_FATAL, R.color.electric_red);
+            put(android.util.Log.VERBOSE, io.github.muntashirakon.ui.R.color.the_brown_shirts);
+            put(android.util.Log.DEBUG, io.github.muntashirakon.ui.R.color.night_blue_shadow);
+            put(android.util.Log.INFO, io.github.muntashirakon.ui.R.color.blue_popsicle);
+            put(android.util.Log.WARN, io.github.muntashirakon.ui.R.color.red_orange);
+            put(android.util.Log.ERROR, io.github.muntashirakon.ui.R.color.pure_red);
+            put(android.util.Log.ASSERT, io.github.muntashirakon.ui.R.color.pure_red);
+            put(LogLine.LOG_FATAL, io.github.muntashirakon.ui.R.color.electric_red);
         }
     };
 
     private static final SparseArrayCompat<Integer> FOREGROUND_COLORS = new SparseArrayCompat<Integer>(7) {
         {
-            put(android.util.Log.VERBOSE, R.color.brian_wrinkle_white);
-            put(android.util.Log.DEBUG, R.color.brian_wrinkle_white);
-            put(android.util.Log.INFO, R.color.brian_wrinkle_white);
-            put(android.util.Log.WARN, R.color.brian_wrinkle_white);
-            put(android.util.Log.ERROR, R.color.brian_wrinkle_white);
-            put(android.util.Log.ASSERT, R.color.brian_wrinkle_white);
-            put(LogLine.LOG_FATAL, R.color.brian_wrinkle_white);
+            put(android.util.Log.VERBOSE, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
+            put(android.util.Log.DEBUG, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
+            put(android.util.Log.INFO, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
+            put(android.util.Log.WARN, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
+            put(android.util.Log.ERROR, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
+            put(android.util.Log.ASSERT, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
+            put(LogLine.LOG_FATAL, io.github.muntashirakon.ui.R.color.brian_wrinkle_white);
         }
     };
 
@@ -114,7 +114,7 @@ public class LogViewerRecyclerAdapter extends MultiSelectionView.Adapter<LogView
     private ArrayList<LogLine> mOriginalValues;
     private ArrayFilter mFilter;
 
-    private int logLevelLimit = AppPref.getInt(AppPref.PrefKey.PREF_LOG_VIEWER_DEFAULT_LOG_LEVEL_INT);
+    private int logLevelLimit = Prefs.LogViewer.getLogLevel();
     private final Set<LogLine> mSelectedLogLines = new LinkedHashSet<>();
     @ColorInt
     private int highlightColor;
@@ -143,7 +143,7 @@ public class LogViewerRecyclerAdapter extends MultiSelectionView.Adapter<LogView
     }
 
     @GuardedBy("mLock")
-    public void readdAll(LogLine object, boolean notify) {
+    public void readAll(LogLine object, boolean notify) {
         synchronized (mLock) {
             if (mOriginalValues != null) {
                 mOriginalValues.add(object);
@@ -345,7 +345,7 @@ public class LogViewerRecyclerAdapter extends MultiSelectionView.Adapter<LogView
 
         holder.itemView.setBackgroundResource(0);
         View contentView = holder.itemView.findViewById(R.id.log_content);
-        contentView.setBackgroundResource(position % 2 == 0 ? R.drawable.item_semi_transparent : R.drawable.item_transparent);
+        contentView.setBackgroundResource(position % 2 == 0 ? io.github.muntashirakon.ui.R.drawable.item_semi_transparent : io.github.muntashirakon.ui.R.drawable.item_transparent);
 
         //OUTPUT TEXT VIEW
         TextView output = holder.output;
@@ -360,7 +360,7 @@ public class LogViewerRecyclerAdapter extends MultiSelectionView.Adapter<LogView
 
         //EXPANDED INFO
         boolean extraInfoIsVisible = logLine.isExpanded() && logLine.getProcessId() != -1 // -1 marks lines like 'beginning of /dev/log...'
-                && AppPref.getBoolean(AppPref.PrefKey.PREF_LOG_VIEWER_SHOW_PID_TID_TIMESTAMP_BOOL);
+                && Prefs.LogViewer.showPidTidTimestamp();
 
         TextView pidText = holder.pid;
         pidText.setVisibility(extraInfoIsVisible ? View.VISIBLE : View.GONE);

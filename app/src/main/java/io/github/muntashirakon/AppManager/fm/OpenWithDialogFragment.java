@@ -189,7 +189,7 @@ public class OpenWithDialogFragment extends DialogFragment {
 
         public MatchingActivitiesRecyclerViewAdapter(OpenWithViewModel viewModel, Activity activity) {
             mViewModel = viewModel;
-            mImageLoader = new ImageLoader(viewModel.getExecutor());
+            mImageLoader = new ImageLoader();
             mActivity = activity;
             mPm = activity.getPackageManager();
         }
@@ -213,7 +213,7 @@ public class OpenWithDialogFragment extends DialogFragment {
         @NonNull
         @Override
         public MatchingActivitiesRecyclerViewAdapter.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.m3_preference, parent, false);
+            View view = LayoutInflater.from(parent.getContext()).inflate(io.github.muntashirakon.ui.R.layout.m3_preference, parent, false);
             return new MatchingActivitiesRecyclerViewAdapter.ViewHolder(view);
         }
 
@@ -307,10 +307,6 @@ public class OpenWithDialogFragment extends DialogFragment {
 
         public LiveData<Intent> getIntentLiveData() {
             return mIntentLiveData;
-        }
-
-        public ExecutorService getExecutor() {
-            return mExecutor;
         }
 
         @Override

@@ -2,6 +2,7 @@
 
 package io.github.muntashirakon.AppManager;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.KeyguardManager;
 import android.content.Intent;
@@ -21,6 +22,7 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.lifecycle.ViewModelProvider;
 
+import java.util.ArrayList;
 import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.crypto.ks.KeyStoreActivity;
@@ -28,18 +30,30 @@ import io.github.muntashirakon.AppManager.crypto.ks.KeyStoreManager;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.self.life.BuildExpiryChecker;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.settings.SecurityAndOpsViewModel;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
-import io.github.muntashirakon.AppManager.utils.appearance.AppearanceUtils;
 
 public abstract class BaseActivity extends AppCompatActivity {
     public static final String TAG = BaseActivity.class.getSimpleName();
+
+    private static final String[] REQUIRED_PERMISSIONS;
+
+    static {
+        REQUIRED_PERMISSIONS = new ArrayList<String>() {{
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }}.toArray(new String[0]);
+
+    }
 
     @Nullable
     private AlertDialog mAlertDialog;
     @Nullable
     private SecurityAndOpsViewModel mViewModel;
+    private boolean displayLoader = true;
 
     private final ActivityResultLauncher<Intent> mKeyStoreActivity = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -56,14 +70,22 @@ public abstract class BaseActivity extends AppCompatActivity {
                     finishAndRemoveTask();
                 }
             });
+    private final ActivityResultLauncher<String[]> mPermissionCheckActivity = registerForActivityResult(
+            new ActivityResultContracts.RequestMultiplePermissions(),
+            permissionStatusMap -> {
+                if (permissionStatusMap == null) {
+                    return;
+                }
+                initPermissionChecks();
+            });
 
     @Override
     protected final void onCreate(@Nullable Bundle savedInstanceState) {
-        AppearanceUtils.applyToActivity(this, getTransparentBackground());
         super.onCreate(savedInstanceState);
         if (Ops.isAuthenticated()) {
             Log.d(TAG, "Already authenticated.");
             onAuthenticated(savedInstanceState);
+            initPermissionChecks();
             return;
         }
         if (Boolean.TRUE.equals(BuildExpiryChecker.buildExpired())) {
@@ -79,26 +101,26 @@ public abstract class BaseActivity extends AppCompatActivity {
             switch (status) {
                 case Ops.STATUS_AUTO_CONNECT_WIRELESS_DEBUGGING:
                     Log.d(TAG, "Try auto-connecting to wireless debugging.");
-                    mAlertDialog = null;
+                    displayLoader = false;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         mViewModel.autoConnectAdb(Ops.STATUS_WIRELESS_DEBUGGING_CHOOSER_REQUIRED);
                         return;
                     } // fall-through
                 case Ops.STATUS_WIRELESS_DEBUGGING_CHOOSER_REQUIRED:
                     Log.d(TAG, "Display wireless debugging chooser (pair or connect)");
-                    mAlertDialog = null;
+                    displayLoader = false;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Ops.connectWirelessDebugging(this, mViewModel);
                         return;
                     } // fall-through
                 case Ops.STATUS_ADB_CONNECT_REQUIRED:
                     Log.d(TAG, "Display connect dialog.");
-                    mAlertDialog = null;
+                    displayLoader = false;
                     Ops.connectAdbInput(this, mViewModel);
                     return;
                 case Ops.STATUS_ADB_PAIRING_REQUIRED:
                     Log.d(TAG, "Display pairing dialog.");
-                    mAlertDialog = null;
+                    displayLoader = false;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Ops.pairAdbInput(this, mViewModel);
                         return;
@@ -112,6 +134,7 @@ public abstract class BaseActivity extends AppCompatActivity {
                     if (mAlertDialog != null) mAlertDialog.dismiss();
                     Ops.setAuthenticated(true);
                     onAuthenticated(savedInstanceState);
+                    initPermissionChecks();
             }
         });
         if (!mViewModel.isAuthenticating()) {
@@ -122,7 +145,7 @@ public abstract class BaseActivity extends AppCompatActivity {
 
     protected abstract void onAuthenticated(@Nullable Bundle savedInstanceState);
 
-    protected boolean getTransparentBackground() {
+    public boolean getTransparentBackground() {
         return false;
     }
 
@@ -141,7 +164,11 @@ public abstract class BaseActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         if (mViewModel != null && mViewModel.isAuthenticating() && mAlertDialog != null) {
-            mAlertDialog.show();
+            if (displayLoader) {
+                mAlertDialog.show();
+            } else {
+                mAlertDialog.hide();
+            }
         }
     }
 
@@ -186,7 +213,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     }
 
     private void ensureSecurityAndModeOfOp() {
-        if (!AppPref.getBoolean(AppPref.PrefKey.PREF_ENABLE_SCREEN_LOCK_BOOL)) {
+        if (!Prefs.Security.isScreenLockEnabled()) {
             // No security enabled
             handleMigrationAndModeOfOp();
             return;
@@ -209,5 +236,14 @@ public abstract class BaseActivity extends AppCompatActivity {
         Log.d(TAG, "Authenticated");
         // Set mode of operation
         Objects.requireNonNull(mViewModel).setModeOfOps();
+    }
+
+    private void initPermissionChecks() {
+        for (String permission : REQUIRED_PERMISSIONS) {
+            if (!PermissionUtils.hasSelfPermission(permission)) {
+                mPermissionCheckActivity.launch(REQUIRED_PERMISSIONS);
+                return;
+            }
+        }
     }
 }

@@ -82,7 +82,7 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
     }
 
     public MultiSelectionView(Context context, AttributeSet attrs) {
-        this(context, attrs, R.attr.materialCardViewStyle);
+        this(context, attrs, com.google.android.material.R.attr.materialCardViewStyle);
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -123,7 +123,7 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
 
         // Custom attributes
         TintTypedArray attributes = ThemeEnforcement.obtainTintedStyledAttributes(context, attrs,
-                R.styleable.MultiSelectionView, defStyleAttr, R.style.Widget_MaterialComponents_CardView);
+                R.styleable.MultiSelectionView, defStyleAttr, com.google.android.material.R.style.Widget_MaterialComponents_CardView);
 
         // Set styles
         @Px
@@ -252,7 +252,8 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
     }
 
     @Override
-    public WindowInsetsCompat onApplyWindowInsets(View v, WindowInsetsCompat insets) {
+    @NonNull
+    public WindowInsetsCompat onApplyWindowInsets(@NonNull View v, @NonNull WindowInsetsCompat insets) {
         WindowInsetsCompat newInsets = null;
         if (ViewCompat.getFitsSystemWindows(this)) {
             newInsets = insets;

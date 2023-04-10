@@ -20,7 +20,7 @@
     <string name="refresh">Làm mới</string>
     <string name="launch">Khởi chạy</string>
     <string name="activities">Hoạt động</string>
-    <string name="require_no_permission">Không cần sự cho phép</string>
+    <string name="require_no_permission">Không yêu cầu quyền</string>
     <string name="permissions">Sử dụng quyền</string>
     <string name="uninstall">Gỡ cài đặt</string>
     <string name="configurations">Cấu hình</string>
@@ -63,7 +63,6 @@
     <string name="date_installed">Ngày cài đặt</string>
     <string name="more_info">Thêm thông tin</string>
     <string name="error_creating_shortcut">Lỗi khi tạo lối tắt</string>
-    <string name="instructions">Hướng dẫn</string>
     <string name="user_app">Ứng dụng người dùng</string>
     <string name="system_app">Ứng dụng hệ thống</string>
     <string name="app_info">Thông tin ứng dụng</string>
@@ -597,10 +596,7 @@
     <string name="pref_apk_signing_msg">Đặt đề án chữ ký, mã ký tuỳ chỉnh, v.v.</string>
     <string name="apk_signing">Ký APK</string>
     <string name="app_signing_signature_schemes">Đề án chữ ký</string>
-    <string name="source_code_links">GitHub: https://github.com/MuntashirAkon/AppManager
-\nGitLab: https://gitlab.com/muntashir/AppManager
-\nRiseup: https://0xacab.org/muntashir/AppManager
-\nCodeberg: https://codeberg.org/muntashir/AppManager</string>
+    <string name="source_code_links"><a href="https://github.com/MuntashirAkon/AppManager">GitHub</a> • <a href="https://gitlab.com/muntashir/AppManager">GitLab</a> • <a href="https://0xacab.org/muntashir/AppManager">Riseup</a> • <a href="https://codeberg.org/muntashir/AppManager">Codeberg</a></string>
     <string name="key_name_cannot_be_null">Tên mã không thể trống</string>
     <string name="key_name">Tên mã</string>
     <string name="boolean_value">Giá trị sự thật</string>
@@ -613,7 +609,6 @@
     <string name="adb_connect_port_number_description">Số cổng được đặt dưới khu vực <b>Địa chỉ IP &amp; cổng</b> ngay ở dưới khu vực <b>Tên thiết bị</b>.</string>
     <string name="port_number">Cổng</string>
     <string name="adb_connect">Kết nối</string>
-    <string name="wireless_debugging_not_supported">Gỡ lỗi không dây không được hỗ trợ trong nền tảng này.</string>
     <string name="wireless_debugging">Gỡ lỗi không dây</string>
     <string name="netpolicy_disable_network_access">Tắt quyền truy cập mạng</string>
     <string name="netpolicy_reject_wifi_data">Từ chối dữ liệu Wi-Fi</string>
@@ -936,8 +931,7 @@
     <string name="launch_mode_single_top">Một hoạt động ở trên</string>
     <string name="launch_mode_single_instance">Một bản sao</string>
     <string name="installer_error_session_commit">Không thể hành động với các tệp APK</string>
-    <string name="community_links">Telegram: https://t.me/AppManagerChannel
-\nTwitter: https://twitter.com/AppManagerNews</string>
+    <string name="community_links"><a href="https://t.me/AppManagerChannel">Kênh Telegram</a> • <a href="https://twitter.com/AppManagerNews">Twitter</a></string>
     <string name="community">Cộng đồng</string>
     <string name="native_library_dir">Thư mục thư viện JNI gốc</string>
     <string name="input_key">Nhập mã (ở hệ thập lục phân)</string>
@@ -1157,4 +1151,109 @@
     <string name="sort_by_total_size">Tổng kích cỡ</string>
     <string name="am_command">Lệnh <tt>am</tt></string>
     <string name="pref_sign_apk_no_signing_key">Không có mã ký</string>
+    <string name="freeze_unfreeze">Đóng băng/ngừng đóng băng</string>
+    <string name="pref_default_freezing_method">Phương pháp đóng băng mặc định</string>
+    <string name="suspend_app">Ngừng</string>
+    <string name="hide_app">Ẩn</string>
+    <plurals name="alert_failed_to_freeze">
+        <item quantity="other">Không thể đóng băng %1$d ứng dụng</item>
+    </plurals>
+    <plurals name="alert_failed_to_unfreeze">
+        <item quantity="other">Không thể ngừng đóng băng %1$d ứng dụng</item>
+    </plurals>
+    <string name="disable_app_description">Phương pháp đóng băng được khuyên dùng. Phương pháp này tắt ứng dụng và tất cả thành phần của nó, nhưng tất cả lối tắt sẽ bị mất.</string>
+    <string name="filter_frozen_apps">Ứng dụng đã đóng băng</string>
+    <string name="user_manual">Hướng dẫn sử dụng cho người dùng</string>
+    <string name="get_help">Tìm sự giúp đỡ</string>
+    <string name="pref_advanced_pref">Người dùng, định dạng tên tệp APK, thực thi song song, v.v.</string>
+    <string name="pref_version_changelog">Phiên bản/Nhật ký thay đổi</string>
+    <string name="failed_to_freeze">Không thể đóng băng <xliff:g id="app_name" example="App Manager">%1$s</xliff:g>.</string>
+    <string name="profile_freeze_msg">Đóng băng hoặc ngừng đóng băng các ứng dụng dựa trên trạng thái</string>
+    <string name="suspend_app_description">Đây là phương pháp đóng băng yếu nhất. Ứng dụng bị ngừng có thể vẫn hiện trên launcher nhưng sẽ bị bôi xám và không thể khởi chạy.</string>
+    <string name="pref_privacy_description">Khóa màn hình, ủy quyền, v.v.</string>
+    <string name="pref_default_freezing_method_description">Phương pháp được sử dụng mặc định ở những nơi không có lựa chọn phương pháp đóng băng.</string>
+    <string name="hide_app_description">Phương pháp này chỉ được khuyên dùng cho việc sử dụng hàng ngày. Ứng dụng bị ẩn trông như là bị gỡ cài đặt, nhưng có thể xuất hiện lại nếu được cài đặt lại hoặc cập nhật.</string>
+    <string name="sort_by_frozen_app">Đã đóng băng trước</string>
+    <string name="pref_privacy">Riêng tư</string>
+    <string name="pref_appearance_description">Chủ đề, hướng xoay, tính năng, v.v.</string>
+    <string name="file_creation_date">Đã tạo</string>
+    <string name="freeze_on_phone_locked">Tự động đóng băng ứng dụng khi điện thoại bị khóa</string>
+    <string name="failed_to_unfreeze">Không thể ngừng đóng băng <xliff:g id="app_name" example="App Manager">%1$s</xliff:g>.</string>
+    <string name="file_modification_date">Đã sửa đổi</string>
+    <string name="file_accessed_date">Đã truy cập</string>
+    <string name="file_open_with">Mở bằng</string>
+    <string name="file_change_open_with">Đổi việc mở bằng</string>
+    <string name="file_shortcut_target_file">Tệp mục tiêu</string>
+    <string name="file_properties">Thuộc tính</string>
+    <string name="file_cut">Cắt</string>
+    <string name="fm_always_open_with">Luôn mở</string>
+    <string name="fm_open_with_for_this_file_only">Chỉ đối với tệp này</string>
+    <string name="file_open_as">Mở dưới dạng…</string>
+    <string name="file_open_with_custom_activity">Tùy chỉnh</string>
+    <string name="file_open_with_os_default_dialog">Mở bằng hộp thoại mặc định của HĐH</string>
+    <string name="open_as_text">Văn bản</string>
+    <string name="open_as_image">Hình ảnh</string>
+    <string name="open_as_video">Video</string>
+    <string name="open_as_archive">Tệp nén</string>
+    <string name="open_as_folder">Thư mục</string>
+    <string name="open_as_other">Khác</string>
+    <string name="delete_filename">Xóa %s</string>
+    <string name="confirm_file_deletion">Có, xóa đi</string>
+    <string name="on_unfreeze_open_application">Mở ứng dụng sau khi ngừng đóng băng</string>
+    <string name="on_open_application_no_recents">Không hiện ứng dụng đã khởi chạy ở mục Gần đây</string>
+    <string name="tap_to_freeze_app">Nhấn để đóng băng</string>
+    <string name="waiting_for_the_phone_to_be_locked">Đang đợi điện thoại khóa…</string>
+    <string name="action_stop_service">Dừng</string>
+    <string name="funding_campaign_dialog_message">Chúng tôi đang chạy <b>chiến dịch tài trợ</b> cho App Manager trong một khoảng thời gian giới hạn. Truy cập <a href="https://opencollective.com/app-manager#category-ABOUT">opencollective.com/app-manager</a> để tìm hiểu thêm về chiến dịch. Thông báo này sẽ không được hiển thị lại, nhưng bạn có thể tìm thấy nó trong trang Cài đặt trong toàn bộ chiến dịch.</string>
+    <string name="adb_incomplete_usb_debugging_message">Có vẻ như Gỡ lỗi USB không được định cấu hình đúng cách. Vui lòng đọc <a href="https://muntashirakon.github.io/AppManager/#subsec:enable-usb-debugging">tài liệu</a> để biết các bước bổ sung. Nếu bạn đã biết các bước, vui lòng nhấp vào “Mở” để mở tùy chọn nhà phát triển hoặc nhấp vào “Đóng” để tiếp tục sử dụng chế độ không root.</string>
+    <string name="sort_by_data_usage">Dữ liệu đã dùng</string>
+    <string name="filter_apps_with_keystore">Với KeyStore</string>
+    <string name="filter_apps_with_saf">Với SAF</string>
+    <string name="filter_apps_with_ssaid">Với SSAID</string>
+    <string name="action_continue">Tiếp tục</string>
+    <string name="install_for_another_user">Cài đặt cho…</string>
+    <string name="confirm_uninstallation">Xác nhận gỡ cài đặt</string>
+    <string name="grant_required_permission">Cấp quyền cần thiết</string>
+    <string name="grant_overlay_permission_message">Cho phép App Manager hiển thị một cửa sổ nổi trên tất cả các cửa sổ khác</string>
+    <string name="grant_accessibility_permission_for_tracking_window_contents">Cho phép App Manager sử dụng tính năng trợ năng để theo dõi nội dung của cửa sổ chính.</string>
+    <string name="class_hierarchy">Hệ thống cấp bậc</string>
+    <string name="title_ui_tracker">Trình theo dõi giao diện người dùng</string>
+    <string name="title_terminal_emulator">Terminal</string>
+    <string name="title_labs_activity">Phòng thí nghiệm</string>
+    <string name="select_a_dex2oat_compiler_filter"><tt>dex2oat</tt> bộ lọc trình biên dịch</string>
+    <string name="optimize_option_compile_layouts">Biên dịch tài nguyên bố trí</string>
+    <string name="optimize_option_clear_profile_data">Xóa hồ sơ trước đây</string>
+    <string name="optimize_option_check_profiles">Xem xét dữ liệu hồ sơ trong quá trình tối ưu hóa DEX</string>
+    <string name="optimize_option_force_compilation">Buộc biên dịch ngay cả khi không cần thiết</string>
+    <string name="optimize_option_force_dexopt">Ngay lập tức thực hiện tối ưu hóa DEX</string>
+    <string name="title_perform_runtime_optimization_to_apps">Thực hiện tối ưu hóa thời gian chạy</string>
+    <string name="action_run">Chạy</string>
+    <string name="summary_perform_runtime_optimization_to_apps">Tối ưu hóa bố cục DEX và (trong Android 10 trở lên) để cải thiện hiệu suất của ứng dụng.</string>
+    <string name="action_optimize_app">Tối ưu hóa</string>
+    <string name="batch_ops_runtime_optimization">Tối ưu hóa thời gian chạy</string>
+    <plurals name="alert_failed_to_optimize_apps">
+        <item quantity="other">Không thể tối ưu hóa %1$d ứng dụng</item>
+    </plurals>
+    <string name="app_manager_build_expired">Cần cập nhật</string>
+    <string name="renamed_successfully">Đã đổi tên</string>
+    <string name="selinux_context">Ngữ cảnh SELinux</string>
+    <string name="unix_file_permissions">Cách thức</string>
+    <string name="file_group_id">Nhóm (GID)</string>
+    <string name="file_owner_id">Chủ sở hữu (UID)</string>
+    <string name="calculating_file_size">Đang tính…</string>
+    <string name="app_manager_build_expired_message">Để đảm bảo an toàn cho thiết bị và dữ liệu của bạn, phiên bản App Manager bạn đang sử dụng đã ngừng hoạt động. Bạn phải cập nhật lên phiên bản mới nhất để tiếp tục sử dụng hoặc gỡ cài đặt nếu không có bản cập nhật.</string>
+    <string name="app_manager_build_expiring_soon_warning">Phiên bản App Manager này sẽ sớm hết hạn. Vui lòng cập nhật nó lên phiên bản mới nhất.</string>
+    <string name="sort_by_filename">Tên</string>
+    <string name="app_can_write_and_execute_in_same_place">Ứng dụng vi phạm <a href="https://en.wikipedia.org/wiki/W%5EX">chính sách W^X</a> và có khả năng viết và thực thi trong cùng một thư mục hoặc trong cùng một phần của bộ nhớ. Điều này cho phép thực thi các tệp thực thi tùy ý bằng cách sửa đổi các tệp thực thi được nhúng trong ứng dụng hoặc bằng cách tải chúng xuống từ Internet. Trừ khi đây là hành vi dự định của ứng dụng (ví dụ: trình giả lập thiết bị đầu cuối), bạn nên tìm phiên bản mới hơn của ứng dụng nhắm mục tiêu SDK 29 (Android 10) trở lên hoặc tìm các giải pháp thay thế.</string>
+    <string name="sort_by_last_modified">Sửa đổi gần đây</string>
+    <string name="sort_by_file_size">Cỡ tệp</string>
+    <string name="sort_by_file_type">Loại tệp</string>
+    <string name="option_display_dot_files">Tệp ẩn</string>
+    <string name="option_display_folders_on_top">Thư mục trên đầu</string>
+    <string name="export_app_list">Xuất danh sách ứng dụng</string>
+    <string name="export_app_list_select_format">Chọn định dạng xuất danh sách ứng dụng</string>
+    <string name="export_option_xml">XML</string>
+    <string name="export_option_markdown">Markdown</string>
+    <string name="adb_incomplete_usb_debugging_title">Gỡ lỗi USB chưa hoàn thành</string>
+    <string name="funding_campaign_text">Chúng tôi đang chạy <b>chiến dịch tài trợ</b> cho App Manager trong một khoảng thời gian giới hạn. <a href="https://opencollective.com/app-manager#category-ABOUT">tìm hiểu thêm…</a></string>
 </resources>

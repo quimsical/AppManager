@@ -12,7 +12,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.collection.ArrayMap;
-import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.preference.Preference;
@@ -28,9 +27,9 @@ import java.util.Objects;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.misc.DeviceInfo2;
 import io.github.muntashirakon.AppManager.servermanager.ServerConfig;
-import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.LangUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
+import io.github.muntashirakon.AppManager.utils.appearance.AppearanceUtils;
 import io.github.muntashirakon.dialog.AlertDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableSingleChoiceDialogBuilder;
 import io.github.muntashirakon.dialog.TextInputDialogBuilder;
@@ -68,7 +67,7 @@ public class MainPreferences extends PreferenceFragment {
         model = new ViewModelProvider(requireActivity()).get(MainPreferencesViewModel.class);
         activity = requireActivity();
         // Custom locale
-        currentLang = AppPref.getString(AppPref.PrefKey.PREF_CUSTOM_LOCALE_STR);
+        currentLang = Prefs.Appearance.getLanguage();
         ArrayMap<String, Locale> locales = LangUtils.getAppLanguages(activity);
         final CharSequence[] languageNames = getLanguagesL(locales);
         final String[] languages = new String[languageNames.length];
@@ -87,9 +86,11 @@ public class MainPreferences extends PreferenceFragment {
                     .setTitle(R.string.choose_language)
                     .setSelectionIndex(finalLocaleIndex)
                     .setPositiveButton(R.string.apply, (dialog, which, selectedItem) -> {
-                        currentLang = selectedItem;
-                        AppPref.set(AppPref.PrefKey.PREF_CUSTOM_LOCALE_STR, currentLang);
-                        ActivityCompat.recreate(activity);
+                        if (selectedItem != null) {
+                            currentLang = selectedItem;
+                            Prefs.Appearance.setLanguage(currentLang);
+                            AppearanceUtils.applyConfigurationChangesToActivities();
+                        }
                     })
                     .setNegativeButton(R.string.cancel, null)
                     .show();
@@ -99,7 +100,7 @@ public class MainPreferences extends PreferenceFragment {
         modePref = Objects.requireNonNull(findPreference("mode_of_operations"));
         modeOfOpsAlertDialog = UIUtils.getProgressDialog(activity, getString(R.string.loading));
         modes = getResources().getStringArray(R.array.modes);
-        currentMode = Ops.getMode(requireContext());
+        currentMode = Ops.getMode();
         modePref.setSummary(getString(R.string.mode_of_op_with_inferred_mode_of_op, modes[MODE_NAMES.indexOf(currentMode)],
                 getInferredMode()));
         modePref.setOnPreferenceClickListener(preference -> {
@@ -109,14 +110,16 @@ public class MainPreferences extends PreferenceFragment {
                     .addDisabledItems(Build.VERSION.SDK_INT < Build.VERSION_CODES.R ?
                             Collections.singletonList(Ops.MODE_ADB_WIFI) : Collections.emptyList())
                     .setPositiveButton(R.string.apply, (dialog, which, selectedItem) -> {
-                        currentMode = selectedItem;
-                        if (Ops.MODE_ADB_OVER_TCP.equals(currentMode)) {
-                            ServerConfig.setAdbPort(ServerConfig.DEFAULT_ADB_PORT);
+                        if (selectedItem != null) {
+                            currentMode = selectedItem;
+                            if (Ops.MODE_ADB_OVER_TCP.equals(currentMode)) {
+                                ServerConfig.setAdbPort(ServerConfig.DEFAULT_ADB_PORT);
+                            }
+                            Ops.setMode(currentMode);
+                            modePref.setSummary(modes[MODE_NAMES.indexOf(currentMode)]);
+                            modeOfOpsAlertDialog.show();
+                            model.setModeOfOps();
                         }
-                        AppPref.set(AppPref.PrefKey.PREF_MODE_OF_OPS_STR, currentMode);
-                        modePref.setSummary(modes[MODE_NAMES.indexOf(currentMode)]);
-                        modeOfOpsAlertDialog.show();
-                        model.setModeOfOps();
                     })
                     .setNegativeButton(R.string.cancel, null)
                     .show();
@@ -127,15 +130,15 @@ public class MainPreferences extends PreferenceFragment {
             new TextInputDialogBuilder(activity, null)
                     .setTitle(R.string.pref_vt_apikey)
                     .setHelperText(getString(R.string.pref_vt_apikey_description) + "\n\n" + getString(R.string.vt_disclaimer))
-                    .setInputText(AppPref.getVtApiKey())
+                    .setInputText(Prefs.VirusTotal.getApiKey())
                     .setCheckboxLabel(R.string.pref_vt_prompt_before_uploading)
-                    .setChecked(AppPref.getBoolean(AppPref.PrefKey.PREF_VIRUS_TOTAL_PROMPT_BEFORE_UPLOADING_BOOL))
+                    .setChecked(Prefs.VirusTotal.promptBeforeUpload())
                     .setNegativeButton(R.string.cancel, null)
                     .setPositiveButton(R.string.save, (dialog, which, inputText, isChecked) -> {
                         if (inputText != null) {
-                            AppPref.set(AppPref.PrefKey.PREF_VIRUS_TOTAL_API_KEY_STR, inputText.toString());
+                            Prefs.VirusTotal.setApiKey(inputText.toString());
                         }
-                        AppPref.set(AppPref.PrefKey.PREF_VIRUS_TOTAL_PROMPT_BEFORE_UPLOADING_BOOL, isChecked);
+                        Prefs.VirusTotal.setPromptBeforeUpload(isChecked);
                     })
                     .show();
             return true;
@@ -208,7 +211,7 @@ public class MainPreferences extends PreferenceFragment {
         });
         // Device info
         model.getDeviceInfo().observe(getViewLifecycleOwner(), deviceInfo -> {
-            View v = View.inflate(activity, R.layout.dialog_scrollable_text_view, null);
+            View v = View.inflate(activity, io.github.muntashirakon.ui.R.layout.dialog_scrollable_text_view, null);
             ((TextView) v.findViewById(android.R.id.content)).setText(deviceInfo.toLocalizedString(activity));
             v.findViewById(android.R.id.checkbox).setVisibility(View.GONE);
             new AlertDialogBuilder(activity, true).setTitle(R.string.about_device).setView(v).show();

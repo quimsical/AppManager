@@ -39,9 +39,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import io.github.muntashirakon.AppManager.AppManager;
-import io.github.muntashirakon.AppManager.appops.AppOpsService;
-import io.github.muntashirakon.AppManager.appops.OpEntry;
-import io.github.muntashirakon.AppManager.appops.PackageOps;
+import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PermissionCompat;
@@ -60,10 +58,11 @@ import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
 import io.github.muntashirakon.AppManager.runner.Runner;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.ssaid.SsaidSettings;
 import io.github.muntashirakon.AppManager.uri.UriManager;
-import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
 import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
@@ -79,6 +78,8 @@ import io.github.muntashirakon.io.Paths;
 class BackupOp implements Closeable {
     static final String TAG = BackupOp.class.getSimpleName();
 
+    @NonNull
+    private final Context context = ContextUtils.getContext();
     @NonNull
     private final String mPackageName;
     @NonNull
@@ -133,9 +134,7 @@ class BackupOp implements Closeable {
             throw new BackupException("Failed to get crypto " + mMetadata.crypto, e);
         }
         try {
-            this.mChecksum = new BackupFiles.Checksum(
-                    this.mBackupFile.getChecksumFile(CryptoUtils.MODE_NO_ENCRYPTION),
-                    "w");
+            this.mChecksum = this.mBackupFile.getChecksum(CryptoUtils.MODE_NO_ENCRYPTION);
             String[] certChecksums = PackageUtils.getSigningCertChecksums(mMetadata.checksumAlgo, mPackageInfo, false);
             for (int i = 0; i < certChecksums.length; ++i) {
                 mChecksum.add(CERT_PREFIX + i, certChecksums[i]);
@@ -160,9 +159,7 @@ class BackupOp implements Closeable {
         boolean backupSuccess = false;
         try {
             // Fail backup if the app has items in Android KeyStore and backup isn't enabled
-            if (mBackupFlags.backupData()
-                    && mMetadata.keyStore
-                    && !AppPref.getBoolean(AppPref.PrefKey.PREF_BACKUP_ANDROID_KEYSTORE_BOOL)) {
+            if (mBackupFlags.backupData() && mMetadata.keyStore && !Prefs.BackupRestore.backupAppsWithKeyStore()) {
                 throw new BackupException("The app has keystore items and KeyStore backup isn't enabled.");
             }
             // Backup icon
@@ -367,9 +364,10 @@ class BackupOp implements Closeable {
         // Backup permissions
         @NonNull String[] permissions = ArrayUtils.defeatNullable(mPackageInfo.requestedPermissions);
         int[] permissionFlags = mPackageInfo.requestedPermissionsFlags;
-        List<OpEntry> opEntries = new ArrayList<>();
+        List<AppOpsManagerCompat.OpEntry> opEntries = new ArrayList<>();
         try {
-            List<PackageOps> packageOpsList = new AppOpsService().getOpsForPackage(mPackageInfo.applicationInfo.uid, mPackageName, null);
+            List<AppOpsManagerCompat.PackageOps> packageOpsList = new AppOpsManagerCompat(context)
+                    .getOpsForPackage(mPackageInfo.applicationInfo.uid, mPackageName, null);
             if (packageOpsList.size() == 1) opEntries.addAll(packageOpsList.get(0).getOps());
         } catch (Exception ignore) {
         }
@@ -393,7 +391,7 @@ class BackupOp implements Closeable {
             }
         }
         // Backup app ops
-        for (OpEntry entry : opEntries) {
+        for (AppOpsManagerCompat.OpEntry entry : opEntries) {
             rules.setAppOp(entry.getOp(), entry.getMode());
         }
         // Backup MagiskHide data
@@ -412,8 +410,8 @@ class BackupOp implements Closeable {
         }
         // Backup allowed notification listeners aka BIND_NOTIFICATION_LISTENER_SERVICE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            INotificationManager notificationManager = INotificationManager.Stub.asInterface(ProxyBinder.getService(Context.NOTIFICATION_SERVICE));
             try {
+                INotificationManager notificationManager = INotificationManager.Stub.asInterface(ProxyBinder.getService(Context.NOTIFICATION_SERVICE));
                 List<ComponentName> notificationComponents;
                 if (Ops.isPrivileged()) {
                     notificationComponents = notificationManager.getEnabledNotificationListeners(mUserId);
@@ -427,7 +425,8 @@ class BackupOp implements Closeable {
                 for (String component : componentsForThisPkg) {
                     rules.setNotificationListener(component, true);
                 }
-            } catch (RemoteException ignore) {
+            } catch (RemoteException e) {
+                e.printStackTrace();
             }
         }
         // Backup battery optimization

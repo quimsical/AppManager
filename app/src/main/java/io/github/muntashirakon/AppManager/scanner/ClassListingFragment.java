@@ -205,7 +205,7 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
         @NonNull
         @Override
         public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.m3_preference, parent, false);
+            View view = LayoutInflater.from(parent.getContext()).inflate(io.github.muntashirakon.ui.R.layout.m3_preference, parent, false);
             return new ViewHolder(view);
         }
 
@@ -229,7 +229,6 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
                     Intent intent = new Intent(mActivity, ClassViewerActivity.class);
                     intent.putExtra(ClassViewerActivity.EXTRA_URI, mViewModel.getUriFromClassName(className));
                     intent.putExtra(ClassViewerActivity.EXTRA_APP_NAME, mActivity.getTitle());
-                    intent.putExtra(ClassViewerActivity.EXTRA_CLASS_NAME, className);
                     mActivity.startActivity(intent);
                 } catch (Exception e) {
                     e.printStackTrace();

@@ -48,6 +48,7 @@ import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.misc.OsEnvironment;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.PermissionUtils;
+import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
 import io.github.muntashirakon.io.fs.VirtualFileSystem;
 
 /**
@@ -94,7 +95,7 @@ public class Path implements Comparable<Path> {
                 EXCLUSIVE_ACCESS_GRANTED.add(true);
             }
         }
-        if (PermissionUtils.hasStoragePermission(context)) {
+        if (PermissionUtils.hasStoragePermission()) {
             int userId = UserHandleHidden.myUserId();
             String[] cards;
             if (userId == 0) {
@@ -105,7 +106,7 @@ public class Path implements Comparable<Path> {
             } else cards = new String[]{"/storage/emulated/" + userId};
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 // Add Android/data and Android/obb to the exemption list
-                boolean canInstallApps = PermissionUtils.hasPermission(context, Manifest.permission.REQUEST_INSTALL_PACKAGES);
+                boolean canInstallApps = PermissionUtils.hasSelfPermission(Manifest.permission.REQUEST_INSTALL_PACKAGES);
                 for (String card : cards) {
                     EXCLUSIVE_ACCESS_PATHS.add(card + "/Android/data");
                     EXCLUSIVE_ACCESS_GRANTED.add(false);
@@ -205,11 +206,18 @@ public class Path implements Comparable<Path> {
                 if (parsedUri != null) {
                     Path rootPath = VirtualFileSystem.getFsRoot(parsedUri.first);
                     if (rootPath != null) {
-                        if (parsedUri.second == null || parsedUri.second.equals(File.separator)) {
+                        String path = Paths.getSanitizedPath(parsedUri.second, true);
+                        if (TextUtilsCompat.isEmpty(path) || path.equals(File.separator)) {
+                            // Root requested
                             documentFile = rootPath.mDocumentFile;
                         } else {
                             // Find file is acceptable here since the file always exists
-                            documentFile = Objects.requireNonNull(rootPath.mDocumentFile.findFile(parsedUri.second));
+                            String[] pathComponents = path.split(File.separator);
+                            DocumentFile finalDocumentFile = rootPath.mDocumentFile;
+                            for (String pathComponent : pathComponents) {
+                                finalDocumentFile = Objects.requireNonNull(finalDocumentFile.findFile(pathComponent));
+                            }
+                            documentFile = finalDocumentFile;
                         }
                         break;
                     }
@@ -450,6 +458,7 @@ public class Path implements Comparable<Path> {
         return createFileAsDirectChild(mContext, file, names[names.length - 1], mimeType);
     }
 
+
     /**
      * Create all the non-existing directories under this directory. If mount
      * points encountered while iterating through the paths, it will try to
@@ -457,7 +466,35 @@ public class Path implements Comparable<Path> {
      *
      * @param displayName Relative path to the target directory.
      * @return The newly created directory.
-     * @throws IOException If the target is a mount point or failed for any other reason.
+     * @throws IOException If the target is a mount point, or failed for any other reason.
+     */
+    @NonNull
+    public Path createDirectoriesIfRequired(@NonNull String displayName) throws IOException {
+        displayName = Paths.getSanitizedPath(displayName, true);
+        if (displayName == null) {
+            throw new IOException("Empty display name.");
+        }
+        String[] dirNames = displayName.split(File.separator);
+        if (dirNames.length == 0) {
+            throw new IllegalArgumentException("Display name is empty");
+        }
+        for (String name : dirNames) {
+            if (name.equals("..")) {
+                throw new IOException("Could not create directories in the parent directory.");
+            }
+        }
+        DocumentFile file = createArbitraryDirectories(mDocumentFile, dirNames, dirNames.length);
+        return new Path(mContext, file);
+    }
+
+    /**
+     * Create all the non-existing directories under this directory. If mount
+     * points encountered while iterating through the paths, it will try to
+     * create a new directory under the last mount point.
+     *
+     * @param displayName Relative path to the target directory.
+     * @return The newly created directory.
+     * @throws IOException If the target exists, or it is a mount point, or failed for any other reason.
      */
     @NonNull
     public Path createDirectories(@NonNull String displayName) throws IOException {
@@ -480,11 +517,11 @@ public class Path implements Comparable<Path> {
         Path fsRoot = VirtualFileSystem.getFsRoot(Paths.appendPathSegment(file.getUri(), lastSegment));
         DocumentFile t = fsRoot != null ? fsRoot.mDocumentFile : file.findFile(lastSegment);
         if (t != null) {
-            throw new IOException(t + " already exists.");
+            throw new IOException(t.getUri() + " already exists.");
         }
         t = file.createDirectory(lastSegment);
         if (t == null) {
-            throw new IOException("Directory" + file + File.separator + lastSegment + " could not be created.");
+            throw new IOException("Directory" + file.getUri() + File.separator + lastSegment + " could not be created.");
         }
         return new Path(mContext, t);
     }
@@ -1272,22 +1309,25 @@ public class Path implements Comparable<Path> {
         // Get all file systems mounted at this Uri
         DocumentFile documentFile = getRealDocumentFile(mDocumentFile);
         VirtualFileSystem[] fileSystems = VirtualFileSystem.getFileSystemsAtUri(documentFile.getUri());
-        HashMap<String, Path> namePathMap = new HashMap<>(fileSystems.length);
+        HashMap<String, Uri> nameMountPointMap = new HashMap<>(fileSystems.length);
         for (VirtualFileSystem fs : fileSystems) {
-            namePathMap.put(Objects.requireNonNull(fs.getMountPoint()).getLastPathSegment(), fs.getRootPath());
+            Uri mountPoint = Objects.requireNonNull(fs.getMountPoint());
+            nameMountPointMap.put(mountPoint.getLastPathSegment(), mountPoint);
         }
-        // List documents at this folder and add only those which are not mount points.
+        // List documents at this folder and remove mount points
         DocumentFile[] ss = documentFile.listFiles();
         List<Path> paths = new ArrayList<>(ss.length + fileSystems.length);
         for (DocumentFile s : ss) {
-            Path p = namePathMap.get(s.getName());
-            if (p == null) {
-                // No mount point exists, add it
-                paths.add(new Path(mContext, s));
+            if (nameMountPointMap.get(s.getName()) != null) {
+                // Mount point exists, remove it from map
+                nameMountPointMap.remove(s.getName());
             }
+            paths.add(new Path(mContext, s));
         }
-        // Add all the mount points
-        paths.addAll(namePathMap.values());
+        // Add all the other mount points
+        for (Uri mountPoint : nameMountPointMap.values()) {
+            paths.add(new Path(mContext, mountPoint));
+        }
         return paths.toArray(new Path[0]);
     }
 

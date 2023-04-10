@@ -16,7 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.PathReader;
 import io.github.muntashirakon.io.PathWriter;
@@ -33,7 +33,7 @@ public class BackupFiles {
 
     @NonNull
     public static Path getBaseDirectory() {
-        return AppPref.getAppManagerDirectory();
+        return Prefs.Storage.getAppManagerDirectory();
     }
 
     @NonNull
@@ -113,6 +113,11 @@ public class BackupFiles {
             if (mIsTemporary) {
                 return getBackupPath().findOrCreateFile(CHECKSUMS_TXT + CryptoUtils.getExtension(mode), null);
             } else return getBackupPath().findFile(CHECKSUMS_TXT + CryptoUtils.getExtension(mode));
+        }
+
+        @NonNull
+        public Checksum getChecksum(@CryptoUtils.Mode String mode) throws IOException {
+            return new Checksum(getChecksumFile(mode), mIsTemporary ? "w" : "r");
         }
 
         @NonNull

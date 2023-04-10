@@ -40,4 +40,9 @@ public class ActivityLauncherShortcutActivity extends BaseActivity {
         }
         finishAndRemoveTask();
     }
+
+    @Override
+    public boolean getTransparentBackground() {
+        return true;
+    }
 }

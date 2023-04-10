@@ -50,7 +50,7 @@ import io.github.muntashirakon.AppManager.backup.CryptoUtils;
 import io.github.muntashirakon.AppManager.backup.MetadataManager;
 import io.github.muntashirakon.AppManager.crypto.Crypto;
 import io.github.muntashirakon.AppManager.logs.Log;
-import io.github.muntashirakon.AppManager.utils.AppPref;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
@@ -118,7 +118,7 @@ public class TBConverter extends Converter {
         // Destination APK will be renamed
         mDestMetadata.apkName = "base.apk";
         // Destination compression type will be the default compression method
-        mDestMetadata.tarType = ConvertUtils.getTarTypeFromPref();
+        mDestMetadata.tarType = Prefs.BackupRestore.getCompressionMethod();
         MetadataManager metadataManager = MetadataManager.getNewInstance();
         metadataManager.setMetadata(mDestMetadata);
         // Simulate a backup creation
@@ -137,7 +137,7 @@ public class TBConverter extends Converter {
                 mTempBackupPath = backupFile.getBackupPath();
                 mCrypto = ConvertUtils.setupCrypto(mDestMetadata);
                 try {
-                    mChecksum = new BackupFiles.Checksum(backupFile.getChecksumFile(CryptoUtils.MODE_NO_ENCRYPTION), "w");
+                    mChecksum = backupFile.getChecksum(CryptoUtils.MODE_NO_ENCRYPTION);
                 } catch (IOException e) {
                     throw new BackupException("Failed to create checksum file.", e);
                 }
@@ -452,7 +452,7 @@ public class TBConverter extends Converter {
             mSourceMetadata.dataDirs = ConvertUtils.getDataDirs(mPackageName, mUserId, mSourceMetadata.flags
                     .backupInternalData(), mSourceMetadata.flags.backupExternalData(), false);
             mSourceMetadata.keyStore = false;
-            mSourceMetadata.installer = AppPref.getString(AppPref.PrefKey.PREF_INSTALLER_INSTALLER_APP_STR);
+            mSourceMetadata.installer = Prefs.Installer.getInstallerPackageName();
             String base64Icon = prop.getProperty("app_gui_icon");
             if (base64Icon != null) {
                 byte[] decodedBytes = Base64.decode(base64Icon, 0);

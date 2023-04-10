@@ -7,7 +7,7 @@ import static io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat.HI
 import static io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat.HIDDEN_API_ENFORCEMENT_DISABLED;
 import static io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat.HIDDEN_API_ENFORCEMENT_ENABLED;
 import static io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat.HIDDEN_API_ENFORCEMENT_JUST_WARN;
-import static io.github.muntashirakon.AppManager.utils.PermissionUtils.TERMUX_PERM_RUN_COMMAND;
+import static io.github.muntashirakon.AppManager.compat.ManifestCompat.permission.TERMUX_RUN_COMMAND;
 import static io.github.muntashirakon.AppManager.utils.PermissionUtils.hasDumpPermission;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.dimBitmap;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.displayLongToast;
@@ -32,7 +32,6 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.Signature;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
-import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -96,12 +95,15 @@ import io.github.muntashirakon.AppManager.accessibility.AccessibilityMultiplexer
 import io.github.muntashirakon.AppManager.accessibility.NoRootAccessibilityService;
 import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.ApkUtils;
+import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizationDialog;
 import io.github.muntashirakon.AppManager.apk.behavior.FreezeUnfreeze;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerActivity;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat;
 import io.github.muntashirakon.AppManager.apk.whatsnew.WhatsNewDialogFragment;
 import io.github.muntashirakon.AppManager.backup.dialog.BackupRestoreDialogFragment;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
+import io.github.muntashirakon.AppManager.compat.DomainVerificationManagerCompat;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.details.AppDetailsActivity;
@@ -126,6 +128,7 @@ import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.runner.Runner;
 import io.github.muntashirakon.AppManager.scanner.ScannerActivity;
+import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.sharedpref.SharedPrefsActivity;
@@ -145,8 +148,8 @@ import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
 import io.github.muntashirakon.AppManager.utils.LangUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.PermissionUtils;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
-import io.github.muntashirakon.AppManager.utils.UiThreadHandler;
 import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
 import io.github.muntashirakon.dialog.DialogTitleBuilder;
@@ -252,7 +255,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 mPackageInfo = (PackageInfo) appDetailsItem.vanillaItem;
                 mPackageName = appDetailsItem.name;
                 mInstalledPackageInfo = mainModel.getInstalledPackageInfo();
-                isExternalApk = mainModel.getIsExternalApk();
+                isExternalApk = mainModel.isExternalApk();
                 mApplicationInfo = mPackageInfo.applicationInfo;
                 // Set package name
                 packageNameView.setText(mPackageName);
@@ -314,7 +317,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
 
     @Override
     public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
-        if (mainModel != null && !mainModel.getIsExternalApk()) {
+        if (mainModel != null && !mainModel.isExternalApk()) {
             inflater.inflate(R.menu.fragment_app_info_actions, menu);
             menu.findItem(R.id.action_magisk_hide).setVisible(MagiskHide.available());
             menu.findItem(R.id.action_magisk_denylist).setVisible(MagiskDenyList.available());
@@ -322,6 +325,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             menu.findItem(R.id.action_battery_opt).setVisible(Ops.isPrivileged());
             menu.findItem(R.id.action_net_policy).setVisible(Ops.isPrivileged());
             menu.findItem(R.id.action_install).setVisible(Ops.isPrivileged() && Users.getUsersIds().length > 1);
+            menu.findItem(R.id.action_optimize).setVisible(Ops.isPrivileged() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N);
         }
     }
 
@@ -347,7 +351,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             executor.submit(() -> {
                 try {
                     Path tmpApkSource = ApkUtils.getSharableApkFile(mPackageInfo);
-                    UiThreadHandler.run(() -> {
+                    ThreadUtils.postOnMainThread(() -> {
                         Context ctx = AppManager.getContext();
                         Intent intent = new Intent(Intent.ACTION_SEND)
                                 .setType("application/*")
@@ -389,15 +393,15 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 dialogFragment.show(mActivity.getSupportFragmentManager(), RulesTypeSelectionDialogFragment.TAG);
             });
         } else if (itemId == R.id.action_open_in_termux) {
-            if (PermissionUtils.hasTermuxPermission(mActivity)) {
+            if (PermissionUtils.hasTermuxPermission()) {
                 openInTermux();
-            } else requestPerm.launch(TERMUX_PERM_RUN_COMMAND, granted -> {
+            } else requestPerm.launch(TERMUX_RUN_COMMAND, granted -> {
                 if (granted) openInTermux();
             });
         } else if (itemId == R.id.action_run_in_termux) {
-            if (PermissionUtils.hasTermuxPermission(mActivity)) {
+            if (PermissionUtils.hasTermuxPermission()) {
                 runInTermux();
-            } else requestPerm.launch(TERMUX_PERM_RUN_COMMAND, granted -> {
+            } else requestPerm.launch(TERMUX_RUN_COMMAND, granted -> {
                 if (granted) runInTermux();
             });
         } else if (itemId == R.id.action_magisk_hide) {
@@ -460,7 +464,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     // Back button pressed.
                     return;
                 }
-                try {
+                executor.submit(() -> {
                     try (OutputStream outputStream = mActivity.getContentResolver().openOutputStream(uri)) {
                         if (outputStream == null) {
                             throw new IOException("Unable to open output stream.");
@@ -468,12 +472,12 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         Bitmap bitmap = getBitmapFromDrawable(mApplicationInfo.loadIcon(mPackageManager));
                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
                         outputStream.flush();
-                        displayShortToast(R.string.saved_successfully);
+                        ThreadUtils.postOnMainThread(() -> displayShortToast(R.string.saved_successfully));
+                    } catch (IOException e) {
+                        Log.e(TAG, e);
+                        ThreadUtils.postOnMainThread(() -> displayShortToast(R.string.saving_failed));
                     }
-                } catch (IOException e) {
-                    Log.e(TAG, e);
-                    displayShortToast(R.string.saving_failed);
-                }
+                });
             });
         } else if (itemId == R.id.action_install) {
             List<UserInfo> users = Users.getUsers();
@@ -511,6 +515,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         }
                     })
                     .show();
+        } else if (itemId == R.id.action_optimize) {
+            if (!Ops.isPrivileged()) {
+                UIUtils.displayShortToast(R.string.only_works_in_root_or_adb_mode);
+                return false;
+            }
+            DexOptimizationDialog dialog = DexOptimizationDialog.getInstance(new String[]{mPackageName});
+            dialog.show(getChildFragmentManager(), DexOptimizationDialog.TAG);
         } else return super.onOptionsItemSelected(item);
         return true;
     }
@@ -579,11 +590,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     private void refreshDetails() {
         if (mainModel == null || executor.isShutdown()) return;
         showProgressIndicator(true);
-        executor.submit(() -> {
-            if (mainModel != null) {
-                mainModel.setIsPackageChanged();
-            }
-        });
+        mainModel.triggerPackageChange();
     }
 
     @UiThread
@@ -645,7 +652,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             if (tagCloud.isUpdatedSystemApp) {
                 addChip(R.string.updated_app);
             }
-        } else if (!mainModel.getIsExternalApk()) addChip(R.string.user_app);
+        } else if (!mainModel.isExternalApk()) addChip(R.string.user_app);
         if (tagCloud.splitCount > 0) {
             addChip(getResources().getQuantityString(R.plurals.no_of_splits, tagCloud.splitCount,
                     tagCloud.splitCount)).setOnClickListener(v -> {
@@ -675,6 +682,41 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         if (tagCloud.hasRequestedLargeHeap) {
             addChip(R.string.requested_large_heap);
         }
+        if (tagCloud.hostsToOpen != null) {
+            addChip(R.string.app_info_tag_open_links, tagCloud.canOpenLinks ? ColorCodes.getFailureColor(mActivity)
+                    : ColorCodes.getSuccessColor(mActivity)).setOnClickListener(v -> {
+                SearchableItemsDialogBuilder<String> builder = new SearchableItemsDialogBuilder<>(mActivity, new ArrayList<>(tagCloud.hostsToOpen.keySet()))
+                        .setTitle(R.string.title_domains_supported_by_the_app)
+                        .setNegativeButton(R.string.close, null);
+                if (PermissionUtils.hasSelfOrRemotePermission(ManifestCompat.permission.UPDATE_DOMAIN_VERIFICATION_USER_SELECTION)) {
+                    // Enable/disable directly from the app
+                    builder.setPositiveButton(tagCloud.canOpenLinks ? R.string.disable : R.string.enable,
+                            (dialog, which) -> executor.submit(() -> {
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        DomainVerificationManagerCompat
+                                                .setDomainVerificationLinkHandlingAllowed(mPackageName, !tagCloud.canOpenLinks, mainModel.getUserHandle());
+                                    }
+                                    ThreadUtils.postOnMainThread(() -> {
+                                        UIUtils.displayShortToast(R.string.done);
+                                        refreshDetails();
+                                    });
+                                } catch (Throwable th) {
+                                    th.printStackTrace();
+                                    ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.failed));
+                                }
+                            }));
+                } else {
+                    builder.setPositiveButton(R.string.app_settings, (dialog, which) -> {
+                        try {
+                            startActivity(IntentUtils.getAppDetailsSettings(mPackageName));
+                        } catch (Throwable ignore) {
+                        }
+                    });
+                }
+                builder.show();
+            });
+        }
         if (tagCloud.runningServices.size() > 0) {
             addChip(R.string.running, ColorCodes.getComponentRunningIndicatorColor(mActivity)).setOnClickListener(v -> {
                 mProgressIndicator.show();
@@ -692,7 +734,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     }
                     DialogTitleBuilder titleBuilder = new DialogTitleBuilder(mActivity)
                             .setTitle(R.string.running_services);
-                    if (PermissionUtils.hasDumpPermission() && FeatureController.isLogViewerEnabled()) {
+                    if (hasDumpPermission() && FeatureController.isLogViewerEnabled()) {
                         titleBuilder.setSubtitle(R.string.running_services_logcat_hint);
                     }
                     runOnUiThread(() -> {
@@ -903,7 +945,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
 
     private void setHorizontalActions() {
         mHorizontalLayout.removeAllViews();
-        if (mainModel != null && !mainModel.getIsExternalApk()) {
+        if (mainModel != null && !mainModel.isExternalApk()) {
             boolean isFrozen = FreezeUtils.isFrozen(mApplicationInfo);
             // Set open
             Intent launchIntent = PackageUtils.getLaunchIntentForPackage(requireContext(), mPackageName,
@@ -1098,7 +1140,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 long thisVersionCode = PackageInfoCompat.getLongVersionCode(mPackageInfo);
                 if (installedVersionCode < thisVersionCode) {
                     // Needs update
-                    addToHorizontalLayout(R.string.whats_new, R.drawable.ic_information)
+                    addToHorizontalLayout(R.string.whats_new, io.github.muntashirakon.ui.R.drawable.ic_information)
                             .setOnClickListener(v -> {
                                 Bundle args = new Bundle();
                                 args.putParcelable(WhatsNewDialogFragment.ARG_NEW_PKG_INFO, mPackageInfo);
@@ -1138,7 +1180,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             });
         }
         // Root only features
-        if (!mainModel.getIsExternalApk()) {
+        if (!mainModel.isExternalApk()) {
             // Shared prefs (root only)
             final List<Path> sharedPrefs = new ArrayList<>();
             Path[] tmpPaths = getSharedPrefs(mApplicationInfo.dataDir);
@@ -1247,7 +1289,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                 File file = apkEntries.get(which).getRealCachedFile();
                                 intent.setDataAndType(Uri.fromFile(file), MimeTypeMap.getSingleton()
                                         .getMimeTypeFromExtension("apk"));
-                                UiThreadHandler.run(() -> startActivity(intent));
+                                ThreadUtils.postOnMainThread(() -> startActivity(intent));
                             } catch (IOException e) {
                                 e.printStackTrace();
                             }
@@ -1272,13 +1314,6 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             if (appInfo.sourceDir != null) {
                 mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.source_dir), appInfo.sourceDir,
                         openAsFolderInFM(requireContext(), appInfo.sourceDir)));
-            }
-            // Split source directories
-            if (appInfo.splitEntries.size() > 0) {
-                for (ApkFile.Entry entry : appInfo.splitEntries) {
-                    mListItems.add(ListItem.newSelectableRegularItem(entry.toShortLocalizedString(mActivity),
-                            entry.getApkSource(), openAsFolderInFM(requireContext(), entry.getApkSource())));
-                }
             }
             // Data dir
             if (appInfo.dataDir != null) {
@@ -1323,7 +1358,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                     UserHandleHidden.myUserId());
                             mActivity.startActivity(appDetailsIntent);
                         });
-                listItem.setActionIcon(R.drawable.ic_information);
+                listItem.setActionIcon(io.github.muntashirakon.ui.R.drawable.ic_information);
                 mListItems.add(listItem);
             }
 
@@ -1512,7 +1547,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     private void setStorageAndCache(AppInfoViewModel.AppInfo appInfo) {
         if (FeatureController.isUsageAccessEnabled()) {
             // Grant optional READ_PHONE_STATE permission
-            if (!PermissionUtils.hasPermission(mActivity, Manifest.permission.READ_PHONE_STATE) &&
+            if (!PermissionUtils.hasSelfPermission(Manifest.permission.READ_PHONE_STATE) &&
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
                 runOnUiThread(() -> requestPerm.launch(Manifest.permission.READ_PHONE_STATE, granted -> {
                     if (granted) model.loadAppInfo();
@@ -1563,12 +1598,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     @WorkerThread
     private void loadPackageInfo() {
         // Set App Icon
-        Drawable icon = mApplicationInfo.loadIcon(mPackageManager);
-        runOnUiThread(() -> {
-            if (isAdded() && !isDetached()) {
-                iconView.setImageDrawable(icon);
-            }
-        });
+        ImageLoader.displayImage(mApplicationInfo, iconView);
         // (Re)load views
         model.loadPackageLabel();
         model.loadTagCloud();
@@ -1653,6 +1683,6 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
 
     @AnyThread
     private void runOnUiThread(Runnable runnable) {
-        UiThreadHandler.run(runnable);
+        ThreadUtils.postOnMainThread(runnable);
     }
 }

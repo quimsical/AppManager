@@ -39,6 +39,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -56,12 +57,13 @@ import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
 import io.github.muntashirakon.AppManager.ipc.ProxyBinder;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.users.Users;
-import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.BroadcastUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
+import io.github.muntashirakon.AppManager.utils.MiuiUtils;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
-import io.github.muntashirakon.AppManager.utils.UiThreadHandler;
 import io.github.muntashirakon.io.IoUtils;
 import io.github.muntashirakon.io.Path;
 
@@ -421,6 +423,18 @@ public final class PackageInstallerCompat {
         @WorkerThread
         void onStartInstall(int sessionId, String packageName);
 
+        // MIUI-begin: MIUI 12.5+ workaround
+        /**
+         * MIUI 12.5+ may require more than one tries in order to have successful installations. This is only needed
+         * during APK installations, not APK uninstallations or install-existing attempts.
+         *
+         * @param apkFile Underlying APK file if available.
+         */
+        @WorkerThread
+        default void onAnotherAttemptInMiui(@Nullable ApkFile apkFile) {
+        }
+        // MIUI-end
+
         @WorkerThread
         void onFinishedInstall(int sessionId, String packageName, int result, @Nullable String blockingPackage,
                                @Nullable String statusMessage);
@@ -489,7 +503,8 @@ public final class PackageInstallerCompat {
                     statusMessage = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
                     // Run install completed
                     installCompleted = true;
-                    installCompleted(sessionId, finalStatus, blockingPackage, statusMessage);
+                    ThreadUtils.postOnBackgroundThread(() ->
+                            installCompleted(sessionId, finalStatus, blockingPackage, statusMessage));
                     break;
             }
         }
@@ -499,11 +514,13 @@ public final class PackageInstallerCompat {
     private OnInstallListener onInstallListener;
     private IPackageInstaller packageInstaller;
     private PackageInstaller.Session session;
+    // MIUI-added: Multiple attempts may be required
+    int attempts = 1;
     private final String installerPackageName;
     private final boolean isPrivileged;
 
     private PackageInstallerCompat() {
-        this(Ops.isReallyPrivileged() ? AppPref.getString(AppPref.PrefKey.PREF_INSTALLER_INSTALLER_APP_STR) : context.getPackageName());
+        this(Ops.isReallyPrivileged() ? Prefs.Installer.getInstallerPackageName() : context.getPackageName());
     }
 
     private PackageInstallerCompat(@NonNull String installerPackageName) {
@@ -533,6 +550,7 @@ public final class PackageInstallerCompat {
     }
 
     public boolean install(@NonNull ApkFile apkFile, @UserIdInt int userId) {
+        ThreadUtils.ensureWorkerThread();
         try {
             this.apkFile = apkFile;
             this.packageName = apkFile.getPackageName();
@@ -580,6 +598,7 @@ public final class PackageInstallerCompat {
     }
 
     public boolean install(@NonNull Path[] apkFiles, @NonNull String packageName, @UserIdInt int userId) {
+        ThreadUtils.ensureWorkerThread();
         try {
             this.apkFile = null;
             this.packageName = packageName;
@@ -689,7 +708,7 @@ public final class PackageInstallerCompat {
         PackageInstaller.SessionParams sessionParams = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         Refine.<PackageInstallerHidden.SessionParams>unsafeCast(sessionParams).installFlags |= installFlags;
         // Set installation location
-        sessionParams.setInstallLocation(AppPref.getInt(AppPref.PrefKey.PREF_INSTALLER_INSTALL_LOCATION_INT));
+        sessionParams.setInstallLocation(Prefs.Installer.getInstallLocation());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             sessionParams.setInstallReason(PackageManager.INSTALL_REASON_USER);
         }
@@ -736,6 +755,7 @@ public final class PackageInstallerCompat {
     }
 
     public boolean installExisting(@NonNull String packageName, @UserIdInt int userId) {
+        ThreadUtils.ensureWorkerThread();
         if (onInstallListener != null) {
             onInstallListener.onStartInstall(sessionId, packageName);
         }
@@ -822,10 +842,10 @@ public final class PackageInstallerCompat {
                 oldFile.delete();
             }
             apkFile.extractObb(writableObbDir);
-            UiThreadHandler.run(() -> UIUtils.displayLongToast(R.string.obb_files_extracted_successfully));
+            ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.obb_files_extracted_successfully));
         } catch (Exception e) {
             Log.e(TAG, e);
-            UiThreadHandler.run(() -> UIUtils.displayLongToast(R.string.failed_to_extract_obb_files));
+            ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.failed_to_extract_obb_files));
         } finally {
             if (installWatcher.getCount() != 0) {
                 // Reset close apk file if the installation isn't completed
@@ -874,6 +894,26 @@ public final class PackageInstallerCompat {
                                   int finalStatus,
                                   @Nullable String blockingPackage,
                                   @Nullable String statusMessage) {
+        ThreadUtils.ensureWorkerThread();
+        // MIUI-begin: In MIUI 12.5 and 20.2.0, it might be required to try installing the APK files more than once.
+        if (finalStatus == STATUS_FAILURE_ABORTED
+                && this.sessionId == sessionId
+                && onInstallListener != null
+                && !Ops.isPrivileged()
+                && MiuiUtils.isActualMiuiVersionAtLeast("12.5", "20.2.0")
+                && Objects.equals(statusMessage, "INSTALL_FAILED_ABORTED: Permission denied")
+                && attempts <= 3) {
+            // Try once more
+            ++attempts;
+            Log.i(TAG, "MIUI: Installation attempt no " + attempts + " for package " + packageName);
+            interactionWatcher.countDown();
+            installWatcher.countDown();
+            // Remove old broadcast receivers
+            unregisterReceiver();
+            onInstallListener.onAnotherAttemptInMiui(apkFile);
+            return;
+        }
+        // MIUI-end
         // No need to check package name since it's been checked before
         if (finalStatus == STATUS_FAILURE_SESSION_CREATE || (this.sessionId == sessionId)) {
             if (onInstallListener != null) {
@@ -890,6 +930,7 @@ public final class PackageInstallerCompat {
 
     @SuppressWarnings("deprecation")
     public boolean uninstall(String packageName, @UserIdInt int userId, boolean keepData) {
+        ThreadUtils.ensureWorkerThread();
         this.packageName = packageName;
         String callerPackageName = isPrivileged ? ActivityManagerCompat.SHELL_PACKAGE_NAME : context.getPackageName();
         initBroadcastReceiver();
@@ -1063,8 +1104,10 @@ public final class PackageInstallerCompat {
     }
 
     private void unregisterReceiver() {
-        if (piReceiver != null) context.unregisterReceiver(piReceiver);
-        context.unregisterReceiver(broadcastReceiver);
+        if (piReceiver != null) {
+            ContextUtils.unregisterReceiver(context, piReceiver);
+        }
+        ContextUtils.unregisterReceiver(context, broadcastReceiver);
     }
 
     private void initBroadcastReceiver() {

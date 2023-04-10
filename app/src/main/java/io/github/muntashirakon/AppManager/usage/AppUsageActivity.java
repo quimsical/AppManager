@@ -15,7 +15,6 @@ import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.RemoteException;
 import android.provider.Settings;
 import android.text.format.Formatter;
 import android.view.LayoutInflater;
@@ -137,7 +136,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
         // Make spinner the first item to focus on
         intervalSpinner.requestFocus();
         SpinnerAdapter intervalSpinnerAdapter = ArrayAdapter.createFromResource(this,
-                R.array.usage_interval_dropdown_list, R.layout.item_checked_text_view);
+                R.array.usage_interval_dropdown_list, io.github.muntashirakon.ui.R.layout.item_checked_text_view);
         intervalSpinner.setAdapter(intervalSpinnerAdapter);
         intervalSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -179,7 +178,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
         if (!PermissionUtils.hasUsageStatsPermission(this)) promptForUsageStatsPermission();
         else getAppUsage();
         // Grant optional READ_PHONE_STATE permission
-        if (!PermissionUtils.hasPermission(this, Manifest.permission.READ_PHONE_STATE) &&
+        if (!PermissionUtils.hasSelfPermission(Manifest.permission.READ_PHONE_STATE) &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             requestPerm.launch(Manifest.permission.READ_PHONE_STATE, granted -> {
                 if (granted) recreate();
@@ -345,7 +344,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
                             .getUsageStatsForPackage(usageInfo.packageName, mCurrentInterval, usageInfo.userId);
                     packageUsageInfo.copyOthers(usageInfo);
                     mPackageUsageInfoLiveData.postValue(packageUsageInfo);
-                } catch (RemoteException e) {
+                } catch (Exception e) {
                     Log.e("AppUsage", e);
                 }
             });
@@ -360,7 +359,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
                     try {
                         packageUsageInfoList.addAll(AppUsageStatsManager.getInstance(getApplication())
                                 .getUsageStats(mCurrentInterval, userId));
-                    } catch (RemoteException | SecurityException e) {
+                    } catch (Exception e) {
                         Log.e("AppUsage", e);
                     }
                 }

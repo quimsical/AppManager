@@ -29,8 +29,10 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -277,7 +279,7 @@ public class ScannerViewModel extends AndroidViewModel implements VirusTotal.Ful
         try {
             mDexVfsId = VirtualFileSystem.mount(Uri.fromFile(mApkFile), Paths.get(mApkFile), ContentType2.DEX.getMimeType());
             DexFileSystem dfs = (DexFileSystem) Objects.requireNonNull(VirtualFileSystem.getFileSystem(mDexVfsId));
-            mAllClasses = dfs.getDexClasses().getClassNames();
+            mAllClasses = dfs.getDexClasses().getBaseClassNames();
             Collections.sort(mAllClasses);
         } catch (Throwable e) {
             e.printStackTrace();

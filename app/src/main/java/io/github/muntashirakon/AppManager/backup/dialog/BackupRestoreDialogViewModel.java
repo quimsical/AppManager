@@ -22,7 +22,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
-import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.backup.BackupFlags;
 import io.github.muntashirakon.AppManager.backup.MetadataManager;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
@@ -32,7 +31,6 @@ import io.github.muntashirakon.AppManager.db.utils.AppDb;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
-import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
 
 public class BackupRestoreDialogViewModel extends AndroidViewModel {
@@ -125,6 +123,10 @@ public class BackupRestoreDialogViewModel extends AndroidViewModel {
             Map<String, BackupInfo> backupInfoMap = new HashMap<>();
             // Fetch info
             for (UserPackagePair userPackagePair : userPackagePairs) {
+                if (userPackagePair.getPackageName().equals("android")) {
+                    // Skip checking android package because it can't be backed up or restored.
+                    continue;
+                }
                 BackupInfo backupInfo = backupInfoMap.get(userPackagePair.getPackageName());
                 if (backupInfo != null) {
                     backupInfo.userIds.add(userPackagePair.getUserHandle());
@@ -228,6 +230,7 @@ public class BackupRestoreDialogViewModel extends AndroidViewModel {
         mExecutor.submit(() -> {
             switch (operationInfo.mode) {
                 case BackupRestoreDialogFragment.MODE_BACKUP:
+                case BackupRestoreDialogFragment.MODE_RESTORE:
                     if (operationInfo.handleMultipleUsers
                             && (operationInfo.flags & BackupFlags.BACKUP_CUSTOM_USERS) != 0) {
                         handleCustomUsers(operationInfo);
@@ -236,17 +239,6 @@ public class BackupRestoreDialogViewModel extends AndroidViewModel {
                     break;
                 case BackupRestoreDialogFragment.MODE_DELETE:
                     // Nothing to handle, proceed directly to operation
-                    break;
-                case BackupRestoreDialogFragment.MODE_RESTORE:
-                    if (operationInfo.handleMultipleUsers
-                            && BuildConfig.DEBUG
-                            && (operationInfo.flags & BackupFlags.BACKUP_CUSTOM_USERS) != 0) {
-                        handleCustomUsers(operationInfo);
-                        return;
-                    } else {
-                        // Strip custom users flag
-                        operationInfo.flags &= ~BackupFlags.BACKUP_CUSTOM_USERS;
-                    }
                     break;
             }
             operationInfo.handleMultipleUsers = false;
@@ -259,7 +251,7 @@ public class BackupRestoreDialogViewModel extends AndroidViewModel {
     private void handleCustomUsers(@NonNull OperationInfo operationInfo) {
         operationInfo.handleMultipleUsers = false;
         List<UserInfo> users = Users.getUsers();
-        if (users == null || users.size() <= 1) {
+        if (users.size() <= 1) {
             // Strip custom users flag
             operationInfo.flags &= ~BackupFlags.BACKUP_CUSTOM_USERS;
             generatePackageUserIdLists(operationInfo);
@@ -276,11 +268,9 @@ public class BackupRestoreDialogViewModel extends AndroidViewModel {
         operationInfo.packageList = new ArrayList<>();
         operationInfo.userIdListMappedToPackageList = new ArrayList<>();
         for (BackupInfo backupInfo : mBackupInfoList) {
-            for (int userId : backupInfo.userIds) {
-                if (ArrayUtils.contains(userIds, userId)) {
-                    operationInfo.packageList.add(backupInfo.packageName);
-                    operationInfo.userIdListMappedToPackageList.add(userId);
-                }
+            for (int userId : userIds) {
+                operationInfo.packageList.add(backupInfo.packageName);
+                operationInfo.userIdListMappedToPackageList.add(userId);
             }
         }
     }
