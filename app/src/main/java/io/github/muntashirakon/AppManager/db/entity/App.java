@@ -14,10 +14,10 @@ import androidx.core.content.pm.PackageInfoCompat;
 import androidx.room.ColumnInfo;
 import androidx.room.Entity;
 
-import java.io.File;
 import java.io.Serializable;
 import java.util.Objects;
 
+import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.Utils;
@@ -125,11 +125,10 @@ public class App implements Serializable {
         app.packageName = applicationInfo.packageName;
         app.uid = applicationInfo.uid;
         app.userId = UserHandleHidden.getUserId(app.uid);
-        app.isInstalled = (applicationInfo.flags & ApplicationInfo.FLAG_INSTALLED) != 0
-                && applicationInfo.publicSourceDir != null && new File(applicationInfo.publicSourceDir).exists();
+        app.isInstalled = ApplicationInfoCompat.isInstalled(applicationInfo);
         app.flags = applicationInfo.flags;
         app.isEnabled = !FreezeUtils.isFrozen(applicationInfo);
-        app.packageLabel = applicationInfo.loadLabel(context.getPackageManager()).toString();
+        app.packageLabel = ApplicationInfoCompat.loadLabelSafe(applicationInfo, context.getPackageManager()).toString();
         app.sdk = applicationInfo.targetSdkVersion;
         app.versionName = packageInfo.versionName;
         app.versionCode = PackageInfoCompat.getLongVersionCode(packageInfo);

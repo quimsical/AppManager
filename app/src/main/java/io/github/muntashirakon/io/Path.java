@@ -5,14 +5,16 @@ package io.github.muntashirakon.io;
 import android.Manifest;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandleHidden;
+import android.provider.DocumentsContract;
 import android.system.ErrnoException;
 import android.system.OsConstants;
 import android.util.Log;
@@ -21,9 +23,11 @@ import android.webkit.MimeTypeMap;
 import androidx.annotation.CheckResult;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.provider.DocumentsContractCompat;
 import androidx.core.util.Pair;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.documentfile.provider.ExtendedRawDocumentFile;
+import androidx.documentfile.provider.MediaDocumentFile;
 import androidx.documentfile.provider.VirtualDocumentFile;
 
 import org.jetbrains.annotations.Contract;
@@ -45,8 +49,8 @@ import java.util.Objects;
 import aosp.libcore.util.EmptyArray;
 import io.github.muntashirakon.AppManager.compat.StorageManagerCompat;
 import io.github.muntashirakon.AppManager.ipc.LocalServices;
-import io.github.muntashirakon.AppManager.misc.OsEnvironment;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
+import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
 import io.github.muntashirakon.io.fs.VirtualFileSystem;
@@ -70,15 +74,6 @@ public class Path implements Comparable<Path> {
             return;
         }
         // We cannot use Path API here
-        // Read-only
-        EXCLUSIVE_ACCESS_PATHS.add(Environment.getRootDirectory().getAbsolutePath());
-        EXCLUSIVE_ACCESS_GRANTED.add(true);
-        EXCLUSIVE_ACCESS_PATHS.add(OsEnvironment.getDataDirectoryRaw() + "/app");
-        EXCLUSIVE_ACCESS_GRANTED.add(true);
-        EXCLUSIVE_ACCESS_PATHS.add(OsEnvironment.getProductDirectoryRaw());
-        EXCLUSIVE_ACCESS_GRANTED.add(true);
-        EXCLUSIVE_ACCESS_PATHS.add(OsEnvironment.getVendorDirectoryRaw());
-        EXCLUSIVE_ACCESS_GRANTED.add(true);
         // Read-write
         Context context = ContextUtils.getContext();
         EXCLUSIVE_ACCESS_PATHS.add(Objects.requireNonNull(context.getFilesDir().getParentFile()).getAbsolutePath());
@@ -153,7 +148,8 @@ public class Path implements Comparable<Path> {
                 // Fall-back to unprivileged access
             }
         }
-        return new ExtendedRawDocumentFile(FileSystemManager.getLocal().getFile(path));
+        ExtendedFile file = FileSystemManager.getLocal().getFile(path);
+        return new ExtendedRawDocumentFile(LocalFileOverlay.getOverlayFile(file));
     }
 
     // An invalid MIME so that it doesn't match any extension
@@ -180,7 +176,8 @@ public class Path implements Comparable<Path> {
             FileSystemManager fs = LocalServices.getFileSystemManager();
             mDocumentFile = new ExtendedRawDocumentFile(fs.getFile(fileLocation));
         } else {
-            mDocumentFile = new ExtendedRawDocumentFile(FileSystemManager.getLocal().getFile(fileLocation));
+            ExtendedFile file = FileSystemManager.getLocal().getFile(fileLocation);
+            mDocumentFile = new ExtendedRawDocumentFile(LocalFileOverlay.getOverlayFile(file));
         }
     }
 
@@ -195,8 +192,13 @@ public class Path implements Comparable<Path> {
         DocumentFile documentFile;
         switch (uri.getScheme()) {
             case ContentResolver.SCHEME_CONTENT:
-                boolean isTreeUri = uri.getPath().startsWith("/tree/");
-                documentFile = Objects.requireNonNull(isTreeUri ? DocumentFile.fromTreeUri(context, uri) : DocumentFile.fromSingleUri(context, uri));
+                if (isDocumentsProvider(context, uri.getAuthority())) { // We can't use DocumentsContract.isDocumentUri() because it expects something that isn't always correct
+                    boolean isTreeUri = DocumentsContractCompat.isTreeUri(uri);
+                    documentFile = Objects.requireNonNull(isTreeUri ? DocumentFile.fromTreeUri(context, uri) : DocumentFile.fromSingleUri(context, uri));
+                } else {
+                    // Content provider
+                    documentFile = new MediaDocumentFile(null, context, uri);
+                }
                 break;
             case ContentResolver.SCHEME_FILE:
                 documentFile = getRequiredRawDocument(uri.getPath());
@@ -232,6 +234,15 @@ public class Path implements Comparable<Path> {
 
     private Path(@NonNull Context context, @NonNull DocumentFile documentFile) {
         mContext = context;
+        if (documentFile instanceof ExtendedRawDocumentFile) {
+            ExtendedFile file = ((ExtendedRawDocumentFile) documentFile).getFile();
+            if (file instanceof LocalFile) {
+                ExtendedFile newFile = LocalFileOverlay.getOverlayFileOrNull(file);
+                if (newFile != null) {
+                    documentFile = new ExtendedRawDocumentFile(newFile);
+                }
+            }
+        }
         mDocumentFile = documentFile;
     }
 
@@ -297,6 +308,18 @@ public class Path implements Comparable<Path> {
     public String getRealFilePath() throws IOException {
         if (mDocumentFile instanceof ExtendedRawDocumentFile) {
             return Objects.requireNonNull(getFile()).getCanonicalPath();
+        }
+        return null;
+    }
+
+    /**
+     * Same as {@link #getFile()} except it returns the real path if the
+     * current path is a symbolic link.
+     */
+    @Nullable
+    public Path getRealPath() throws IOException {
+        if (mDocumentFile instanceof ExtendedRawDocumentFile) {
+            return Paths.get(Objects.requireNonNull(getFile()).getCanonicalFile());
         }
         return null;
     }
@@ -1227,7 +1250,7 @@ public class Path implements Comparable<Path> {
         if (src.isMountPoint() || dst.isMountPoint()) {
             throw new IOException("Either source or destination are a mount point.");
         }
-        IoUtils.copy(src, dst);
+        IoUtils.copy(src, dst, null);
     }
 
     // Copy directory content
@@ -1480,10 +1503,13 @@ public class Path implements Comparable<Path> {
         throw new IOException("Target is not backed by a real file");
     }
 
+    @NonNull
     public byte[] getContentAsBinary() {
         return getContentAsBinary(EmptyArray.BYTE);
     }
 
+    @Nullable
+    @Contract("!null -> !null")
     public byte[] getContentAsBinary(byte[] emptyValue) {
         try (InputStream inputStream = openInputStream()) {
             return IoUtils.readFully(inputStream, -1, true);
@@ -1496,6 +1522,7 @@ public class Path implements Comparable<Path> {
         return emptyValue;
     }
 
+    @NonNull
     public String getContentAsString() {
         return getContentAsString("");
     }
@@ -1503,15 +1530,12 @@ public class Path implements Comparable<Path> {
     @Nullable
     @Contract("!null -> !null")
     public String getContentAsString(@Nullable String emptyValue) {
-        try (InputStream inputStream = openInputStream()) {
-            return new String(IoUtils.readFully(inputStream, -1, true), Charset.defaultCharset());
-        } catch (IOException e) {
-            if (!(e.getCause() instanceof ErrnoException)) {
-                // This isn't just another EACCESS exception
-                e.printStackTrace();
+        String contents = ExUtils.exceptionAsNull(() -> {
+            try (InputStream inputStream = openInputStream()) {
+                return new String(IoUtils.readFully(inputStream, -1, true), Charset.defaultCharset());
             }
-        }
-        return emptyValue;
+        });
+        return contents != null ? contents : emptyValue;
     }
 
     @NonNull
@@ -1662,6 +1686,17 @@ public class Path implements Comparable<Path> {
         if (VirtualFileSystem.getFileSystem(uri) != null) {
             throw new IOException("Destination is a mount point.");
         }
+    }
+
+    private static boolean isDocumentsProvider(Context context, String authority) {
+        final Intent intent = new Intent(DocumentsContract.PROVIDER_INTERFACE);
+        final List<ResolveInfo> infos = context.getPackageManager().queryIntentContentProviders(intent, 0);
+        for (ResolveInfo info : infos) {
+            if (authority.equals(info.providerInfo.authority)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static class ProxyStorageCallback extends StorageManagerCompat.ProxyFileDescriptorCallbackCompat {

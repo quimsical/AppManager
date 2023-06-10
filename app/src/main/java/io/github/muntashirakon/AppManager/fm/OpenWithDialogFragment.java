@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -34,13 +35,16 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
+import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.compat.BundleCompat;
 import io.github.muntashirakon.AppManager.intercept.ActivityInterceptor;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
-import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
+import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.dialog.DialogTitleBuilder;
 import io.github.muntashirakon.dialog.SearchableItemsDialogBuilder;
 import io.github.muntashirakon.io.Path;
@@ -53,6 +57,7 @@ public class OpenWithDialogFragment extends DialogFragment {
 
     private static final String ARG_PATH = "path";
     private static final String ARG_TYPE = "type";
+    private static final String ARG_CLOSE_ACTIVITY = "close";
 
     @NonNull
     public static OpenWithDialogFragment getInstance(@NonNull Path path) {
@@ -61,16 +66,38 @@ public class OpenWithDialogFragment extends DialogFragment {
 
     @NonNull
     public static OpenWithDialogFragment getInstance(@NonNull Path path, @Nullable String type) {
+        return getInstance(path.getUri(), type, false);
+    }
+
+    @NonNull
+    public static OpenWithDialogFragment getInstance(@NonNull Uri uri, @Nullable String type, boolean closeActivity) {
         OpenWithDialogFragment fragment = new OpenWithDialogFragment();
         Bundle args = new Bundle();
-        args.putParcelable(ARG_PATH, path.getUri());
+        args.putParcelable(ARG_PATH, uri);
         args.putString(ARG_TYPE, type);
+        args.putBoolean(ARG_CLOSE_ACTIVITY, closeActivity);
         fragment.setArguments(args);
         return fragment;
     }
 
+    private static class ResolvedActivityInfo {
+        @NonNull
+        public final ResolveInfo resolveInfo;
+        @NonNull
+        public final CharSequence label;
+        @NonNull
+        public final CharSequence appLabel;
+
+        private ResolvedActivityInfo(@NonNull ResolveInfo resolveInfo, @NonNull CharSequence label, @NonNull CharSequence appLabel) {
+            this.resolveInfo = resolveInfo;
+            this.label = label;
+            this.appLabel = appLabel;
+        }
+    }
+
     private Path mPath;
     private String mCustomType;
+    private boolean mCloseActivity;
     private View mDialogView;
     private OpenWithViewModel mViewModel;
     private MatchingActivitiesRecyclerViewAdapter mAdapter;
@@ -79,8 +106,9 @@ public class OpenWithDialogFragment extends DialogFragment {
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         mViewModel = new ViewModelProvider(this).get(OpenWithViewModel.class);
-        mPath = Paths.get((Uri) requireArguments().getParcelable(ARG_PATH));
+        mPath = Paths.get(Objects.requireNonNull(BundleCompat.getParcelable(requireArguments(), ARG_PATH, Uri.class)));
         mCustomType = requireArguments().getString(ARG_TYPE, null);
+        mCloseActivity = requireArguments().getBoolean(ARG_CLOSE_ACTIVITY, false);
         mAdapter = new MatchingActivitiesRecyclerViewAdapter(mViewModel, requireActivity());
         mAdapter.setIntent(getIntent(mPath, mCustomType));
         mDialogView = View.inflate(requireActivity(), R.layout.dialog_open_with, null);
@@ -94,7 +122,7 @@ public class OpenWithDialogFragment extends DialogFragment {
         openForThisFileOnly.setVisibility(View.GONE);
         DialogTitleBuilder titleBuilder = new DialogTitleBuilder(requireActivity())
                 .setTitle(R.string.file_open_with)
-                .setSubtitle(mPath.getUri().toString())
+                .setSubtitle(FmUtils.getDisplayablePath(mPath))
                 .setEndIcon(R.drawable.ic_open_in_new, v1 -> {
                     if (mAdapter != null && mAdapter.getIntent().resolveActivityInfo(requireActivity()
                             .getPackageManager(), 0) != null) {
@@ -126,6 +154,7 @@ public class OpenWithDialogFragment extends DialogFragment {
                                     mViewModel.loadMatchingActivities(mAdapter.getIntent());
                                 }
                             }
+                            dialog1.dismiss();
                         })
                         .setNegativeButton(R.string.close, null)
                         .show();
@@ -168,30 +197,40 @@ public class OpenWithDialogFragment extends DialogFragment {
         }
     }
 
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (mCloseActivity) {
+            requireActivity().finish();
+        }
+    }
+
     @NonNull
     private Intent getIntent(@NonNull Path path, @Nullable String customType) {
+        int flags = Intent.FLAG_ACTIVITY_NEW_TASK;
+        if (path.canRead()) {
+            flags |= Intent.FLAG_GRANT_READ_URI_PERMISSION;
+        }
+        if (path.canWrite()) {
+            flags |= Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+        }
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setDataAndType(FmProvider.getContentUri(path), customType != null ? customType : path.getType());
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        intent.setFlags(flags);
         return intent;
     }
 
     private static class MatchingActivitiesRecyclerViewAdapter extends RecyclerView.Adapter<MatchingActivitiesRecyclerViewAdapter.ViewHolder> {
-        private final List<ResolveInfo> mMatchingActivities = new ArrayList<>();
-        private final PackageManager mPm;
+        private final List<ResolvedActivityInfo> mMatchingActivities = new ArrayList<>();
         private final Activity mActivity;
         private final OpenWithViewModel mViewModel;
-        private final ImageLoader mImageLoader;
+        private final ImageLoader imageLoader = ImageLoader.getInstance();
 
         private Intent mIntent;
 
         public MatchingActivitiesRecyclerViewAdapter(OpenWithViewModel viewModel, Activity activity) {
             mViewModel = viewModel;
-            mImageLoader = new ImageLoader();
             mActivity = activity;
-            mPm = activity.getPackageManager();
         }
 
         public Intent getIntent() {
@@ -202,7 +241,7 @@ public class OpenWithDialogFragment extends DialogFragment {
             mIntent = intent;
         }
 
-        public void setDefaultList(@Nullable List<ResolveInfo> matchingActivities) {
+        public void setDefaultList(@Nullable List<ResolvedActivityInfo> matchingActivities) {
             mMatchingActivities.clear();
             if (matchingActivities != null) {
                 mMatchingActivities.addAll(matchingActivities);
@@ -219,13 +258,14 @@ public class OpenWithDialogFragment extends DialogFragment {
 
         @Override
         public void onBindViewHolder(@NonNull MatchingActivitiesRecyclerViewAdapter.ViewHolder holder, int position) {
-            ResolveInfo resolveInfo = mMatchingActivities.get(position);
-            ActivityInfo info = resolveInfo.activityInfo;
-            holder.title.setText(info.loadLabel(mPm));
+            ResolvedActivityInfo resolvedActivityInfo = mMatchingActivities.get(position);
+            ActivityInfo info = resolvedActivityInfo.resolveInfo.activityInfo;
+            holder.title.setText(resolvedActivityInfo.label);
             String activityName = info.name;
-            String summary = info.packageName + "\n" + getShortActivityName(activityName);
+            String summary = resolvedActivityInfo.appLabel + "\n" + getShortActivityName(activityName);
             holder.summary.setText(summary);
-            mImageLoader.displayImage(info.packageName + "_" + activityName, info, holder.icon);
+            imageLoader.displayImage(info.packageName + "_" + resolvedActivityInfo.label, holder.icon,
+                    new ResolveInfoImageFetcher(resolvedActivityInfo.resolveInfo));
             holder.itemView.setOnClickListener(v -> {
                 Intent intent = new Intent(mIntent);
                 intent.setClassName(info.packageName, activityName);
@@ -273,10 +313,9 @@ public class OpenWithDialogFragment extends DialogFragment {
     }
 
     public static class OpenWithViewModel extends AndroidViewModel {
-        private final MutableLiveData<List<ResolveInfo>> mMatchingActivitiesLiveData = new MutableLiveData<>();
+        private final MutableLiveData<List<ResolvedActivityInfo>> mMatchingActivitiesLiveData = new MutableLiveData<>();
         private final MutableLiveData<PathContentInfo> mPathContentInfoLiveData = new MutableLiveData<>();
         private final SingleLiveEvent<Intent> mIntentLiveData = new SingleLiveEvent<>();
-        private final ExecutorService mExecutor = MultithreadedExecutor.getNewInstance();
         private final PackageManager mPm;
 
         public OpenWithViewModel(@NonNull Application application) {
@@ -285,19 +324,27 @@ public class OpenWithDialogFragment extends DialogFragment {
         }
 
         public void loadMatchingActivities(@NonNull Intent intent) {
-            mExecutor.submit(() ->
-                    mMatchingActivitiesLiveData.postValue(mPm.queryIntentActivities(intent, 0)));
+            ThreadUtils.postOnBackgroundThread(() -> {
+                List<ResolveInfo> resolveInfoList = mPm.queryIntentActivities(intent, 0);
+                List<ResolvedActivityInfo> resolvedActivityInfoList = new ArrayList<>(resolveInfoList.size());
+                for (ResolveInfo resolveInfo : resolveInfoList) {
+                    CharSequence label = resolveInfo.loadLabel(mPm);
+                    CharSequence appLabel = resolveInfo.activityInfo.applicationInfo.loadLabel(mPm);
+                    resolvedActivityInfoList.add(new ResolvedActivityInfo(resolveInfo, label, appLabel));
+                }
+                mMatchingActivitiesLiveData.postValue(resolvedActivityInfoList);
+            });
         }
 
         public void loadFileContentInfo(@NonNull Path path) {
-            mExecutor.submit(() -> mPathContentInfoLiveData.postValue(path.getPathContentInfo()));
+            ThreadUtils.postOnBackgroundThread(() -> mPathContentInfoLiveData.postValue(path.getPathContentInfo()));
         }
 
         public void openIntent(@NonNull Intent intent) {
             mIntentLiveData.setValue(intent);
         }
 
-        public LiveData<List<ResolveInfo>> getMatchingActivitiesLiveData() {
+        public LiveData<List<ResolvedActivityInfo>> getMatchingActivitiesLiveData() {
             return mMatchingActivitiesLiveData;
         }
 
@@ -312,6 +359,25 @@ public class OpenWithDialogFragment extends DialogFragment {
         @Override
         protected void onCleared() {
             super.onCleared();
+        }
+    }
+
+    private static class ResolveInfoImageFetcher implements ImageLoader.ImageFetcherInterface {
+        @Nullable
+        private final ResolveInfo info;
+
+        public ResolveInfoImageFetcher(@Nullable ResolveInfo info) {
+            this.info = info;
+        }
+
+        @Override
+        @NonNull
+        public ImageLoader.ImageFetcherResult fetchImage(@NonNull String tag) {
+            PackageManager pm = ContextUtils.getContext().getPackageManager();
+            Drawable drawable = info != null ? info.loadIcon(pm) : null;
+            return new ImageLoader.ImageFetcherResult(tag, drawable != null ? UIUtils.getBitmapFromDrawable(drawable) : null,
+                    false, true,
+                    new ImageLoader.DefaultImageDrawable("android_default_icon", pm.getDefaultActivityIcon()));
         }
     }
 }

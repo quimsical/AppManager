@@ -2,6 +2,8 @@
 
 package io.github.muntashirakon.AppManager.utils;
 
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getBoldString;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getColoredText;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getMonospacedText;
@@ -25,7 +27,6 @@ import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageStats;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 import android.os.Build;
@@ -67,7 +68,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -102,38 +102,6 @@ public final class PackageUtils {
 
     public static final File PACKAGE_STAGING_DIRECTORY = new File("/data/local/tmp");
 
-    public static final int flagSigningInfo;
-    public static final int flagSigningInfoApk;
-    public static final int flagDisabledComponents;
-    public static final int flagMatchUninstalled;
-
-    static {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            flagSigningInfo = PackageManager.GET_SIGNING_CERTIFICATES;
-        } else {
-            //noinspection deprecation
-            flagSigningInfo = PackageManager.GET_SIGNATURES;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            flagSigningInfoApk = PackageManager.GET_SIGNING_CERTIFICATES;
-        } else {
-            //noinspection deprecation
-            flagSigningInfoApk = PackageManager.GET_SIGNATURES;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            flagDisabledComponents = PackageManager.MATCH_DISABLED_COMPONENTS;
-        } else {
-            //noinspection deprecation
-            flagDisabledComponents = PackageManager.GET_DISABLED_COMPONENTS;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            flagMatchUninstalled = PackageManager.MATCH_UNINSTALLED_PACKAGES;
-        } else {
-            //noinspection deprecation
-            flagMatchUninstalled = PackageManager.GET_UNINSTALLED_PACKAGES;
-        }
-    }
-
     @NonNull
     public static ArrayList<UserPackagePair> getUserPackagePairs(@NonNull List<ApplicationItem> applicationItems) {
         ArrayList<UserPackagePair> userPackagePairList = new ArrayList<>();
@@ -152,19 +120,22 @@ public final class PackageUtils {
     /**
      * List all applications stored in App Manager database as well as from the system.
      *
-     * @param executor    Retrieve applications from the system using the given thread instead of the current thread.
-     * @param loadBackups Load/List backup metadata
+     * @param loadInBackground Retrieve applications from the system using the given thread instead of the current thread.
+     * @param loadBackups      Load/List backup metadata
      * @return List of applications, which could be the cached version if the executor parameter is {@code null}.
      */
     @WorkerThread
     @NonNull
     public static List<ApplicationItem> getInstalledOrBackedUpApplicationsFromDb(@NonNull Context context,
-                                                                                 @Nullable ExecutorService executor,
+                                                                                 boolean loadInBackground,
                                                                                  boolean loadBackups) {
         HashMap<String, ApplicationItem> applicationItems = new HashMap<>();
         AppDb appDb = new AppDb();
         List<App> apps = appDb.getAllApplications();
-        boolean loadInBackground = !(apps.size() == 0 || executor == null);
+        if (loadInBackground && apps.isEmpty()) {
+            // Force-load in foreground
+            loadInBackground = false;
+        }
         if (!loadInBackground) {
             // Load app list for the first time
             Log.d(TAG, "Loading apps for the first time.");
@@ -262,7 +233,7 @@ public final class PackageUtils {
         if (loadInBackground) {
             // Update list of apps safely in the background.
             // We need to do this here to avoid locks in AppDb
-            executor.submit(() -> {
+            ThreadUtils.postOnBackgroundThread(() -> {
                 if (loadBackups) {
                     appDb.loadInstalledOrBackedUpApplications(context);
                 } else appDb.updateApplications(context);
@@ -277,6 +248,9 @@ public final class PackageUtils {
         for (int userId : Users.getUsersIds()) {
             try {
                 applicationInfoList.addAll(PackageManagerCompat.getInstalledPackages(flags, userId));
+                if (ThreadUtils.isInterrupted()) {
+                    break;
+                }
             } catch (RemoteException ignore) {
             }
         }
@@ -289,6 +263,9 @@ public final class PackageUtils {
         for (int userId : Users.getUsersIds()) {
             try {
                 applicationInfoList.addAll(PackageManagerCompat.getInstalledApplications(flags, userId));
+                if (ThreadUtils.isInterrupted()) {
+                    break;
+                }
             } catch (RemoteException ignore) {
             }
         }
@@ -315,7 +292,7 @@ public final class PackageUtils {
                         new IPackageStatsObserver.Stub() {
                             @SuppressWarnings("deprecation")
                             @Override
-                            public void onGetStatsCompleted(final PackageStats pStats, boolean succeeded) {
+                            public void onGetStatsCompleted(final android.content.pm.PackageStats pStats, boolean succeeded) {
                                 try {
                                     if (succeeded) packageSizeInfo.set(new PackageSizeInfo(pStats));
                                 } finally {
@@ -336,7 +313,7 @@ public final class PackageUtils {
                         userHandle, context.getPackageName());
                 packageSizeInfo.set(new PackageSizeInfo(packageName, storageStats, userHandle));
             } catch (Throwable e) {
-                Log.e(TAG, e);
+                Log.w(TAG, e);
             }
         }
         return packageSizeInfo.get();
@@ -347,7 +324,8 @@ public final class PackageUtils {
         try {
             PackageInfo packageInfo = PackageManagerCompat.getPackageInfo(packageName,
                     PackageManager.GET_ACTIVITIES | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
-                            | flagDisabledComponents | flagMatchUninstalled | PackageManager.GET_SERVICES,
+                            | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES | PackageManager.GET_SERVICES
+                            | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES,
                     userHandle);
             return collectComponentClassNames(packageInfo);
         } catch (Throwable e) {
@@ -448,7 +426,8 @@ public final class PackageUtils {
     @Nullable
     public static String[] getPermissionsForPackage(String packageName, @UserIdInt int userId)
             throws PackageManager.NameNotFoundException, RemoteException {
-        PackageInfo info = PackageManagerCompat.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS, userId);
+        PackageInfo info = PackageManagerCompat.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS
+                | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
         return info.requestedPermissions;
     }
 
@@ -486,7 +465,7 @@ public final class PackageUtils {
     public static String getPackageLabel(@NonNull PackageManager pm, String packageName) {
         try {
             @SuppressLint("WrongConstant")
-            ApplicationInfo applicationInfo = pm.getApplicationInfo(packageName, flagMatchUninstalled);
+            ApplicationInfo applicationInfo = pm.getApplicationInfo(packageName, MATCH_UNINSTALLED_PACKAGES);
             return pm.getApplicationLabel(applicationInfo).toString();
         } catch (PackageManager.NameNotFoundException ignore) {
         }
@@ -496,7 +475,8 @@ public final class PackageUtils {
     @NonNull
     public static CharSequence getPackageLabel(@NonNull PackageManager pm, String packageName, int userHandle) {
         try {
-            ApplicationInfo applicationInfo = PackageManagerCompat.getApplicationInfo(packageName, 0, userHandle);
+            ApplicationInfo applicationInfo = PackageManagerCompat.getApplicationInfo(packageName,
+                    PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userHandle);
             return applicationInfo.loadLabel(pm);
         } catch (Exception ignore) {
         }
@@ -521,7 +501,8 @@ public final class PackageUtils {
 
     public static int getAppUid(@NonNull UserPackagePair pair) {
         try {
-            return PackageManagerCompat.getApplicationInfo(pair.getPackageName(), 0, pair.getUserHandle()).uid;
+            return PackageManagerCompat.getApplicationInfo(pair.getPackageName(),
+                    PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, pair.getUserHandle()).uid;
         } catch (Exception ignore) {
         }
         return -1;

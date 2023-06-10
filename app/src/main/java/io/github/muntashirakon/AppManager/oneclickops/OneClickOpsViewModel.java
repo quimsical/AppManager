@@ -2,6 +2,9 @@
 
 package io.github.muntashirakon.AppManager.oneclickops;
 
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
+
 import android.app.Application;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
@@ -11,6 +14,7 @@ import android.os.UserHandleHidden;
 
 import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.util.Pair;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
@@ -19,28 +23,28 @@ import androidx.lifecycle.MutableLiveData;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.StorageManagerCompat;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
-
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.flagDisabledComponents;
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.flagMatchUninstalled;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
+import io.github.muntashirakon.io.Paths;
 
 public class OneClickOpsViewModel extends AndroidViewModel {
     public static final String TAG = OneClickOpsViewModel.class.getSimpleName();
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(1);
     private final PackageManager pm;
-
     private final MutableLiveData<List<ItemCount>> trackerCount = new MutableLiveData<>();
     private final MutableLiveData<Pair<List<ItemCount>, String[]>> componentCount = new MutableLiveData<>();
     private final MutableLiveData<Pair<List<AppOpCount>, Pair<int[], Integer>>> appOpsCount = new MutableLiveData<>();
+    private final MutableLiveData<List<String>> clearDataCandidates = new MutableLiveData<>();
     private final MutableLiveData<Boolean> trimCachesResult = new MutableLiveData<>();
+
+    @Nullable
+    private Future<?> futureResult;
 
     public OneClickOpsViewModel(@NonNull Application application) {
         super(application);
@@ -49,7 +53,9 @@ public class OneClickOpsViewModel extends AndroidViewModel {
 
     @Override
     protected void onCleared() {
-        executor.shutdownNow();
+        if (futureResult != null) {
+            futureResult.cancel(true);
+        }
         super.onCleared();
     }
 
@@ -65,24 +71,32 @@ public class OneClickOpsViewModel extends AndroidViewModel {
         return appOpsCount;
     }
 
+    public LiveData<List<String>> getClearDataCandidates() {
+        return clearDataCandidates;
+    }
+
     public LiveData<Boolean> watchTrimCachesResult() {
         return trimCachesResult;
     }
 
     @AnyThread
     public void blockTrackers(boolean systemApps) {
-        executor.submit(() -> {
+        if (futureResult != null) {
+            futureResult.cancel(true);
+        }
+        futureResult = ThreadUtils.postOnBackgroundThread(() -> {
             List<ItemCount> trackerCounts = new ArrayList<>();
             HashSet<String> packageNames = new HashSet<>();
             ItemCount trackerCount;
             for (PackageInfo packageInfo : PackageUtils.getAllPackages(PackageManager.GET_ACTIVITIES
-                    | PackageManager.GET_RECEIVERS | flagDisabledComponents | flagMatchUninstalled
-                    | PackageManager.GET_PROVIDERS | PackageManager.GET_SERVICES)) {
+                    | PackageManager.GET_RECEIVERS | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES
+                    | PackageManager.GET_PROVIDERS | PackageManager.GET_SERVICES
+                    | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES)) {
                 if (packageNames.contains(packageInfo.packageName)) {
                     continue;
                 }
                 packageNames.add(packageInfo.packageName);
-                if (Thread.currentThread().isInterrupted()) return;
+                if (ThreadUtils.isInterrupted()) return;
                 ApplicationInfo applicationInfo = packageInfo.applicationInfo;
                 if (!Ops.isRoot() && !PackageUtils.isTestOnlyApp(applicationInfo))
                     continue;
@@ -98,15 +112,19 @@ public class OneClickOpsViewModel extends AndroidViewModel {
     @AnyThread
     public void blockComponents(boolean systemApps, @NonNull String[] signatures) {
         if (signatures.length == 0) return;
-        executor.submit(() -> {
+        if (futureResult != null) {
+            futureResult.cancel(true);
+        }
+        futureResult = ThreadUtils.postOnBackgroundThread(() -> {
             List<ItemCount> componentCounts = new ArrayList<>();
             HashSet<String> packageNames = new HashSet<>();
-            for (ApplicationInfo applicationInfo : PackageUtils.getAllApplications(flagMatchUninstalled)) {
+            for (ApplicationInfo applicationInfo : PackageUtils.getAllApplications(MATCH_UNINSTALLED_PACKAGES
+                    | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES)) {
                 if (packageNames.contains(applicationInfo.packageName)) {
                     continue;
                 }
                 packageNames.add(applicationInfo.packageName);
-                if (Thread.currentThread().isInterrupted()) return;
+                if (ThreadUtils.isInterrupted()) return;
                 if (!Ops.isRoot() && !PackageUtils.isTestOnlyApp(applicationInfo))
                     continue;
                 if (!systemApps && (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0)
@@ -124,16 +142,20 @@ public class OneClickOpsViewModel extends AndroidViewModel {
 
     @AnyThread
     public void setAppOps(int[] appOpList, int mode, boolean systemApps) {
-        executor.submit(() -> {
+        if (futureResult != null) {
+            futureResult.cancel(true);
+        }
+        futureResult = ThreadUtils.postOnBackgroundThread(() -> {
             Pair<int[], Integer> appOpsModePair = new Pair<>(appOpList, mode);
             List<AppOpCount> appOpCounts = new ArrayList<>();
             HashSet<String> packageNames = new HashSet<>();
-            for (ApplicationInfo applicationInfo : PackageUtils.getAllApplications(flagMatchUninstalled)) {
+            for (ApplicationInfo applicationInfo : PackageUtils.getAllApplications(MATCH_UNINSTALLED_PACKAGES
+                    | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES)) {
                 if (packageNames.contains(applicationInfo.packageName)) {
                     continue;
                 }
                 packageNames.add(applicationInfo.packageName);
-                if (Thread.currentThread().isInterrupted()) return;
+                if (ThreadUtils.isInterrupted()) return;
                 if (!systemApps && (applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0)
                     continue;
                 AppOpCount appOpCount = new AppOpCount();
@@ -148,9 +170,29 @@ public class OneClickOpsViewModel extends AndroidViewModel {
         });
     }
 
+    public void clearData() {
+        if (futureResult != null) {
+            futureResult.cancel(true);
+        }
+        futureResult = ThreadUtils.postOnBackgroundThread(() -> {
+            HashSet<String> packageNames = new HashSet<>();
+            for (ApplicationInfo applicationInfo : PackageUtils.getAllApplications(MATCH_UNINSTALLED_PACKAGES
+                    | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES)) {
+                if (packageNames.contains(applicationInfo.packageName) || isInstalled(applicationInfo)) {
+                    continue;
+                }
+                packageNames.add(applicationInfo.packageName);
+                if (ThreadUtils.isInterrupted()) {
+                    return;
+                }
+            }
+            this.clearDataCandidates.postValue(new ArrayList<>(packageNames));
+        });
+    }
+
     @AnyThread
     public void trimCaches() {
-        executor.submit(() -> {
+        ThreadUtils.postOnBackgroundThread(() -> {
             long size = 1024L * 1024L * 1024L * 1024L;  // 1 TB
             try {
                 // TODO: 30/8/21 Iterate all volumes?
@@ -170,5 +212,9 @@ public class OneClickOpsViewModel extends AndroidViewModel {
         trackerCount.packageLabel = packageInfo.applicationInfo.loadLabel(pm).toString();
         trackerCount.count = ComponentUtils.getTrackerComponentsForPackage(packageInfo).size();
         return trackerCount;
+    }
+
+    private boolean isInstalled(@NonNull ApplicationInfo info) {
+        return info.processName != null && Paths.exists(info.publicSourceDir);
     }
 }

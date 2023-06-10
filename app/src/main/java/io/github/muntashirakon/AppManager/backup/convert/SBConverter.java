@@ -10,6 +10,7 @@ import static io.github.muntashirakon.AppManager.backup.BackupManager.getExt;
 import static io.github.muntashirakon.AppManager.utils.TarUtils.DEFAULT_SPLIT_SIZE;
 import static io.github.muntashirakon.AppManager.utils.TarUtils.TAR_BZIP2;
 import static io.github.muntashirakon.AppManager.utils.TarUtils.TAR_GZIP;
+import static io.github.muntashirakon.AppManager.utils.TarUtils.TAR_ZSTD;
 
 import android.annotation.SuppressLint;
 import android.annotation.UserIdInt;
@@ -22,6 +23,8 @@ import android.os.UserHandleHidden;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.pm.PackageInfoCompat;
+
+import com.github.luben.zstd.ZstdOutputStream;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
@@ -251,6 +254,8 @@ public class SBConverter extends Converter {
                     os = new GzipCompressorOutputStream(bos);
                 } else if (TAR_BZIP2.equals(mDestMetadata.tarType)) {
                     os = new BZip2CompressorOutputStream(bos);
+                } else if (TAR_ZSTD.equals(mDestMetadata.tarType)) {
+                    os = new ZstdOutputStream(bos);
                 } else {
                     throw new BackupException("Invalid compression type: " + mDestMetadata.tarType);
                 }
@@ -264,7 +269,7 @@ public class SBConverter extends Converter {
                             // We need to use a temporary file
                             tmpFile = FileCache.getGlobalFileCache().createCachedFile(dataFile.getExtension());
                             try (OutputStream fos = new FileOutputStream(tmpFile)) {
-                                IoUtils.copy(zis, fos);
+                                IoUtils.copy(zis, fos, -1, null);
                             }
                         }
                         String fileName = zipEntry.getName().replaceFirst(mPackageName + "/", "");
@@ -278,7 +283,7 @@ public class SBConverter extends Converter {
                         if (tmpFile != null) {
                             // Copy from the temporary file
                             try (FileInputStream fis = new FileInputStream(tmpFile)) {
-                                IoUtils.copy(fis, tos);
+                                IoUtils.copy(fis, tos, -1, null);
                             } finally {
                                 FileCache.getGlobalFileCache().delete(tmpFile);
                             }
@@ -303,7 +308,7 @@ public class SBConverter extends Converter {
         mCachedApk = FileUtils.getTempPath(mPackageName, "base.apk");
         try (InputStream pis = getApkFile().openInputStream()) {
             try (OutputStream fos = mCachedApk.openOutputStream()) {
-                IoUtils.copy(pis, fos);
+                IoUtils.copy(pis, fos, -1, null);
             }
             mFilesToBeDeleted.add(getApkFile());
         } catch (IOException e) {
@@ -412,7 +417,7 @@ public class SBConverter extends Converter {
                 splits.add(splitName);
                 Path file = Objects.requireNonNull(mCachedApk.getParentFile()).findOrCreateFile(splitName, null);
                 try (OutputStream fos = file.openOutputStream()) {
-                    IoUtils.copy(zis, fos);
+                    IoUtils.copy(zis, fos, -1, null);
                 } catch (IOException e) {
                     file.delete();
                     throw e;

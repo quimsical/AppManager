@@ -20,7 +20,9 @@ import com.google.android.material.button.MaterialButton;
 import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.accessibility.activity.LeadingActivityTrackerActivity;
+import io.github.muntashirakon.AppManager.editor.CodeEditorActivity;
 import io.github.muntashirakon.AppManager.fm.FmActivity;
+import io.github.muntashirakon.AppManager.intercept.ActivityInterceptor;
 import io.github.muntashirakon.AppManager.logcat.LogViewerActivity;
 import io.github.muntashirakon.AppManager.runner.TermActivity;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
@@ -65,6 +67,19 @@ public class LabsActivity extends BaseActivity {
         addAction(this, flowLayout, R.string.title_ui_tracker, R.drawable.ic_cursor_default_click)
                 .setOnClickListener(v -> {
                     Intent intent = new Intent(this, LeadingActivityTrackerActivity.class);
+                    startActivity(intent);
+                });
+        if (FeatureController.isInterceptorEnabled()) {
+            addAction(this, flowLayout, R.string.interceptor, R.drawable.ic_transit_connection)
+                    .setOnClickListener(v -> {
+                        Intent intent = new Intent(this, ActivityInterceptor.class);
+                        startActivity(intent);
+                    });
+        }
+        addAction(this, flowLayout, R.string.title_code_editor, R.drawable.ic_code)
+                .setOnClickListener(v -> {
+                    Intent intent = new Intent(this, CodeEditorActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(intent);
                 });
     }

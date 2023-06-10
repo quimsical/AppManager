@@ -2,9 +2,9 @@
 
 package io.github.muntashirakon.AppManager.db.utils;
 
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.flagDisabledComponents;
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.flagMatchUninstalled;
-import static io.github.muntashirakon.AppManager.utils.PackageUtils.flagSigningInfo;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.GET_SIGNING_CERTIFICATES;
 
 import android.annotation.UserIdInt;
 import android.content.Context;
@@ -49,6 +49,7 @@ import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 
 public class AppDb {
     public static final String TAG = AppDb.class.getSimpleName();
@@ -195,9 +196,10 @@ public class AppDb {
             }
             try {
                 packageInfo = PackageManagerCompat.getPackageInfo(packageName,
-                        PackageManager.GET_META_DATA | flagSigningInfo | PackageManager.GET_ACTIVITIES
+                        PackageManager.GET_META_DATA | GET_SIGNING_CERTIFICATES | PackageManager.GET_ACTIVITIES
                                 | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
-                                | PackageManager.GET_SERVICES | flagDisabledComponents | flagMatchUninstalled, userId);
+                                | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES
+                                | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
             } catch (RemoteException | PackageManager.NameNotFoundException | SecurityException e) {
                 // Package does not exist
             }
@@ -245,17 +247,18 @@ public class AppDb {
             Set<String> updatedApps = new HashSet<>();
 
             // Interrupt thread on request
-            if (Thread.currentThread().isInterrupted()) return;
+            if (ThreadUtils.isInterrupted()) return;
 
             for (int userId : Users.getUsersIds()) {
                 // Interrupt thread on request
-                if (Thread.currentThread().isInterrupted()) return;
+                if (ThreadUtils.isInterrupted()) return;
 
                 List<PackageInfo> packageInfoList;
                 try {
-                    packageInfoList = PackageManagerCompat.getInstalledPackages(flagSigningInfo
+                    packageInfoList = PackageManagerCompat.getInstalledPackages(GET_SIGNING_CERTIFICATES
                             | PackageManager.GET_ACTIVITIES | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
-                            | PackageManager.GET_SERVICES | flagDisabledComponents | flagMatchUninstalled, userId);
+                            | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES
+                            | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
                 } catch (Exception e) {
                     Log.e(TAG, "Could not retrieve package info list for user " + userId, e);
                     continue;
@@ -263,7 +266,7 @@ public class AppDb {
 
                 for (PackageInfo packageInfo : packageInfoList) {
                     // Interrupt thread on request
-                    if (Thread.currentThread().isInterrupted()) return;
+                    if (ThreadUtils.isInterrupted()) return;
 
                     int oldAppIndex = findIndexOfApp(oldApps, packageInfo.packageName, UserHandleHidden.getUserId(packageInfo.applicationInfo.uid));
                     if (oldAppIndex >= 0) {
@@ -293,7 +296,7 @@ public class AppDb {
             for (Backup backup : backups.values()) {
                 if (backup == null) continue;
                 // Interrupt thread on request
-                if (Thread.currentThread().isInterrupted()) return;
+                if (ThreadUtils.isInterrupted()) return;
 
                 int oldAppIndex = findIndexOfApp(oldApps, backup.packageName, backup.userId);
                 if (oldAppIndex >= 0) {
@@ -355,7 +358,7 @@ public class AppDb {
         List<PackageUsageInfo> packageUsageInfoList = new ArrayList<>();
         for (int userId : Users.getUsersIds()) {
             // Interrupt thread on request
-            if (Thread.currentThread().isInterrupted()) return;
+            if (ThreadUtils.isInterrupted()) return;
             try {
                 packageUsageInfoList.addAll(AppUsageStatsManager.getInstance(context)
                         .getUsageStats(UsageUtils.USAGE_WEEKLY, userId));
@@ -387,7 +390,7 @@ public class AppDb {
                 app.codeSize = app.dataSize = 0;
             }
             // Interrupt thread on request
-            if (Thread.currentThread().isInterrupted()) return;
+            if (ThreadUtils.isInterrupted()) return;
             if (!app.isInstalled) {
                 continue;
             }

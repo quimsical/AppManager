@@ -2,7 +2,9 @@
 
 package io.github.muntashirakon.AppManager.apk.behavior;
 
-import static io.github.muntashirakon.AppManager.utils.UIUtils.dimBitmap;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
+import static io.github.muntashirakon.AppManager.utils.UIUtils.getDimmedBitmap;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getBitmapFromDrawable;
 
 import android.app.Application;
@@ -35,7 +37,6 @@ import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
-import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 
@@ -145,7 +146,8 @@ public class FreezeUnfreezeActivity extends BaseActivity {
                 boolean forceFreeze = (shortcutInfo.getPrivateFlags() & FreezeUnfreeze.PRIVATE_FLAG_FREEZE_FORCE) != 0;
                 try {
                     ApplicationInfo applicationInfo = PackageManagerCompat.getApplicationInfo(shortcutInfo.packageName,
-                            PackageUtils.flagMatchUninstalled | PackageUtils.flagDisabledComponents, shortcutInfo.userId);
+                            MATCH_UNINSTALLED_PACKAGES | MATCH_DISABLED_COMPONENTS
+                                    | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, shortcutInfo.userId);
                     Bitmap icon = getBitmapFromDrawable(applicationInfo.loadIcon(getApplication().getPackageManager()));
                     shortcutInfo.setLabel(applicationInfo.loadLabel(getApplication().getPackageManager()).toString());
                     boolean isFrozen = !forceFreeze && FreezeUtils.isFrozen(applicationInfo);
@@ -153,8 +155,7 @@ public class FreezeUnfreezeActivity extends BaseActivity {
                         FreezeUtils.unfreeze(shortcutInfo.packageName, shortcutInfo.userId);
                         shortcutInfo.setIcon(icon);
                     } else {
-                        dimBitmap(icon);
-                        shortcutInfo.setIcon(icon);
+                        shortcutInfo.setIcon(getDimmedBitmap(icon));
                         if (!forceFreeze && (shortcutInfo.flags & FreezeUnfreeze.FLAG_ON_UNFREEZE_OPEN_APP) != 0) {
                             // Ask whether to open or freeze the app
                             openAppOrFreeze.postValue(shortcutInfo);

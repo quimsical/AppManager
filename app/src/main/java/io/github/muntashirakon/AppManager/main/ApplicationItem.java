@@ -2,12 +2,15 @@
 
 package io.github.muntashirakon.AppManager.main;
 
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
+
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.util.Pair;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
@@ -18,7 +21,6 @@ import aosp.libcore.util.EmptyArray;
 import io.github.muntashirakon.AppManager.backup.BackupManager;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.db.entity.Backup;
-import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.io.Path;
 
 /**
@@ -121,14 +123,11 @@ public class ApplicationItem extends PackageItemInfo {
      */
     public boolean isSelected = false;
 
+    @NonNull
     public int[] userHandles = EmptyArray.INT;
 
     public ApplicationItem() {
         super();
-    }
-
-    public ApplicationItem(PackageItemInfo orig) {
-        super(orig);
     }
 
     @WorkerThread
@@ -137,7 +136,8 @@ public class ApplicationItem extends PackageItemInfo {
         if (userHandles.length > 0) {
             try {
                 ApplicationInfo info = PackageManagerCompat.getApplicationInfo(packageName,
-                        PackageUtils.flagMatchUninstalled, userHandles[0]);
+                        MATCH_UNINSTALLED_PACKAGES
+                                | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userHandles[0]);
                 return info.loadIcon(pm);
             } catch (Exception ignore) {
             }

@@ -2,7 +2,6 @@
 
 package io.github.muntashirakon.AppManager.utils;
 
-import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
@@ -22,13 +21,13 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import dev.rikka.tools.refine.Refine;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.compat.StorageManagerCompat;
-import io.github.muntashirakon.AppManager.misc.OsEnvironment;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.PathReader;
@@ -41,13 +40,8 @@ public class StorageUtils {
 
     @WorkerThread
     @NonNull
-    public static ArrayMap<String, Uri> getAllStorageLocations(@NonNull Context context, boolean includeInternal) {
+    public static ArrayMap<String, Uri> getAllStorageLocations(@NonNull Context context) {
         ArrayMap<String, Uri> storageLocations = new ArrayMap<>(10);
-        if (includeInternal) {
-            Path internal = Paths.get(Environment.getDataDirectory());
-            addStorage(context.getString(R.string.internal_storage), internal, storageLocations);
-            addStorage(context.getString(R.string.system_partition), OsEnvironment.getRootDirectory(), storageLocations);
-        }
         @SuppressWarnings("deprecation")
         Path sdCard = Paths.get(Environment.getExternalStorageDirectory());
         addStorage(context.getString(R.string.external_storage), sdCard, storageLocations);
@@ -60,7 +54,10 @@ public class StorageUtils {
         for (int i = 0; i < grantedUrisAndDate.size(); ++i) {
             Uri uri = grantedUrisAndDate.keyAt(i);
             long time = grantedUrisAndDate.valueAt(i);
-            storageLocations.put(Paths.getLastPathSegment(uri.getPath()) + " " + DateUtils.formatDate(time), uri);
+            if (Paths.get(uri).isDirectory()) {
+                // Only directories are locations
+                storageLocations.put(Paths.getLastPathSegment(uri.getPath()) + " " + DateUtils.formatDate(time), getFixedTreeUri(uri));
+            }
         }
         return storageLocations;
     }
@@ -69,9 +66,18 @@ public class StorageUtils {
      * unified test function to add storage if fitting
      */
     private static void addStorage(@NonNull String label, @Nullable Path entry, @NonNull Map<String, Uri> storageLocations) {
-        if (entry != null && !storageLocations.containsValue(entry.getUri())) {
-            storageLocations.put(label, entry.getUri());
-        } else if (entry != null) {
+        if (entry == null) {
+            return;
+        }
+        if (entry.isSymbolicLink()) {
+            // Use the real path
+            Path finalEntry = entry;
+            entry = ExUtils.requireNonNullElse(finalEntry::getRealPath, finalEntry);
+        }
+        Uri uri = entry.getUri();
+        if (!storageLocations.containsValue(uri)) {
+            storageLocations.put(label, uri);
+        } else {
             Log.d(TAG, entry.getUri().toString());
         }
     }
@@ -86,8 +92,7 @@ public class StorageUtils {
             String[] externalCards = rawSecondaryStorage.split(":");
             for (int i = 0; i < externalCards.length; i++) {
                 String path = externalCards[i];
-                storageLocations.put(context.getString(R.string.sd_card) + (i == 0 ? "" : " " + i), new Uri.Builder()
-                        .scheme(ContentResolver.SCHEME_FILE).path(path).build());
+                addStorage(context.getString(R.string.sd_card) + (i == 0 ? "" : " " + i), Paths.get(path), storageLocations);
             }
         }
     }
@@ -157,6 +162,37 @@ public class StorageUtils {
                 }
             }
         } catch (IOException ignore) {
+        }
+    }
+
+    @NonNull
+    private static Uri getFixedTreeUri(@NonNull Uri uri) {
+        List<String> paths = uri.getPathSegments();
+        int size = paths.size();
+        if (size < 2 || !"tree".equals(paths.get(0))) {
+            throw new IllegalArgumentException("Not a tree URI.");
+        }
+        // FORMAT: /tree/<id>/document/<id>%2F<others>
+        switch (size) {
+            case 2:
+                return uri.buildUpon()
+                        .appendPath("document")
+                        .appendPath(paths.get(1))
+                        .build();
+            case 3:
+                if (!"document".equals(paths.get(2))) {
+                    throw new IllegalArgumentException("Not a document URI.");
+                }
+                return uri.buildUpon()
+                        .appendPath(paths.get(1))
+                        .build();
+            case 4:
+                if (!"document".equals(paths.get(2))) {
+                    throw new IllegalArgumentException("Not a document URI.");
+                }
+                return uri;
+            default:
+                throw new IllegalArgumentException("Malformed URI.");
         }
     }
 }

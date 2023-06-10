@@ -5,7 +5,6 @@ package io.github.muntashirakon.AppManager.main;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.SparseIntArray;
 import android.view.View;
 
 import androidx.annotation.IntDef;
@@ -15,13 +14,20 @@ import androidx.annotation.Nullable;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.concurrent.Future;
 
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.misc.ListOptions;
 import io.github.muntashirakon.AppManager.profiles.ProfileManager;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.users.UserInfo;
+import io.github.muntashirakon.AppManager.users.Users;
+import io.github.muntashirakon.AppManager.utils.ArrayUtils;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
+import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
 import io.github.muntashirakon.widget.AnyFilterArrayAdapter;
 
 public class MainListOptions extends ListOptions {
@@ -86,6 +92,7 @@ public class MainListOptions extends ListOptions {
             FILTER_APPS_WITH_KEYSTORE,
             FILTER_APPS_WITH_SAF,
             FILTER_APPS_WITH_SSAID,
+            FILTER_STOPPED_APPS,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Filter {
@@ -106,54 +113,106 @@ public class MainListOptions extends ListOptions {
     public static final int FILTER_APPS_WITH_KEYSTORE = 1 << 11;
     public static final int FILTER_APPS_WITH_SAF = 1 << 12;
     public static final int FILTER_APPS_WITH_SSAID = 1 << 13;
+    public static final int FILTER_STOPPED_APPS = 1 << 14;
 
-    private MainViewModel model;
     private final List<String> profileNames = new ArrayList<>();
+    private final TextWatcher profileInputWatcher = new TextWatcher() {
+        @Override
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+        }
+
+        @Override
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+        }
+
+        @Override
+        public void afterTextChanged(Editable s) {
+            MainActivity activity = (MainActivity) requireActivity();
+            if (activity.mModel == null) {
+                return;
+            }
+            if (s != null) {
+                String profileName = s.toString().trim();
+                if (profileNames.contains(profileName)) {
+                    activity.mModel.setFilterProfileName(profileName);
+                    return;
+                }
+            }
+            activity.mModel.setFilterProfileName(null);
+        }
+    };
+    private Future<?> profileSuggestionsResult;
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         MainActivity activity = (MainActivity) requireActivity();
-        model = activity.mModel;
-        profileNameInput.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (s != null) {
-                    String profileName = s.toString().trim();
-                    if (profileNames.contains(profileName)) {
-                        model.setFilterProfileName(profileName);
-                        return;
-                    }
+        profileNameInput.addTextChangedListener(profileInputWatcher);
+        profileSuggestionsResult = ThreadUtils.postOnBackgroundThread(() -> {
+            profileNames.clear();
+            profileNames.addAll(ProfileManager.getProfileNames());
+            if (isDetached() || ThreadUtils.isInterrupted()) return;
+            activity.runOnUiThread(() -> {
+                profileNameInput.setAdapter(new AnyFilterArrayAdapter<>(activity,
+                        io.github.muntashirakon.ui.R.layout.item_checked_text_view, profileNames));
+                if (activity.mModel != null) {
+                    profileNameInput.setText(activity.mModel.getFilterProfileName());
                 }
-                model.setFilterProfileName(null);
-            }
-        });
-        if (activity.mModel != null) {
-            activity.mModel.executor.submit(() -> {
-                profileNames.clear();
-                profileNames.addAll(ProfileManager.getProfileNames());
-                if (isDetached()) return;
-                activity.runOnUiThread(() -> {
-                    profileNameInput.setAdapter(new AnyFilterArrayAdapter<>(activity, io.github.muntashirakon.ui.R.layout.item_checked_text_view,
-                            profileNames));
-                    profileNameInput.setText(model.getFilterProfileName());
-                });
             });
+        });
+        selectUserView.setVisibility(Users.getUsersIds().length <= 1 ? View.GONE : View.VISIBLE);
+        selectUserView.setOnClickListener(v -> {
+            List<UserInfo> userInfoList = Users.getUsers();
+            List<Integer> userIdList = new ArrayList<>(userInfoList.size());
+            CharSequence[] userInfoReadable = new CharSequence[userInfoList.size()];
+            int i = 0;
+            for (UserInfo userInfo : userInfoList) {
+                userInfoReadable[i] = userInfo.toLocalizedString(requireContext());
+                userIdList.add(userInfo.id);
+                ++i;
+            }
+            List<Integer> selections;
+            if (activity.mModel != null) {
+                int[] selectedUsers = activity.mModel.getSelectedUsers();
+                if (selectedUsers != null) {
+                    selections = new ArrayList<>();
+                    for (int userId : selectedUsers) {
+                        selections.add(userId);
+                    }
+                } else selections = userIdList;
+            } else selections = userIdList;
+            new SearchableMultiChoiceDialogBuilder<>(requireContext(), userIdList, userInfoReadable)
+                    .setTitle(R.string.filter)
+                    .setNegativeButton(R.string.close, null)
+                    .addSelections(selections)
+                    .showSelectAll(true)
+                    .hideSearchBar(true)
+                    .setPositiveButton(R.string.filter, (dialog, which, selectedItems) -> {
+                        if (activity.mModel != null) {
+                            if (selectedItems.size() == userInfoList.size()) {
+                                // All users
+                                activity.mModel.setSelectedUsers(null);
+                            } else {
+                                activity.mModel.setSelectedUsers(ArrayUtils.convertToIntArray(selectedItems));
+                            }
+                        }
+                    })
+                    .show();
+        });
+    }
+
+    @Override
+    public void onDestroy() {
+        if (profileSuggestionsResult != null) {
+            profileSuggestionsResult.cancel(true);
         }
+        super.onDestroy();
     }
 
     @Nullable
     @Override
-    public SparseIntArray getSortIdLocaleMap() {
-        return new SparseIntArray() {{
+    public LinkedHashMap<Integer, Integer> getSortIdLocaleMap() {
+        return new LinkedHashMap<Integer, Integer>() {{
             put(SORT_BY_DOMAIN, R.string.sort_by_domain);
             put(SORT_BY_APP_LABEL, R.string.sort_by_app_label);
             put(SORT_BY_PACKAGE_NAME, R.string.sort_by_package_name);
@@ -179,19 +238,20 @@ public class MainListOptions extends ListOptions {
 
     @Nullable
     @Override
-    public SparseIntArray getFilterFlagLocaleMap() {
-        return new SparseIntArray() {{
+    public LinkedHashMap<Integer, Integer> getFilterFlagLocaleMap() {
+        return new LinkedHashMap<Integer, Integer>() {{
             put(FILTER_USER_APPS, R.string.filter_user_apps);
             put(FILTER_SYSTEM_APPS, R.string.filter_system_apps);
             put(FILTER_FROZEN_APPS, R.string.filter_frozen_apps);
+            put(FILTER_STOPPED_APPS, R.string.filter_force_stopped_apps);
+            put(FILTER_INSTALLED_APPS, R.string.installed_apps);
+            put(FILTER_UNINSTALLED_APPS, R.string.uninstalled_apps);
             put(FILTER_APPS_WITH_RULES, R.string.filter_apps_with_rules);
             put(FILTER_APPS_WITH_ACTIVITIES, R.string.filter_apps_with_activities);
             put(FILTER_APPS_WITH_BACKUPS, R.string.filter_apps_with_backups);
             put(FILTER_APPS_WITHOUT_BACKUPS, R.string.filter_apps_without_backups);
             put(FILTER_RUNNING_APPS, R.string.filter_running_apps);
             put(FILTER_APPS_WITH_SPLITS, R.string.filter_apps_with_splits);
-            put(FILTER_INSTALLED_APPS, R.string.installed_apps);
-            put(FILTER_UNINSTALLED_APPS, R.string.uninstalled_apps);
             if (Ops.isRoot()) {
                 put(FILTER_APPS_WITH_KEYSTORE, R.string.filter_apps_with_keystore);
                 put(FILTER_APPS_WITH_SAF, R.string.filter_apps_with_saf);
@@ -202,12 +262,17 @@ public class MainListOptions extends ListOptions {
 
     @Nullable
     @Override
-    public SparseIntArray getOptionIdLocaleMap() {
+    public LinkedHashMap<Integer, Integer> getOptionIdLocaleMap() {
         return null;
     }
 
     @Override
     public boolean enableProfileNameInput() {
+        return true;
+    }
+
+    @Override
+    public boolean enableSelectUser() {
         return true;
     }
 }

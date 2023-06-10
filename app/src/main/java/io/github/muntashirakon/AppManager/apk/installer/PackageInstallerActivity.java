@@ -49,7 +49,6 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import java.io.File;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
@@ -63,7 +62,9 @@ import io.github.muntashirakon.AppManager.accessibility.AccessibilityMultiplexer
 import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.splitapk.SplitApkChooser;
 import io.github.muntashirakon.AppManager.apk.whatsnew.WhatsNewDialogFragment;
+import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
 import io.github.muntashirakon.AppManager.details.AppDetailsActivity;
+import io.github.muntashirakon.AppManager.intercept.IntentCompat;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
@@ -399,7 +400,7 @@ public class PackageInstallerActivity extends BaseActivity implements WhatsNewDi
         if (ACTION_PACKAGE_INSTALLED.equals(intent.getAction())) {
             sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1);
             packageName = intent.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME);
-            Intent confirmIntent = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            Intent confirmIntent = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent.class);
             try {
                 if (packageName == null || confirmIntent == null) throw new Exception("Empty confirmation intent.");
                 Log.d(TAG, "Requesting user confirmation for package " + packageName);
@@ -456,16 +457,10 @@ public class PackageInstallerActivity extends BaseActivity implements WhatsNewDi
         }
         // Signature is different
         ApplicationInfo info = model.getInstalledPackageInfo().applicationInfo;  // Installed package info is never null here.
-        if ((info.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+        if (ApplicationInfoCompat.isSystemApp(info)) {
             // Cannot reinstall a system app with a different signature
             getInstallationFinishedDialog(model.getPackageName(),
                     getString(R.string.app_signing_signature_mismatch_for_system_apps), null, false).show();
-            return;
-        }
-        if (info.publicSourceDir == null || !new File(info.publicSourceDir).exists()) {
-            // Cannot reinstall an uninstalled app
-            getInstallationFinishedDialog(model.getPackageName(),
-                    getString(R.string.app_signing_signature_mismatch_for_data_only_app), null, false).show();
             return;
         }
         // Offer user to uninstall and then install the app again

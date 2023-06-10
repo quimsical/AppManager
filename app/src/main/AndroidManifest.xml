@@ -81,8 +81,9 @@
 
     <application
         android:name=".AppManager"
-        android:allowBackup="false"
+        android:allowBackup="true"
         android:dataExtractionRules="@xml/backup_rules"
+        android:fullBackupContent="@xml/full_backup_rules"
         android:banner="@mipmap/ic_banner"
         android:extractNativeLibs="true"
         android:hasFragileUserData="true"
@@ -93,7 +94,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        tools:ignore="DataExtractionRules,UnusedAttribute">
+        tools:ignore="UnusedAttribute">
         <activity
             android:name=".oneclickops.OneClickOpsActivity"
             android:exported="false"
@@ -129,8 +130,162 @@
             android:name=".usage.AppUsageActivity"
             android:exported="true" />
         <activity
-            android:name=".scanner.ClassViewerActivity"
+            android:name=".editor.CodeEditorActivity"
+            android:label="@string/title_code_editor"
+            android:configChanges="orientation|keyboardHidden|screenSize|uiMode"
+            android:taskAffinity=".editor.CodeEditorActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="false" />
+
+        <activity-alias
+            android:name=".editor.EditorActivity"
+            android:targetActivity=".editor.CodeEditorActivity"
+            android:label="@string/title_code_editor"
+            android:configChanges="orientation|keyboardHidden|screenSize|uiMode"
+            android:taskAffinity=".editor.CodeEditorActivity"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.ALTERNATIVE" />
+
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/axml" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/xhtml+xml" />
+                <data android:mimeType="application/vnd.wap.xhtml+xml" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/x-php" />
+                <data android:mimeType="application/x-httpd-php" />
+                <data android:mimeType="application/x-tcl" />
+                <data android:mimeType="application/x-sh" />
+                <data android:mimeType="application/x-csh" />
+                <data android:mimeType="application/bat" />
+                <data android:mimeType="application/mpegurl" />
+                <data android:mimeType="application/x-mpegurl" />
+                <data android:mimeType="application/x-bittorrent" />
+                <data android:mimeType="application/vnd.google-earth.kml+xml" />
+                <data android:mimeType="application/vnd.google-earth.kmz" />
+                <data android:mimeType="application/x-sql" />
+                <data android:mimeType="application/x-latex" />
+                <data android:mimeType="application/x-subrip" />
+                <data android:mimeType="application/x-yaml" />
+                <data android:mimeType="application/axml" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:pathPattern="/.*\.TXT" />
+                <data android:pathPattern="/.*\.txt" />
+                <data android:pathPattern="/.*\.txt?.*" />
+                <data android:pathPattern="/.*\..*\.TXT" />
+                <data android:pathPattern="/.*\..*\.txt" />
+                <data android:pathPattern="/.*\..*\.txt?.*" />
+                <data android:pathPattern="/.*\.tex" />
+                <data android:pathPattern="/.*\.tex?.*" />
+                <data android:pathPattern="/.*\.micfg" />
+                <data android:pathPattern="/.*\.micfg?.*" />
+                <data android:pathPattern="/.*\..*\.micfg" />
+                <data android:pathPattern="/.*\..*\.micfg?.*" />
+                <data android:pathPattern="/.*\.mic" />
+                <data android:pathPattern="/.*\.mic?.*" />
+                <data android:pathPattern="/.*\..*\.mic" />
+                <data android:pathPattern="/.*\..*\.mic?.*" />
+                <data android:pathPattern="/.*\.JAVA" />
+                <data android:pathPattern="/.*\.java" />
+                <data android:pathPattern="/.*\.java?.*" />
+                <data android:pathPattern="/.*\..*\.JAVA" />
+                <data android:pathPattern="/.*\..*\.java" />
+                <data android:pathPattern="/.*\..*\.java?.*" />
+                <data android:pathPattern="/.*\.KT" />
+                <data android:pathPattern="/.*\.kt" />
+                <data android:pathPattern="/.*\.kt?.*" />
+                <data android:pathPattern="/.*\..*\.KT" />
+                <data android:pathPattern="/.*\..*\.kt" />
+                <data android:pathPattern="/.*\..*\.kt?.*" />
+                <data android:pathPattern="/.*\.KTS" />
+                <data android:pathPattern="/.*\.kts" />
+                <data android:pathPattern="/.*\.kts?.*" />
+                <data android:pathPattern="/.*\..*\.KTS" />
+                <data android:pathPattern="/.*\..*\.kts" />
+                <data android:pathPattern="/.*\..*\.kts?.*" />
+                <data android:pathPattern="/.*\.SMALI" />
+                <data android:pathPattern="/.*\.smali" />
+                <data android:pathPattern="/.*\.smali?.*" />
+                <data android:pathPattern="/.*\..*\.SMALI" />
+                <data android:pathPattern="/.*\..*\.smali" />
+                <data android:pathPattern="/.*\..*\.smali?.*" />
+                <data android:pathPattern="/.*\.CSS" />
+                <data android:pathPattern="/.*\.css" />
+                <data android:pathPattern="/.*\.css?.*" />
+                <data android:pathPattern="/.*\..*\.CSS" />
+                <data android:pathPattern="/.*\..*\.css" />
+                <data android:pathPattern="/.*\..*\.css?.*" />
+                <data android:pathPattern="/.*\.HTM" />
+                <data android:pathPattern="/.*\.htm" />
+                <data android:pathPattern="/.*\.htm?.*" />
+                <data android:pathPattern="/.*\..*\.HTM" />
+                <data android:pathPattern="/.*\..*\.htm" />
+                <data android:pathPattern="/.*\..*\.htm?.*" />
+                <data android:pathPattern="/.*\.HTML" />
+                <data android:pathPattern="/.*\.html" />
+                <data android:pathPattern="/.*\.html?.*" />
+                <data android:pathPattern="/.*\..*\.HTML" />
+                <data android:pathPattern="/.*\..*\.html" />
+                <data android:pathPattern="/.*\..*\.html?.*" />
+                <data android:pathPattern="/.*\.PROP" />
+                <data android:pathPattern="/.*\.prop" />
+                <data android:pathPattern="/.*\.prop?.*" />
+                <data android:pathPattern="/.*\..*\.PROP" />
+                <data android:pathPattern="/.*\..*\.prop" />
+                <data android:pathPattern="/.*\..*\.prop?.*" />
+                <data android:pathPattern="/.*\.SQL" />
+                <data android:pathPattern="/.*\.sql" />
+                <data android:pathPattern="/.*\.sql?.*" />
+                <data android:pathPattern="/.*\..*\.SQL" />
+                <data android:pathPattern="/.*\..*\.sql" />
+                <data android:pathPattern="/.*\..*\.sql?.*" />
+                <data android:pathPattern="/.*\.TORRENT" />
+                <data android:pathPattern="/.*\.torrent" />
+                <data android:pathPattern="/.*\.torrent?.*" />
+                <data android:pathPattern="/.*\..*\.TORRENT" />
+                <data android:pathPattern="/.*\..*\.torrent" />
+                <data android:pathPattern="/.*\..*\.torrent?.*" />
+                <data android:pathPattern="/.*\.XML" />
+                <data android:pathPattern="/.*\.xml" />
+                <data android:pathPattern="/.*\.xml?.*" />
+                <data android:pathPattern="/.*\..*\.XML" />
+                <data android:pathPattern="/.*\..*\.xml" />
+                <data android:pathPattern="/.*\..*\.xml?.*" />
+                <data android:pathPattern="/.*\.GPG" />
+                <data android:pathPattern="/.*\.gpg" />
+                <data android:pathPattern="/.*\.gpg?.*" />
+                <data android:pathPattern="/.*\..*\.GPG" />
+                <data android:pathPattern="/.*\..*\.gpg" />
+                <data android:pathPattern="/.*\..*\.gpg?.*" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name=".scanner.ScannerActivity"
             android:exported="true"
@@ -157,11 +312,12 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".apk.explorer.AppExplorerActivity"
+            android:name=".viewer.ExplorerActivity"
             android:enabled="true"
             android:exported="true"
             android:label="@string/explore"
-            android:taskAffinity="">
+            android:noHistory="true"
+            android:theme="@style/AppTheme.TransparentBackground">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
 
@@ -171,6 +327,7 @@
                 <data android:mimeType="application/java-archive" />
                 <data android:mimeType="application/x-dex" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -185,6 +342,7 @@
                 <data android:mimeType="application/java-archive" />
                 <data android:mimeType="application/x-dex" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
             </intent-filter>
         </activity>
         <activity
@@ -281,6 +439,10 @@
             </intent-filter>
         </activity-alias>
 
+        <activity
+            android:name=".debloat.DebloaterActivity"
+            android:label="@string/debloater_title"
+            android:exported="false" />
         <activity
             android:name=".details.AppDetailsActivity"
             android:exported="false" />
@@ -731,8 +893,49 @@
             android:name=".fm.FmActivity"
             android:exported="true"
             android:label="@string/files"
-            android:launchMode="singleTop"
-            android:taskAffinity="" />
+            android:taskAffinity=".fm.FmActivity" />
+        <activity
+            android:name=".fm.OpenWithActivity"
+            android:label="@string/file_open_with"
+            android:exported="false"
+            android:theme="@style/AppTheme.TransparentBackground" />
+        <activity
+            android:name=".viewer.audio.AudioPlayerActivity"
+            android:exported="true"
+            android:label="@string/title_audio_player"
+            android:excludeFromRecents="true"
+            android:theme="@style/AppTheme.TransparentBackground"
+            android:taskAffinity=".misc.music.AudioPlayerActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.ALTERNATIVE" />
+
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="vnd.android.cursor.dir/audio" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.ALTERNATIVE" />
+
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="vnd.android.cursor.dir/audio" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="vnd.android.cursor.dir/audio" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".apk.installer.PackageInstallerService"

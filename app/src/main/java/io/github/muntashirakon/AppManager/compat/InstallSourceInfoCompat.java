@@ -12,6 +12,7 @@ import android.os.Parcelable;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.core.os.ParcelCompat;
 
 public class InstallSourceInfoCompat implements Parcelable {
 
@@ -29,11 +30,17 @@ public class InstallSourceInfoCompat implements Parcelable {
     private final String mInstallingPackageName;
 
     @RequiresApi(Build.VERSION_CODES.R)
-    public InstallSourceInfoCompat(@NonNull InstallSourceInfo installSourceInfo) {
-        mInitiatingPackageName = installSourceInfo.getInitiatingPackageName();
-        mInitiatingPackageSigningInfo = installSourceInfo.getInitiatingPackageSigningInfo();
-        mOriginatingPackageName = installSourceInfo.getOriginatingPackageName();
-        mInstallingPackageName = installSourceInfo.getInstallingPackageName();
+    public InstallSourceInfoCompat(@Nullable InstallSourceInfo installSourceInfo) {
+        if (installSourceInfo != null) {
+            mInitiatingPackageName = installSourceInfo.getInitiatingPackageName();
+            mInitiatingPackageSigningInfo = installSourceInfo.getInitiatingPackageSigningInfo();
+            mOriginatingPackageName = installSourceInfo.getOriginatingPackageName();
+            mInstallingPackageName = installSourceInfo.getInstallingPackageName();
+        } else {
+            mInitiatingPackageName = null;
+            mOriginatingPackageName = null;
+            mInstallingPackageName = null;
+        }
     }
 
     public InstallSourceInfoCompat(@Nullable String installingPackageName) {
@@ -63,7 +70,7 @@ public class InstallSourceInfoCompat implements Parcelable {
     private InstallSourceInfoCompat(Parcel source) {
         mInitiatingPackageName = source.readString();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            mInitiatingPackageSigningInfo = source.readParcelable(SigningInfo.class.getClassLoader());
+            mInitiatingPackageSigningInfo = ParcelCompat.readParcelable(source, SigningInfo.class.getClassLoader(), SigningInfo.class);
         }
         mOriginatingPackageName = source.readString();
         mInstallingPackageName = source.readString();

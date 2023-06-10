@@ -333,7 +333,6 @@
     <string name="clear_cache">Cache leeren</string>
     <string name="block_unblock_trackers_description">Blockiere oder gebe Verfolger-Komponenten aller installierter Anwendungen frei</string>
     <string name="block_components_dots">Komponenten blockieren…</string>
-    <string name="block_components_description">Sperren aller Komponenten, die durch die angegebenen Signaturen identifiziert werden</string>
     <string name="deny_app_ops_description">Einstellen eines Modus für App-Operationen, die durch konstante Werte identifiziert werden (z. B. <tt>63</tt> oder <tt>RUN_IN_BACKGROUND</tt>)</string>
     <string name="clear_data_from_uninstalled_apps">Daten deinstallierter Anwendungen löschen</string>
     <string name="clear_data_from_uninstalled_apps_description">Daten von Anwendungen, die mit der <tt>DONT_DELETE_DATA</tt>-Flagge deinstalliert wurden, löschen</string>
@@ -495,7 +494,6 @@
     <string name="apply_now">Jetzt anwenden…</string>
     <string name="keystore">Schlüsselspeicher</string>
     <string name="no_profiles">Keine Profile</string>
-    <string name="presets">Voreinstellungen</string>
     <string name="profiles">Profile</string>
     <string name="open_pgp_provider">OpenPGP-Anbieter</string>
     <string name="systemless_app">Systemlose App</string>
@@ -919,7 +917,6 @@
     <string name="orientation_right_to_left">Von Rechts nach Links</string>
     <string name="orientation_left_to_right">Von links nach rechts</string>
     <string name="orientation_follow_locale">Lokale folgen</string>
-    <string name="pref_layout_orientation">Ausrichtung des Layouts</string>
     <string name="saf">SAF</string>
     <string name="pref_rules_msg">Sofortiges Sperren, Importieren/Exportieren/Entfernen von Regeln, etc.</string>
     <string name="failed">Fehlgeschlagen</string>
@@ -995,7 +992,6 @@
     <string name="wireless_debugging">Fehlersuche über WLAN</string>
     <string name="unknown_net_policy">Unbekannte Netz-Richtlinie (%1$s - %2$X)</string>
     <string name="failed_to_prevent_background_run">Konnte nicht verhindern, dass %1$s im Hintergrund läuft</string>
-    <string name="app_signing_signature_mismatch_for_data_only_app">Konnte die App aufgrund von Signaturfehlern nicht installieren. Die App wurde deinstalliert, ohne ihre Daten zu löschen.</string>
     <string name="community">Gemeinschaft</string>
     <string name="community_links"><a href="https://t.me/AppManagerChannel">Telegrammkanal</a> • <a href="https://twitter.com/AppManagerNews">Twitter</a></string>
     <plurals name="alert_failed_to_import_backups">
@@ -1280,4 +1276,19 @@
     <string name="funding_campaign_text">Wir unternehmen gerade eine <b>Spendenaktion</b> für den App Manager für einen begrenzten Zeitraum. <a href="https://opencollective.com/app-manager#category-ABOUT">mehr erfahren …</a></string>
     <string name="adb_incomplete_usb_debugging_title">Unvollständiges USB-Debugging</string>
     <string name="adb_incomplete_usb_debugging_message">Es scheint, dass USB-Debugging nicht korrekt eingestellt ist. Bitte lies <a href="https://muntashirakon.github.io/AppManager/#subsec:enable-usb-debugging">die englische Dokumentation</a> für weitere Schritte. Wenn du schon weißt, wie es geht, tippe auf „Öffnen“, um die Entwickleroptionen zu öffnen, oder „Schließen“, um weiterhin den Nicht-Root-Modus zu benutzen.</string>
+    <string name="source_stamp_verified_and_identified_to_be_from_source">Quellstempel verifiziert und identifiziert als von <xliff:g id="source" example="Google Play">%1$s</xliff:g>.</string>
+    <string name="optimize_option_force_dexopt">DEX-Optimierung sofort durchführen</string>
+    <string name="action_optimize_app">Optimieren</string>
+    <string name="title_perform_runtime_optimization_to_apps">Laufzeitoptimierung durchführen</string>
+    <string name="optimize_option_clear_profile_data">Frühere Profildaten löschen</string>
+    <string name="optimize_option_check_profiles">Profildaten bei der DEX-Optimierung berücksichtigen</string>
+    <string name="optimize_option_force_compilation">Kompilierung erzwingen, auch wenn sie nicht erforderlich ist</string>
+    <string name="batch_ops_runtime_optimization">Laufzeitoptimierung</string>
+    <string name="action_run">Ausführen</string>
+    <plurals name="alert_failed_to_optimize_apps">
+        <item quantity="one">Konnte %1$d App nicht optimieren</item>
+        <item quantity="other">Konnte %1$d Apps nicht optimieren</item>
+    </plurals>
+    <string name="app_info_tag_open_links">Links öffnen</string>
+    <string name="title_domains_supported_by_the_app">Unterstützte Domänen</string>
 </resources>

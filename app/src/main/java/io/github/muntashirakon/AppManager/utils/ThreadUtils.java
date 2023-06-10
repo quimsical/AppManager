@@ -9,6 +9,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+import io.github.muntashirakon.AppManager.logs.Log;
+
 // Copyright 2016 The Android Open Source Project
 public class ThreadUtils {
     private static volatile Thread sMainThread;
@@ -55,12 +57,29 @@ public class ThreadUtils {
     }
 
     /**
+     * Tests whether this thread has been interrupted. The <i>interrupted status</i> of the thread is unaffected by this
+     * method.
+     *
+     * <p>A thread interruption ignored because a thread was not alive at the time of the interrupt will be reflected by
+     * this method returning false.
+     *
+     * @return {@code true} if this thread has been interrupted; {@code false} otherwise.
+     */
+    public static boolean isInterrupted() {
+        boolean interrupted = Thread.currentThread().isInterrupted();
+        if (interrupted) {
+            Log.d("ThreadUtils", "Thread interrupted.");
+        }
+        return interrupted;
+    }
+
+    /**
      * Posts runnable in background using shared background thread pool.
      *
      * @return A future of the task that can be monitored for updates or cancelled.
      */
     public static Future<?> postOnBackgroundThread(Runnable runnable) {
-        return getThreadExecutor().submit(runnable);
+        return getBackgroundThreadExecutor().submit(runnable);
     }
 
     /**
@@ -69,7 +88,7 @@ public class ThreadUtils {
      * @return A future of the task that can be monitored for updates or cancelled.
      */
     public static <T> Future<T> postOnBackgroundThread(Callable<T> callable) {
-        return getThreadExecutor().submit(callable);
+        return getBackgroundThreadExecutor().submit(callable);
     }
 
     /**
@@ -86,7 +105,7 @@ public class ThreadUtils {
         getUiThreadHandler().postDelayed(runnable, delayMillis);
     }
 
-    private static synchronized ExecutorService getThreadExecutor() {
+    public static synchronized ExecutorService getBackgroundThreadExecutor() {
         if (sThreadExecutor == null) {
             sThreadExecutor = MultithreadedExecutor.getNewInstance();
         }

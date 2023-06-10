@@ -4,6 +4,7 @@ package io.github.muntashirakon.AppManager.compat;
 
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ApplicationInfoHidden;
+import android.content.pm.PackageManager;
 import android.os.Build;
 
 import androidx.annotation.IntDef;
@@ -14,6 +15,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 import dev.rikka.tools.refine.Refine;
+import io.github.muntashirakon.io.Paths;
 
 public final class ApplicationInfoCompat {
     /**
@@ -325,6 +327,26 @@ public final class ApplicationInfoCompat {
     }
 
     public static boolean isInstalled(@NonNull ApplicationInfo info) {
-        return (info.flags & ApplicationInfo.FLAG_INSTALLED) != 0;
+        return (info.flags & ApplicationInfo.FLAG_INSTALLED) != 0
+                && info.processName != null
+                && Paths.exists(info.publicSourceDir);
+    }
+
+    public static boolean isStaticSharedLibrary(@NonNull ApplicationInfo info) {
+        // Android 8+
+        return (getPrivateFlags(info) & PRIVATE_FLAG_STATIC_SHARED_LIBRARY) != 0;
+    }
+
+    /**
+     * {@link ApplicationInfo#loadLabel(PackageManager)} can throw NPE for uninstalled apps in unprivileged mode.
+     *
+     * @return App label or package name if an error is occurred.
+     */
+    @NonNull
+    public static CharSequence loadLabelSafe(@NonNull ApplicationInfo info, @NonNull PackageManager pm) {
+        if (Paths.exists(info.publicSourceDir)) {
+            return info.loadLabel(pm);
+        }
+        return info.packageName;
     }
 }

@@ -24,13 +24,17 @@ import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.IOException;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
+import java.util.Objects;
+import java.util.concurrent.Future;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.compat.BundleCompat;
+import io.github.muntashirakon.AppManager.fm.icons.FmIconFetcher;
+import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.users.Groups;
 import io.github.muntashirakon.AppManager.users.Owners;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
-import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.dialog.CapsuleBottomSheetDialogFragment;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.PathContentInfo;
@@ -43,10 +47,10 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
     private static final String ARG_PATH = "path";
 
     @NonNull
-    public static FilePropertiesDialogFragment getInstance(@NonNull Path path) {
+    public static FilePropertiesDialogFragment getInstance(@NonNull Uri uri) {
         FilePropertiesDialogFragment fragment = new FilePropertiesDialogFragment();
         Bundle args = new Bundle();
-        args.putParcelable(ARG_PATH, path.getUri());
+        args.putParcelable(ARG_PATH, uri);
         fragment.setArguments(args);
         return fragment;
     }
@@ -60,8 +64,9 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
     @Override
     public void onBodyInitialized(@NonNull View bodyView, @Nullable Bundle savedInstanceState) {
         FilePropertiesViewModel viewModel = new ViewModelProvider(this).get(FilePropertiesViewModel.class);
-        Path path = Paths.get((Uri) requireArguments().getParcelable(ARG_PATH));
-        ImageView iconView = bodyView.findViewById(R.id.icon);
+        Path path = Paths.get(Objects.requireNonNull(BundleCompat.getParcelable(requireArguments(), ARG_PATH, Uri.class)));
+        ImageView iconView = bodyView.findViewById(android.R.id.icon);
+        ImageView symbolicLinkiconView = bodyView.findViewById(R.id.symolic_link_icon);
         TextView nameView = bodyView.findViewById(R.id.name);
         TextView summaryView = bodyView.findViewById(R.id.summary);
         MaterialButton moreButton = bodyView.findViewById(R.id.more);
@@ -84,9 +89,10 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
 
         // Set values
         iconView.setImageResource(path.isDirectory() ? R.drawable.ic_folder : R.drawable.ic_file_document);
+        symbolicLinkiconView.setVisibility(path.isSymbolicLink() ? View.VISIBLE : View.GONE);
         nameView.setText(path.getName());
         String modificationDate = DateUtils.formatDateTime(path.lastModified());
-        pathView.setText(path.getUri().toString());
+        pathView.setText(FmUtils.getDisplayablePath(path));
         String realFile = null;
         if (path.isSymbolicLink()) {
             try {
@@ -126,18 +132,22 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
             sizeView.setText(String.format(Locale.getDefault(), "%s (%s bytes)",
                     Formatter.formatShortFileSize(requireContext(), size), size));
         });
-        viewModel.getFileContentInfoLiveData().observe(getViewLifecycleOwner(), contentInfo -> {
-            String name = contentInfo.getName();
-            String mime = contentInfo.getMimeType();
-            String message = contentInfo.getMessage();
-            if (mime != null) {
-                typeView.setText(String.format(Locale.ROOT, "%s (%s)", name, mime));
-            } else {
-                typeView.setText(name);
-            }
-            if (message != null) {
-                ((View) moreInfoView.getParent()).setVisibility(View.VISIBLE);
-                moreInfoView.setText(message);
+        viewModel.getFmItemLiveData().observe(getViewLifecycleOwner(), fmItem -> {
+            ImageLoader.getInstance().displayImage(fmItem.tag, iconView, new FmIconFetcher(fmItem));
+            PathContentInfo contentInfo = fmItem.getContentInfo();
+            if (contentInfo != null) {
+                String name = contentInfo.getName();
+                String mime = contentInfo.getMimeType();
+                String message = contentInfo.getMessage();
+                if (mime != null) {
+                    typeView.setText(String.format(Locale.ROOT, "%s (%s)", name, mime));
+                } else {
+                    typeView.setText(name);
+                }
+                if (message != null) {
+                    ((View) moreInfoView.getParent()).setVisibility(View.VISIBLE);
+                    moreInfoView.setText(message);
+                }
             }
         });
         viewModel.getOwnerLiveData().observe(getViewLifecycleOwner(), ownerName -> {
@@ -151,7 +161,7 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
 
         // Load live data
         viewModel.loadFileSize(path);
-        viewModel.loadFileContentInfo(path);
+        viewModel.loadFmItem(path);
         if (uidGidPair != null) {
             viewModel.loadOwnerInfo(uidGidPair.uid);
             viewModel.loadGroupInfo(uidGidPair.gid);
@@ -175,10 +185,12 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
 
     public static class FilePropertiesViewModel extends AndroidViewModel {
         private final MutableLiveData<Long> mFileSizeLiveData = new MutableLiveData<>();
-        private final MutableLiveData<PathContentInfo> mFileContentInfoLiveData = new MutableLiveData<>();
+        private final MutableLiveData<FmItem> mFmItemLiveData = new MutableLiveData<>();
         private final MutableLiveData<String> mOwnerLiveData = new MutableLiveData<>();
         private final MutableLiveData<String> mGroupLiveData = new MutableLiveData<>();
-        private final ExecutorService mExecutor = MultithreadedExecutor.getNewInstance();
+
+        @Nullable
+        private Future<?> sizeResult;
 
         public FilePropertiesViewModel(@NonNull Application application) {
             super(application);
@@ -186,30 +198,37 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
 
         @Override
         protected void onCleared() {
-            mExecutor.shutdownNow();
+            // Size checks can take forever, so it's a good idea to terminate the process when the dialog is exited
+            if (sizeResult != null) {
+                sizeResult.cancel(true);
+            }
             super.onCleared();
         }
 
         public void loadFileSize(@NonNull Path path) {
-            mExecutor.submit(() -> {
+            sizeResult = ThreadUtils.postOnBackgroundThread(() -> {
                 long size = Paths.size(path);
                 mFileSizeLiveData.postValue(size);
             });
         }
 
-        public void loadFileContentInfo(@NonNull Path path) {
-            mExecutor.submit(() -> mFileContentInfoLiveData.postValue(path.getPathContentInfo()));
+        public void loadFmItem(@NonNull Path path) {
+            ThreadUtils.postOnBackgroundThread(() -> {
+                FmItem fmItem = new FmItem(path);
+                fmItem.setContentInfo(path.getPathContentInfo());
+                mFmItemLiveData.postValue(fmItem);
+            });
         }
 
         public void loadOwnerInfo(int uid) {
-            mExecutor.submit(() -> {
+            ThreadUtils.postOnBackgroundThread(() -> {
                 String ownerName = Owners.getOwnerName(uid);
                 mOwnerLiveData.postValue(ownerName);
             });
         }
 
         public void loadGroupInfo(int gid) {
-            mExecutor.submit(() -> {
+            ThreadUtils.postOnBackgroundThread(() -> {
                 String groupName = Groups.getGroupName(gid);
                 mGroupLiveData.postValue(groupName);
             });
@@ -219,8 +238,8 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
             return mFileSizeLiveData;
         }
 
-        public LiveData<PathContentInfo> getFileContentInfoLiveData() {
-            return mFileContentInfoLiveData;
+        public LiveData<FmItem> getFmItemLiveData() {
+            return mFmItemLiveData;
         }
 
         public LiveData<String> getOwnerLiveData() {

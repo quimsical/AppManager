@@ -9,7 +9,6 @@ import static io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat.HI
 import static io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat.HIDDEN_API_ENFORCEMENT_JUST_WARN;
 import static io.github.muntashirakon.AppManager.compat.ManifestCompat.permission.TERMUX_RUN_COMMAND;
 import static io.github.muntashirakon.AppManager.utils.PermissionUtils.hasDumpPermission;
-import static io.github.muntashirakon.AppManager.utils.UIUtils.dimBitmap;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.displayLongToast;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.displayShortToast;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getBitmapFromDrawable;
@@ -53,7 +52,6 @@ import android.widget.TextView;
 
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.AnyThread;
 import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.GuardedBy;
@@ -65,6 +63,7 @@ import androidx.annotation.UiThread;
 import androidx.annotation.WorkerThread;
 import androidx.collection.ArrayMap;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.pm.PackageInfoCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
@@ -88,7 +87,6 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.accessibility.AccessibilityMultiplexer;
@@ -96,11 +94,12 @@ import io.github.muntashirakon.AppManager.accessibility.NoRootAccessibilityServi
 import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.ApkUtils;
 import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizationDialog;
-import io.github.muntashirakon.AppManager.apk.behavior.FreezeUnfreeze;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerActivity;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat;
 import io.github.muntashirakon.AppManager.apk.whatsnew.WhatsNewDialogFragment;
 import io.github.muntashirakon.AppManager.backup.dialog.BackupRestoreDialogFragment;
+import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
+import io.github.muntashirakon.AppManager.batchops.BatchOpsService;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
 import io.github.muntashirakon.AppManager.compat.DomainVerificationManagerCompat;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
@@ -109,7 +108,6 @@ import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.details.AppDetailsActivity;
 import io.github.muntashirakon.AppManager.details.AppDetailsFragment;
 import io.github.muntashirakon.AppManager.details.AppDetailsViewModel;
-import io.github.muntashirakon.AppManager.details.LauncherIconCreator;
 import io.github.muntashirakon.AppManager.details.manifest.ManifestViewerActivity;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsItem;
 import io.github.muntashirakon.AppManager.fm.FmProvider;
@@ -132,6 +130,7 @@ import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.sharedpref.SharedPrefsActivity;
+import io.github.muntashirakon.AppManager.shortcut.LauncherShortcuts;
 import io.github.muntashirakon.AppManager.ssaid.ChangeSsaidDialog;
 import io.github.muntashirakon.AppManager.types.PackageSizeInfo;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
@@ -140,6 +139,7 @@ import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.BetterActivityResult;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
@@ -232,7 +232,6 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         mSwipeRefresh.setOnRefreshListener(this);
         // Recycler view
         RecyclerView recyclerView = view.findViewById(android.R.id.list);
-        recyclerView.setHasFixedSize(true);
         recyclerView.setLayoutManager(new LinearLayoutManager(mActivity));
         // Horizontal view
         mHorizontalLayout = view.findViewById(R.id.horizontal_layout);
@@ -279,7 +278,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         });
         iconView.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager) mActivity.getSystemService(Context.CLIPBOARD_SERVICE);
-            executor.submit(() -> {
+            ThreadUtils.postOnBackgroundThread(() -> {
                 ClipData clipData = clipboard.getPrimaryClip();
                 if (clipData != null && clipData.getItemCount() > 0) {
                     String data = clipData.getItemAt(0).coerceToText(mActivity).toString().trim()
@@ -293,13 +292,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                             for (Pair<String, String> digest : digests) {
                                 if (digest.second.equals(data)) {
                                     if (digest.first.equals(DigestUtils.MD5) || digest.first.equals(DigestUtils.SHA_1)) {
-                                        runOnUiThread(() -> displayLongToast(R.string.verified_using_unreliable_hash));
-                                    } else runOnUiThread(() -> displayLongToast(R.string.verified));
+                                        ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified_using_unreliable_hash));
+                                    } else ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified));
                                     return;
                                 }
                             }
                         }
-                        runOnUiThread(() -> displayLongToast(R.string.not_verified));
+                        ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.not_verified));
                     }
                 }
             });
@@ -348,11 +347,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         if (itemId == R.id.action_refresh_detail) {
             refreshDetails();
         } else if (itemId == R.id.action_share_apk) {
-            executor.submit(() -> {
+            showProgressIndicator(true);
+            ThreadUtils.postOnBackgroundThread(() -> {
                 try {
                     Path tmpApkSource = ApkUtils.getSharableApkFile(mPackageInfo);
                     ThreadUtils.postOnMainThread(() -> {
-                        Context ctx = AppManager.getContext();
+                        showProgressIndicator(false);
+                        Context ctx = ContextUtils.getContext();
                         Intent intent = new Intent(Intent.ACTION_SEND)
                                 .setType("application/*")
                                 .putExtra(Intent.EXTRA_STREAM, FmProvider.getContentUri(tmpApkSource))
@@ -464,7 +465,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     // Back button pressed.
                     return;
                 }
-                executor.submit(() -> {
+                ThreadUtils.postOnBackgroundThread(() -> {
                     try (OutputStream outputStream = mActivity.getContentResolver().openOutputStream(uri)) {
                         if (outputStream == null) {
                             throw new IOException("Unable to open output stream.");
@@ -588,7 +589,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
 
     @UiThread
     private void refreshDetails() {
-        if (mainModel == null || executor.isShutdown()) return;
+        if (mainModel == null || isDetached()) return;
         showProgressIndicator(true);
         mainModel.triggerPackageChange();
     }
@@ -616,22 +617,24 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                             .setNegativeButton(R.string.cancel, null)
                             .setPositiveButton(R.string.block, (dialog, which, selectedItems) -> {
                                 showProgressIndicator(true);
-                                executor.submit(() -> {
+                                ThreadUtils.postOnBackgroundThread(() -> {
                                     mainModel.addRules(selectedItems, true);
-                                    runOnUiThread(() -> {
-                                        if (isDetached()) return;
-                                        showProgressIndicator(false);
+                                    ThreadUtils.postOnMainThread(() -> {
+                                        if (!isDetached()) {
+                                            showProgressIndicator(false);
+                                        }
                                         displayShortToast(R.string.done);
                                     });
                                 });
                             })
                             .setNeutralButton(R.string.unblock, (dialog, which, selectedItems) -> {
                                 showProgressIndicator(true);
-                                executor.submit(() -> {
+                                ThreadUtils.postOnBackgroundThread(() -> {
                                     mainModel.removeRules(selectedItems, true);
-                                    runOnUiThread(() -> {
-                                        if (isDetached()) return;
-                                        showProgressIndicator(false);
+                                    ThreadUtils.postOnMainThread(() -> {
+                                        if (!isDetached()) {
+                                            showProgressIndicator(false);
+                                        }
                                         displayShortToast(R.string.done);
                                     });
                                 });
@@ -691,7 +694,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 if (PermissionUtils.hasSelfOrRemotePermission(ManifestCompat.permission.UPDATE_DOMAIN_VERIFICATION_USER_SELECTION)) {
                     // Enable/disable directly from the app
                     builder.setPositiveButton(tagCloud.canOpenLinks ? R.string.disable : R.string.enable,
-                            (dialog, which) -> executor.submit(() -> {
+                            (dialog, which) -> ThreadUtils.postOnBackgroundThread(() -> {
                                 try {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                         DomainVerificationManagerCompat
@@ -737,7 +740,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     if (hasDumpPermission() && FeatureController.isLogViewerEnabled()) {
                         titleBuilder.setSubtitle(R.string.running_services_logcat_hint);
                     }
-                    runOnUiThread(() -> {
+                    ThreadUtils.postOnMainThread(() -> {
                         mProgressIndicator.hide();
                         new SearchableItemsDialogBuilder<>(mActivity, runningServices)
                                 .setTitle(titleBuilder.build())
@@ -748,10 +751,10 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                                     mActivity.startActivity(logViewerIntent);
                                 })
-                                .setNeutralButton(R.string.force_stop, (dialog, which) -> executor.submit(() -> {
+                                .setNeutralButton(R.string.force_stop, (dialog, which) -> ThreadUtils.postOnBackgroundThread(() -> {
                                     try {
                                         PackageManagerCompat.forceStopPackage(mPackageName, mainModel.getUserHandle());
-                                        runOnUiThread(this::refreshDetails);
+                                        ThreadUtils.postOnMainThread(this::refreshDetails);
                                     } catch (RemoteException | SecurityException e) {
                                         Log.e(TAG, e);
                                         displayLongToast(R.string.failed_to_stop, mPackageLabel);
@@ -866,6 +869,53 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                     .setNegativeButton(R.string.close, null)
                                     .show());
         }
+        if (tagCloud.staticSharedLibraryNames != null) {
+            addChip(R.string.static_shared_library).setOnClickListener(v -> {
+                new SearchableMultiChoiceDialogBuilder<>(mActivity, tagCloud.staticSharedLibraryNames, tagCloud.staticSharedLibraryNames)
+                        .setTitle(R.string.shared_libs)
+                        .setPositiveButton(R.string.close, null)
+                        .setNeutralButton(R.string.uninstall, (dialog, which, selectedItems) -> {
+                            int userId = mainModel.getUserHandle();
+                            final boolean isSystemApp = (mApplicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                            new ScrollableDialogBuilder(mActivity,
+                                    isSystemApp ? R.string.uninstall_system_app_message : R.string.uninstall_app_message)
+                                    .setTitle(mPackageLabel)
+                                    .setPositiveButton(R.string.uninstall, (dialog1, which1, keepData) -> {
+                                        if (selectedItems.size() == 1) {
+                                            ThreadUtils.postOnBackgroundThread(() -> {
+                                                PackageInstallerCompat installer = PackageInstallerCompat
+                                                        .getNewInstance();
+                                                installer.setAppLabel(mPackageLabel);
+                                                boolean uninstalled = installer.uninstall(selectedItems.get(0), userId, keepData);
+                                                ThreadUtils.postOnMainThread(() -> {
+                                                    if (uninstalled) {
+                                                        displayLongToast(R.string.uninstalled_successfully, mPackageLabel);
+                                                        mActivity.finish();
+                                                    } else {
+                                                        displayLongToast(R.string.failed_to_uninstall, mPackageLabel);
+                                                    }
+                                                });
+                                            });
+                                        } else {
+                                            Intent intent = new Intent(mActivity, BatchOpsService.class);
+                                            ArrayList<Integer> userIds = new ArrayList<>(selectedItems.size());
+                                            for (int i = 0; i < selectedItems.size(); ++i) {
+                                                userIds.add(userId);
+                                            }
+                                            intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, selectedItems);
+                                            intent.putIntegerArrayListExtra(BatchOpsService.EXTRA_OP_USERS, userIds);
+                                            intent.putExtra(BatchOpsService.EXTRA_OP, BatchOpsManager.OP_UNINSTALL);
+                                            ContextCompat.startForegroundService(mActivity, intent);
+                                        }
+                                    })
+                                    .setNegativeButton(R.string.cancel, (dialog1, which1, keepData) -> {
+                                        if (dialog != null) dialog.cancel();
+                                    })
+                                    .show();
+                        })
+                        .show();
+            });
+        }
     }
 
     @UiThread
@@ -876,11 +926,11 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             if (MagiskHide.apply(mp)) {
                 try (ComponentsBlocker cb = ComponentsBlocker.getMutableInstance(mPackageName, mainModel.getUserHandle())) {
                     cb.setMagiskHide(mp);
-                    runOnUiThread(this::refreshDetails);
+                    ThreadUtils.postOnMainThread(this::refreshDetails);
                 }
             } else {
                 mp.setEnabled(!isChecked);
-                runOnUiThread(() -> displayLongToast(isChecked ? R.string.failed_to_enable_magisk_hide
+                ThreadUtils.postOnMainThread(() -> displayLongToast(isChecked ? R.string.failed_to_enable_magisk_hide
                         : R.string.failed_to_disable_magisk_hide));
             }
         }));
@@ -897,11 +947,11 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             if (MagiskDenyList.apply(mp)) {
                 try (ComponentsBlocker cb = ComponentsBlocker.getMutableInstance(mPackageName, mainModel.getUserHandle())) {
                     cb.setMagiskDenyList(mp);
-                    runOnUiThread(this::refreshDetails);
+                    ThreadUtils.postOnMainThread(this::refreshDetails);
                 }
             } else {
                 mp.setEnabled(!isChecked);
-                runOnUiThread(() -> displayLongToast(isChecked ? R.string.failed_to_enable_magisk_deny_list
+                ThreadUtils.postOnMainThread(() -> displayLongToast(isChecked ? R.string.failed_to_enable_magisk_deny_list
                         : R.string.failed_to_disable_magisk_deny_list));
             }
         }));
@@ -997,12 +1047,12 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 ScrollableDialogBuilder builder = new ScrollableDialogBuilder(mActivity,
                         isSystemApp ? R.string.uninstall_system_app_message : R.string.uninstall_app_message)
                         .setTitle(mPackageLabel)
-                        .setPositiveButton(R.string.uninstall, (dialog, which, keepData) -> executor.submit(() -> {
+                        .setPositiveButton(R.string.uninstall, (dialog, which, keepData) -> ThreadUtils.postOnBackgroundThread(() -> {
                             PackageInstallerCompat installer = PackageInstallerCompat
                                     .getNewInstance();
                             installer.setAppLabel(mPackageLabel);
                             boolean uninstalled = installer.uninstall(mPackageName, userId, keepData);
-                            runOnUiThread(() -> {
+                            ThreadUtils.postOnMainThread(() -> {
                                 if (uninstalled) {
                                     displayLongToast(R.string.uninstalled_successfully, mPackageLabel);
                                     mActivity.finish();
@@ -1019,14 +1069,14 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 }
                 if ((mApplicationInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
                     builder.setNeutralButton(R.string.uninstall_updates, (dialog, which, keepData) ->
-                            executor.submit(() -> {
+                            ThreadUtils.postOnBackgroundThread(() -> {
                                 PackageInstallerCompat installer = PackageInstallerCompat.getNewInstance();
                                 installer.setAppLabel(mPackageLabel);
                                 boolean isSuccessful = installer.uninstall(mPackageName, UserHandleHidden.USER_ALL, keepData);
                                 if (isSuccessful) {
-                                    runOnUiThread(() -> displayLongToast(R.string.update_uninstalled_successfully, mPackageLabel));
+                                    ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.update_uninstalled_successfully, mPackageLabel));
                                 } else {
-                                    runOnUiThread(() -> displayLongToast(R.string.failed_to_uninstall_updates, mPackageLabel));
+                                    ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.failed_to_uninstall_updates, mPackageLabel));
                                 }
                             }));
                 }
@@ -1049,10 +1099,10 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     addToHorizontalLayout(R.string.force_stop, R.drawable.ic_power_settings)
                             .setOnClickListener(v -> {
                                 if (isAdbEnabled || isRootEnabled) {
-                                    executor.submit(() -> {
+                                    ThreadUtils.postOnBackgroundThread(() -> {
                                         try {
                                             PackageManagerCompat.forceStopPackage(mPackageName, mainModel.getUserHandle());
-                                            runOnUiThread(this::refreshDetails);
+                                            ThreadUtils.postOnMainThread(this::refreshDetails);
                                         } catch (RemoteException | SecurityException e) {
                                             Log.e(TAG, e);
                                             displayLongToast(R.string.failed_to_stop, mPackageLabel);
@@ -1076,9 +1126,9 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                 .setMessage(R.string.clear_data_message)
                                 .setPositiveButton(R.string.clear, (dialog, which) -> {
                                     if (isAdbEnabled || isRootEnabled) {
-                                        executor.submit(() -> {
+                                        ThreadUtils.postOnBackgroundThread(() -> {
                                             if (PackageManagerCompat.clearApplicationUserData(mPackageName, mainModel.getUserHandle())) {
-                                                runOnUiThread(this::refreshDetails);
+                                                ThreadUtils.postOnMainThread(this::refreshDetails);
                                             }
                                         });
                                     } else {
@@ -1099,9 +1149,9 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 addToHorizontalLayout(R.string.clear_cache, R.drawable.ic_clear_cache)
                         .setOnClickListener(v -> {
                             if (isAdbEnabled || isRootEnabled) {
-                                executor.submit(() -> {
+                                ThreadUtils.postOnBackgroundThread(() -> {
                                     if (PackageManagerCompat.deleteApplicationCacheFilesAsUser(mPackageName, mainModel.getUserHandle())) {
-                                        runOnUiThread(this::refreshDetails);
+                                        ThreadUtils.postOnMainThread(this::refreshDetails);
                                     }
                                 });
                             } else {
@@ -1225,7 +1275,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                 .setOnItemClickListener((dialog, which, item) -> executor.submit(() -> {
                                     // Vacuum database
                                     Runner.runCommand(new String[]{"sqlite3", databases.get(which).getFilePath(), "vacuum"});
-                                    runOnUiThread(() -> {
+                                    ThreadUtils.postOnMainThread(() -> {
                                         OpenWithDialogFragment fragment = OpenWithDialogFragment.getInstance(databases.get(which), "application/vnd.sqlite3");
                                         fragment.show(getChildFragmentManager(), OpenWithDialogFragment.TAG);
                                     });
@@ -1549,13 +1599,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             // Grant optional READ_PHONE_STATE permission
             if (!PermissionUtils.hasSelfPermission(Manifest.permission.READ_PHONE_STATE) &&
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-                runOnUiThread(() -> requestPerm.launch(Manifest.permission.READ_PHONE_STATE, granted -> {
+                ThreadUtils.postOnMainThread(() -> requestPerm.launch(Manifest.permission.READ_PHONE_STATE, granted -> {
                     if (granted) model.loadAppInfo();
                 }));
             }
         }
         if (!PermissionUtils.hasUsageStatsPermission(mActivity)) {
-            runOnUiThread(() -> new MaterialAlertDialogBuilder(mActivity)
+            ThreadUtils.postOnMainThread(() -> new MaterialAlertDialogBuilder(mActivity)
                     .setTitle(R.string.grant_usage_access)
                     .setMessage(R.string.grant_usage_acess_message)
                     .setPositiveButton(R.string.go, (dialog, which) -> {
@@ -1602,13 +1652,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         // (Re)load views
         model.loadPackageLabel();
         model.loadTagCloud();
-        runOnUiThread(() -> {
+        ThreadUtils.postOnMainThread(() -> {
             if (isAdded() && !isDetached()) {
                 setHorizontalActions();
             }
         });
         model.loadAppInfo();
-        runOnUiThread(() -> showProgressIndicator(false));
+        ThreadUtils.postOnMainThread(() -> showProgressIndicator(false));
     }
 
     @MainThread
@@ -1639,17 +1689,9 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     for (int flag : selections) {
                         flags |= flag;
                     }
-                    FreezeUnfreeze.ShortcutInfo shortcutInfo = new FreezeUnfreeze.ShortcutInfo(mPackageName,
-                            mainModel.getUserHandle(), flags);
-                    Intent shortcutIntent = FreezeUnfreeze.getShortcutIntent(requireContext(), shortcutInfo);
-                    shortcutInfo.setLabel(mPackageLabel.toString());
-                    Bitmap icon = getBitmapFromDrawable(iconView.getDrawable());
-                    if (isFrozen) {
-                        dimBitmap(icon);
-                    }
-                    shortcutInfo.setIcon(icon);
-                    LauncherIconCreator.createLauncherIcon(requireContext(), shortcutInfo.shortcutId,
-                            shortcutInfo.getLabel(), shortcutInfo.getIcon(), shortcutIntent);
+                    LauncherShortcuts.createFreezeUnfreezeShortcut(requireContext(), mPackageLabel,
+                            getBitmapFromDrawable(iconView.getDrawable()), mPackageName, mainModel.getUserHandle(),
+                            flags, isFrozen);
                 })
                 .show();
     }
@@ -1679,10 +1721,5 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         if (mProgressIndicator == null) return;
         if (show) mProgressIndicator.show();
         else mProgressIndicator.hide();
-    }
-
-    @AnyThread
-    private void runOnUiThread(Runnable runnable) {
-        ThreadUtils.postOnMainThread(runnable);
     }
 }

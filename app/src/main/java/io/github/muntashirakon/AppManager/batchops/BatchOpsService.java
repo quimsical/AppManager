@@ -4,7 +4,6 @@ package io.github.muntashirakon.AppManager.batchops;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -16,7 +15,6 @@ import android.os.UserHandleHidden;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 
@@ -27,6 +25,8 @@ import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
 import io.github.muntashirakon.AppManager.main.MainActivity;
+import io.github.muntashirakon.AppManager.progress.NotificationProgressHandler;
+import io.github.muntashirakon.AppManager.progress.QueuedProgressHandler;
 import io.github.muntashirakon.AppManager.types.ForegroundService;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
 
@@ -117,7 +117,6 @@ public class BatchOpsService extends ForegroundService {
      * Notification channel ID
      */
     public static final String CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.BATCH_OPS";
-    public static final int NOTIFICATION_ID = 1;
 
     @BatchOpsManager.OpType
     private int op = BatchOpsManager.OP_NONE;
@@ -125,22 +124,20 @@ public class BatchOpsService extends ForegroundService {
     private ArrayList<String> packages;
     private Bundle args;
     private String header;
-    private NotificationCompat.Builder builder;
-    private NotificationManagerCompat notificationManager;
+    private QueuedProgressHandler progressHandler;
+    private NotificationProgressHandler.NotificationInfo notificationInfo;
     private final BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, @NonNull Intent intent) {
             if (intent.getAction() == null) return;
             if (ACTION_BATCH_OPS_PROGRESS.equals(intent.getAction())) {
-                if (notificationManager == null) return;
                 int progressMax = intent.getIntExtra(EXTRA_PROGRESS_MAX, 0);
                 CharSequence progressMessage = intent.getCharSequenceExtra(EXTRA_PROGRESS_MESSAGE);
                 if (progressMessage == null) {
                     progressMessage = getString(R.string.operation_running);
                 }
-                builder.setContentText(progressMessage);
-                builder.setProgress(progressMax, intent.getIntExtra(EXTRA_PROGRESS_CURRENT, 0), progressMax == 0);
-                notificationManager.notify(NOTIFICATION_ID, builder.build());
+                notificationInfo.setBody(progressMessage);
+                progressHandler.onProgressUpdate(progressMax, intent.getIntExtra(EXTRA_PROGRESS_CURRENT, 0), notificationInfo);
             }
         }
     };
@@ -156,21 +153,19 @@ public class BatchOpsService extends ForegroundService {
             op = intent.getIntExtra(EXTRA_OP, BatchOpsManager.OP_NONE);
         }
         header = getHeader(intent);
-        notificationManager = NotificationUtils.getNewNotificationManager(this, CHANNEL_ID,
-                "Batch Ops Progress", NotificationManagerCompat.IMPORTANCE_LOW);
+        progressHandler = new NotificationProgressHandler(this,
+                new NotificationProgressHandler.NotificationManagerInfo(CHANNEL_ID, "Batch Ops Progress", NotificationManagerCompat.IMPORTANCE_LOW),
+                NotificationUtils.HIGH_PRIORITY_NOTIFICATION_INFO,
+                NotificationUtils.HIGH_PRIORITY_NOTIFICATION_INFO);
         Intent notificationIntent = new Intent(this, MainActivity.class);
         @SuppressLint("WrongConstant")
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
                 PendingIntentCompat.FLAG_IMMUTABLE);
-        builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setOngoing(true)
-                .setContentText(getString(R.string.operation_running))
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setSubText(header)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setProgress(0, 0, true)
-                .setContentIntent(pendingIntent);
-        startForeground(NOTIFICATION_ID, builder.build());
+        notificationInfo = new NotificationProgressHandler.NotificationInfo()
+                .setOperationName(header)
+                .setBody(getString(R.string.operation_running))
+                .setDefaultAction(pendingIntent);
+        progressHandler.onAttach(this, notificationInfo);
         registerReceiver(broadcastReceiver, new IntentFilter(ACTION_BATCH_OPS_PROGRESS));
         return super.onStartCommand(intent, flags, startId);
     }
@@ -216,16 +211,13 @@ public class BatchOpsService extends ForegroundService {
         if (intent == null) return;
         int op = intent.getIntExtra(EXTRA_OP, BatchOpsManager.OP_NONE);
         String opTitle = getDesiredOpTitle(op);
-        NotificationCompat.Builder builder = NotificationUtils.getHighPriorityNotificationBuilder(this)
+        Object notificationInfo = new NotificationProgressHandler.NotificationInfo()
                 .setAutoCancel(true)
-                .setDefaults(Notification.DEFAULT_ALL)
-                .setWhen(System.currentTimeMillis())
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setTicker(opTitle)
-                .setContentTitle(opTitle)
-                .setSubText(getHeader(intent))
-                .setContentText(getString(R.string.added_to_queue));
-        NotificationUtils.displayHighPriorityNotification(this, builder.build());
+                .setTime(System.currentTimeMillis())
+                .setOperationName(getHeader(intent))
+                .setTitle(opTitle)
+                .setBody(getString(R.string.added_to_queue));
+        progressHandler.onQueue(notificationInfo);
     }
 
     @Override
@@ -233,15 +225,14 @@ public class BatchOpsService extends ForegroundService {
         if (intent == null) return;
         int op = intent.getIntExtra(EXTRA_OP, BatchOpsManager.OP_NONE);
         header = getHeader(intent);
-        builder.setContentTitle(getDesiredOpTitle(op))
-                .setSubText(header);
-        notificationManager.notify(NOTIFICATION_ID, builder.build());
+        notificationInfo.setTitle(getDesiredOpTitle(op)).setOperationName(header);
+        progressHandler.onProgressStart(-1, 0, notificationInfo);
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        if (notificationManager != null) {
-            notificationManager.cancel(NOTIFICATION_ID);
+        if (progressHandler != null) {
+            progressHandler.onDetach(this);
         }
     }
 
@@ -270,19 +261,16 @@ public class BatchOpsService extends ForegroundService {
 
     private void sendNotification(int result, @Nullable BatchOpsManager.Result opResult) {
         String contentTitle = getDesiredOpTitle(op);
-        NotificationCompat.Builder builder = NotificationUtils.getHighPriorityNotificationBuilder(this)
+        NotificationProgressHandler.NotificationInfo notificationInfo = new NotificationProgressHandler.NotificationInfo()
                 .setAutoCancel(true)
-                .setDefaults(Notification.DEFAULT_ALL)
-                .setWhen(System.currentTimeMillis())
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setTicker(contentTitle)
-                .setContentTitle(contentTitle)
-                .setSubText(header);
+                .setTime(System.currentTimeMillis())
+                .setOperationName(header)
+                .setTitle(contentTitle);
         switch (result) {
             case Activity.RESULT_CANCELED:  // Cancelled
                 break;
             case Activity.RESULT_OK:  // Successful
-                builder.setContentText(getString(R.string.the_operation_was_successful));
+                notificationInfo.setBody(getString(R.string.the_operation_was_successful));
                 break;
             case Activity.RESULT_FIRST_USER:  // Failed
                 Objects.requireNonNull(opResult);
@@ -300,8 +288,8 @@ public class BatchOpsService extends ForegroundService {
                 @SuppressLint("WrongConstant")
                 PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent,
                         PendingIntent.FLAG_ONE_SHOT | PendingIntentCompat.FLAG_IMMUTABLE);
-                builder.setContentIntent(pendingIntent);
-                builder.setContentText(message + detailsMessage);
+                notificationInfo.setDefaultAction(pendingIntent);
+                notificationInfo.setBody(message + detailsMessage);
         }
         if (opResult != null && opResult.requiresRestart()) {
             Intent intent = new Intent(this, BatchOpsResultsActivity.class);
@@ -309,9 +297,9 @@ public class BatchOpsService extends ForegroundService {
             @SuppressLint("WrongConstant")
             PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent,
                     PendingIntent.FLAG_ONE_SHOT | PendingIntentCompat.FLAG_IMMUTABLE);
-            builder.addAction(0, getString(R.string.restart_device), pendingIntent);
+            notificationInfo.addAction(0, getString(R.string.restart_device), pendingIntent);
         }
-        NotificationUtils.displayHighPriorityNotification(this, builder.build());
+        progressHandler.onResult(notificationInfo);
     }
 
     @NonNull
@@ -353,6 +341,8 @@ public class BatchOpsService extends ForegroundService {
                 return getString(R.string.unblock_trackers);
             case BatchOpsManager.OP_BLOCK_COMPONENTS:
                 return getString(R.string.block_components_dots);
+            case BatchOpsManager.OP_UNBLOCK_COMPONENTS:
+                return getString(R.string.unblock_components_dots);
             case BatchOpsManager.OP_SET_APP_OPS:
                 return getString(R.string.set_mode_for_app_ops_dots);
             case BatchOpsManager.OP_IMPORT_BACKUPS:
@@ -396,6 +386,8 @@ public class BatchOpsService extends ForegroundService {
                 return getResources().getQuantityString(R.plurals.alert_failed_to_unblock_trackers, failedCount, failedCount);
             case BatchOpsManager.OP_BLOCK_COMPONENTS:
                 return getResources().getQuantityString(R.plurals.alert_failed_to_block_components, failedCount, failedCount);
+            case BatchOpsManager.OP_UNBLOCK_COMPONENTS:
+                return getResources().getQuantityString(R.plurals.alert_failed_to_unblock_components, failedCount, failedCount);
             case BatchOpsManager.OP_SET_APP_OPS:
                 return getResources().getQuantityString(R.plurals.alert_failed_to_set_app_ops, failedCount, failedCount);
             case BatchOpsManager.OP_IMPORT_BACKUPS:

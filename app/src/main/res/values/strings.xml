@@ -100,6 +100,7 @@
         \n- <a href="https://github.com/LSPosed/AndroidHiddenApiBypass">AndroidHiddenApiBypass</a> (Apache 2.0)
         \n- <a href="https://github.com/MuntashirAkon/apk-parser">APK-parser</a> (BSD-2-Clause)
         \n- <a href="https://github.com/MuntashirAkon/apksig-android">apksig for android</a> (Apache 2.0)
+        \n- <a href="https://github.com/REAndroid/ARSCLib">ARSCLib</a> (Apache 2.0)
         \n- <a href="https://github.com/bcgit/bc-java">Bouncy Castle</a> (MIT)
         \n- <a href="https://commons.apache.org/proper/commons-compress/">Commons Compress</a> (Apache 2.0)
         \n- <a href="https://github.com/dkanada/frost">Frost</a> Icons (GPLv3.0)
@@ -110,6 +111,7 @@
         \n- <a href="https://github.com/material-components/material-components-android">Material Components</a> (Apache 2.0)
         \n- <a href="https://github.com/google/material-design-icons">Material Design Icons</a> (Apache 2.0)
         \n- <a href="https://github.com/JesusFreke/smali">Smali/basksmali</a> (MIT/Apache 2.0)
+        \n- <a href="https://github.com/Rosemoe/sora-editor">sora-editor</a> (LGPL-2.1)
         \n- <a href="https://github.com/MuntashirAkon/spake2-java">SPAKE2 for Java</a> (GPLv3.0)
         \n- <a href="https://github.com/MuntashirAkon/sun-security-android">sun.security for Android</a> (GPL-2.0 \"Classpath Exception\")
         \n- <a href="https://github.com/MuntashirAkon/unapkm-android">UnAPKM Android</a> (Apache 2.0)
@@ -125,6 +127,7 @@
         \n- <a href="https://github.com/gabrielemariotti/changeloglib">ChangeLog Library</a>
         \n- <a href="https://bitbucket.org/oF2pks/fdroid-classyshark3xodus">ClassySharkAndroid</a>
         \n- <a href="https://github.com/billthefarmer/editor">Editor</a>
+        \n- <a href="https://github.com/Raival-e/File-Explorer">File Explorer</a>
         \n- <a href="https://github.com/nex3z/FlowLayout">FlowLayout</a>
         \n- <a href="https://github.com/k3b/intent-intercept">Intent Intercept</a>
         \n- <a href="https://github.com/YarikSOffice/lingver">Lingver</a>
@@ -136,8 +139,8 @@
         \n- <a href="https://github.com/open-keychain/open-keychain">Open Keychain</a>
         \n- <a href="https://github.com/Aefyr/SAI">SAI</a>
         \n- <a href="https://github.com/RikkaApps/Shizuku">Shizuku</a>
+        \n- <a href="https://github.com/eclipse/tm4e">tm4e</a>
         \n- <a href="https://github.com/tuyafeng/Watt">Watt</a>
-        \nOriginal logo credit: <a href="https://github.com/Atrate">Atrate</a>.
     </string>
     <string name="word_wrap">Toggle word wrap</string>
     <string name="class_viewer">Class Viewer</string>
@@ -395,7 +398,9 @@
     <string name="clear_cache">Clear Cache</string>
     <string name="block_unblock_trackers_description">Block or unblock ad and tracking components in all the installed apps</string>
     <string name="block_components_dots">Block components…</string>
-    <string name="block_components_description">Block all components identified by the given signatures</string>
+    <string name="block_unblock_components_dots">Block/unblock components…</string>
+    <string name="unblock_components_dots">Unblock components…</string>
+    <string name="block_unblock_components_description">Block or unblock all components identified by the given signatures</string>
     <string name="deny_app_ops_description">Set a mode for app operations identified by the constant values, i.e. <tt>63</tt> or <tt>RUN_IN_BACKGROUND</tt></string>
     <string name="clear_data_from_uninstalled_apps">Clear data from uninstalled apps</string>
     <string name="clear_data_from_uninstalled_apps_description">Clear data from apps that are uninstalled with <tt>DONT_DELETE_DATA</tt> flag</string>
@@ -420,7 +425,7 @@
     <string name="filter">Filter</string>
     <string name="filter_user_apps">User apps</string>
     <string name="filter_system_apps">System apps</string>
-    <string name="filter_apps_with_rules">Apps with rules</string>
+    <string name="filter_apps_with_rules">With rules</string>
     <string name="select_all">Select All</string>
     <string name="installed_version">Installed Version</string>
     <string name="trackers">Trackers</string>
@@ -459,6 +464,10 @@
     <plurals name="alert_failed_to_block_components">
         <item quantity="one">Could not block components for %1$d app</item>
         <item quantity="other">Could not block components for %1$d apps</item>
+    </plurals>
+    <plurals name="alert_failed_to_unblock_components">
+        <item quantity="one">Could not unblock components for %1$d app</item>
+        <item quantity="other">Could not unblock components for %1$d apps</item>
     </plurals>
     <plurals name="alert_failed_to_set_app_ops">
         <item quantity="one">Could not set app ops for %1$d app</item>
@@ -613,7 +622,6 @@
     <string name="systemless_app">Systemless App</string>
     <string name="open_pgp_provider">OpenPGP Provider</string>
     <string name="profiles">Profiles</string>
-    <string name="presets">Presets</string>
     <string name="no_profiles">No profiles</string>
     <string name="keystore">KeyStore</string>
     <string name="apply_now">Apply now…</string>
@@ -1054,7 +1062,6 @@
     <string name="port_number_empty">Port number is empty.</string>
     <string name="port_number_invalid">Invalid port number.</string>
     <string name="unknown_net_policy">Unknown netpolicy (%1$s - %2$X)</string>
-    <string name="app_signing_signature_mismatch_for_data_only_app">Could not install app due to signature mismatch. The app was uninstalled without clearing its data.</string>
     <string name="failed_to_prevent_background_run">Could not prevent %1$s from running in the background</string>
     <string name="help_app_ops_tab">Click on an item to <b>allow</b> or <b>ignore</b> it. Long click on an item to see other supported modes.</string>
     <string name="help_permissions_tab">These permissions are defined by this app and cannot be revoked.</string>
@@ -1334,8 +1341,54 @@
     <string name="batch_ops_runtime_optimization">Runtime optimization</string>
     <string name="app_info_tag_open_links">Open links</string>
     <string name="title_domains_supported_by_the_app">Supported Domains</string>
+    <string name="pref_zip_align">Align APK files</string>
+    <string name="pref_zip_align_msg">Aligning an APK file reduces its memory usage as the files in the APK can be accessed directly without copying the data to RAM. This step is required if <tt>extractNativeLibs</tt> is set to <tt>true</tt>.</string>
     <plurals name="alert_failed_to_optimize_apps">
         <item quantity="one">Could not optimize %1$d app</item>
         <item quantity="other">Could not optimize %1$d apps</item>
     </plurals>
+    <string name="title_code_editor">Code Editor</string>
+    <string name="redo">Redo</string>
+    <string name="read_only_file">Read only file</string>
+    <string name="read_only_file_warning">The changes cannot be written into the file, possibly because it is located in a volume that App Manager has no permission to write to. Do you want to save it in a different place?</string>
+    <string name="line_separator">Line separator</string>
+    <plurals name="search_results">
+        <item quantity="one">%d result</item>
+        <item quantity="other">%d results</item>
+    </plurals>
+    <string name="replacement_text">Replacement</string>
+    <string name="action_replace_all">Replace All</string>
+    <string name="search_option_match_case">Match case</string>
+    <string name="search_option_whole_word">Whole word</string>
+    <string name="search_option_regex">Regex</string>
+    <string name="uninstall_app_again_message">The application was uninstalled without clearing data and signature. Do you want to completely uninstall it?</string>
+    <string name="uninstall_app">Uninstall %1$s</string>
+    <string name="debloat_list_type">List</string>
+    <string name="debloat_removal_type">Type</string>
+    <string name="system_app_put_back">Put back</string>
+    <string name="debloater_title">Debloater</string>
+    <string name="debloat_list_aosp">AOSP</string>
+    <string name="debloat_list_oem">OEM</string>
+    <string name="debloat_list_carrier">Carrier/ISP</string>
+    <string name="debloat_list_google">Google</string>
+    <string name="debloat_list_misc">Miscellany</string>
+    <string name="debloat_list_pending">Pending</string>
+    <string name="debloat_removal_safe">Safe</string>
+    <string name="debloat_removal_replace">Replace</string>
+    <string name="debloat_removal_caution">Caution</string>
+    <string name="debloat_removal_unsafe">Unsafe</string>
+    <string name="static_shared_library">Static shared library</string>
+    <string name="empty_folder">Empty</string>
+    <plurals name="folder_count">
+        <item quantity="one">%d folder</item>
+        <item quantity="other">%d folders</item>
+    </plurals>
+    <plurals name="file_count">
+        <item quantity="one">%d file</item>
+        <item quantity="other">%d files</item>
+    </plurals>
+    <string name="go_to_path">Go to…</string>
+    <string name="copy_this_path">Copy path</string>
+    <string name="title_audio_player">Audio Player</string>
+    <string name="filter_force_stopped_apps">Stopped apps</string>
 </resources>

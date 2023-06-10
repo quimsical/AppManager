@@ -39,7 +39,9 @@ import android.util.AndroidException;
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.OptIn;
 import androidx.annotation.WorkerThread;
+import androidx.core.os.BuildCompat;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -54,10 +56,40 @@ import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.BroadcastUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
-import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.PermissionUtils;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 
 public final class PackageManagerCompat {
+    public static final int MATCH_STATIC_SHARED_AND_SDK_LIBRARIES = 0x04000000;
+    public static final int GET_SIGNING_CERTIFICATES;
+    public static final int GET_SIGNING_CERTIFICATES_APK;
+    public static final int MATCH_DISABLED_COMPONENTS;
+    public static final int MATCH_UNINSTALLED_PACKAGES;
+
+    static {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            GET_SIGNING_CERTIFICATES = PackageManager.GET_SIGNING_CERTIFICATES;
+        } else {
+            //noinspection deprecation
+            GET_SIGNING_CERTIFICATES = PackageManager.GET_SIGNATURES;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            GET_SIGNING_CERTIFICATES_APK = PackageManager.GET_SIGNING_CERTIFICATES;
+        } else {
+            //noinspection deprecation
+            GET_SIGNING_CERTIFICATES_APK = PackageManager.GET_SIGNATURES;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            MATCH_DISABLED_COMPONENTS = PackageManager.MATCH_DISABLED_COMPONENTS;
+            MATCH_UNINSTALLED_PACKAGES = PackageManager.MATCH_UNINSTALLED_PACKAGES;
+        } else {
+            //noinspection deprecation
+            MATCH_DISABLED_COMPONENTS = PackageManager.GET_DISABLED_COMPONENTS;
+            //noinspection deprecation
+            MATCH_UNINSTALLED_PACKAGES = PackageManager.GET_UNINSTALLED_PACKAGES;
+        }
+    }
+
     @IntDef({
             COMPONENT_ENABLED_STATE_DEFAULT,
             COMPONENT_ENABLED_STATE_ENABLED,
@@ -77,7 +109,8 @@ public final class PackageManagerCompat {
     public @interface EnabledFlags {
     }
 
-    private static final int WORKING_FLAGS = PackageManager.GET_META_DATA | PackageUtils.flagMatchUninstalled;
+    private static final int WORKING_FLAGS = PackageManager.GET_META_DATA | MATCH_UNINSTALLED_PACKAGES
+            | MATCH_STATIC_SHARED_AND_SDK_LIBRARIES;
 
     @SuppressLint("NewApi")
     @SuppressWarnings("deprecation")
@@ -94,6 +127,9 @@ public final class PackageManagerCompat {
                     if (i % 100 == 0) {
                         // Prevent DeadObjectException
                         SystemClock.sleep(300);
+                    }
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
                     }
                 } catch (Exception e) {
                     throw new RemoteException(e.getMessage());
@@ -203,17 +239,32 @@ public final class PackageManagerCompat {
         return applicationInfo;
     }
 
-    public static String getInstallerPackageName(@NonNull String packageName) throws RemoteException {
-        return getInstallSourceInfo(packageName).getInstallingPackageName();
+    public static String getInstallerPackageName(@NonNull String packageName, @UserIdInt int userId)
+            throws RemoteException {
+        return getInstallSourceInfo(packageName, userId).getInstallingPackageName();
     }
 
+    @OptIn(markerClass = BuildCompat.PrereleaseSdkCheck.class)
+    @SuppressWarnings("deprecation")
     @NonNull
-    public static InstallSourceInfoCompat getInstallSourceInfo(@NonNull String packageName) throws RemoteException {
+    public static InstallSourceInfoCompat getInstallSourceInfo(@NonNull String packageName, @UserIdInt int userId)
+            throws RemoteException {
         IPackageManager pm = getPackageManager();
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        if (BuildCompat.isAtLeastU()) {
+            return new InstallSourceInfoCompat(pm.getInstallSourceInfo(packageName, userId));
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return new InstallSourceInfoCompat(pm.getInstallSourceInfo(packageName));
         }
-        String installerPackageName = getPackageManager().getInstallerPackageName(packageName);
+        String installerPackageName = null;
+        try {
+            installerPackageName = getPackageManager().getInstallerPackageName(packageName);
+        } catch (IllegalArgumentException e) {
+            String message = e.getMessage();
+            if (message != null && message.startsWith("Unknown package:")) {
+                throw new RemoteException(message);
+            }
+        }
         return new InstallSourceInfoCompat(installerPackageName);
     }
 
@@ -315,7 +366,8 @@ public final class PackageManagerCompat {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 // Find using private flags
-                ApplicationInfo info = getApplicationInfo(packageName, 0, userId);
+                ApplicationInfo info = getApplicationInfo(packageName,
+                        PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
                 return (ApplicationInfoCompat.getPrivateFlags(info) & ApplicationInfoCompat.PRIVATE_FLAG_HIDDEN) != 0;
             } catch (PackageManager.NameNotFoundException ignore) {
             }
@@ -335,10 +387,6 @@ public final class PackageManagerCompat {
             return getPackageManager().installExistingPackageAsUser(packageName, userId, installFlags, installReason);
         }
         return getPackageManager().installExistingPackageAsUser(packageName, userId);
-    }
-
-    public static String getInstallerPackage(String packageName) throws RemoteException {
-        return getPackageManager().getInstallerPackageName(packageName);
     }
 
     public static void clearApplicationUserData(@NonNull UserPackagePair pair) throws AndroidException {
@@ -432,7 +480,7 @@ public final class PackageManagerCompat {
                 // IPackageManager#freeStorageAndNotify cannot be used before Android Oreo because Shell does not have
                 // the permission android.permission.CLEAR_APP_CACHE
                 for (int userId : Users.getUsersIds()) {
-                    for (ApplicationInfo info : getInstalledApplications(0, userId)) {
+                    for (ApplicationInfo info : getInstalledApplications(MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId)) {
                         deleteApplicationCacheFilesAsUser(info.packageName, userId);
                     }
                 }

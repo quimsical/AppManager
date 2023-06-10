@@ -58,7 +58,6 @@ import java.util.zip.ZipFile;
 import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.StaticDataset;
-import io.github.muntashirakon.AppManager.apk.parser.AndroidBinXmlParser;
 import io.github.muntashirakon.AppManager.apk.signing.SigSchemes;
 import io.github.muntashirakon.AppManager.apk.signing.Signer;
 import io.github.muntashirakon.AppManager.apk.splitapk.ApksMetadata;
@@ -287,7 +286,7 @@ public final class ApkFile implements AutoCloseable {
             try {
                 manifest = getManifestFromApk(cacheFilePath);
                 manifestAttrs = getManifestAttributes(manifest);
-            } catch (IOException | AndroidBinXmlParser.XmlParserException e) {
+            } catch (IOException e) {
                 throw new ApkFileException("Manifest not found for base APK.", e);
             }
             if (!manifestAttrs.containsKey(ATTR_PACKAGE)) {
@@ -316,7 +315,7 @@ public final class ApkFile implements AutoCloseable {
                         try {
                             manifest = getManifestFromApk(zipInputStream);
                             manifestAttrs = getManifestAttributes(manifest);
-                        } catch (IOException | AndroidBinXmlParser.XmlParserException e) {
+                        } catch (IOException e) {
                             throw new ApkFileException("Manifest not found.", e);
                         }
                         if (manifestAttrs.containsKey("split")) {
@@ -409,7 +408,7 @@ public final class ApkFile implements AutoCloseable {
                 try {
                     manifest = getManifestFromApk(apk);
                     manifestAttrs = getManifestAttributes(manifest);
-                } catch (IOException | AndroidBinXmlParser.XmlParserException e) {
+                } catch (IOException e) {
                     throw new ApkFileException("Manifest not found.", e);
                 }
                 if (manifestAttrs.containsKey("split")) {
@@ -709,9 +708,9 @@ public final class ApkFile implements AutoCloseable {
          */
         @NonNull
         public String getFileName() {
-            if (cachedFile != null && cachedFile.exists()) return cachedFile.getName();
+            if (Paths.exists(cachedFile)) return cachedFile.getName();
             if (zipEntry != null) return FileUtils.getFileNameFromZipEntry(zipEntry);
-            if (source != null && source.exists()) return source.getName();
+            if (Paths.exists(source)) return source.getName();
             else throw new RuntimeException("Neither zipEntry nor source is defined.");
         }
 
@@ -719,9 +718,9 @@ public final class ApkFile implements AutoCloseable {
          * Get size of the entry.
          */
         public long getFileSize() {
-            if (cachedFile != null && cachedFile.exists()) return cachedFile.length();
+            if (Paths.exists(cachedFile)) return cachedFile.length();
             if (zipEntry != null) return zipEntry.getSize();
-            if (source != null && source.exists()) return source.length();
+            if (Paths.exists(source)) return source.length();
             else throw new RuntimeException("Neither zipEntry nor source is defined.");
         }
 
@@ -731,21 +730,22 @@ public final class ApkFile implements AutoCloseable {
          * @throws IOException If the APK cannot be signed or cached.
          */
         public File getSignedFile() throws IOException {
-            if (signedFile != null && signedFile.exists()) return signedFile;
             File realFile = getRealCachedFile();
             if (!needSigning()) {
                 // Return original/real file if signing is not requested
                 return realFile;
             }
+            if (Paths.exists(signedFile)) return signedFile;
             signedFile = fileCache.createCachedFile("apk");
-            SigSchemes sigSchemes = SigSchemes.fromPref();
+            SigSchemes sigSchemes = Prefs.Signing.getSigSchemes();
+            boolean zipAlign = Prefs.Signing.zipAlign();
             try {
                 Signer signer = Signer.getInstance(sigSchemes);
                 if (signer.isV4SchemeEnabled()) {
                     idsigFile = fileCache.createCachedFile("idsig");
                     signer.setIdsigFile(idsigFile);
                 }
-                if (signer.sign(realFile, signedFile)) {
+                if (signer.sign(realFile, signedFile, -1, zipAlign)) {
                     if (Signer.verify(sigSchemes, signedFile, idsigFile)) {
                         return signedFile;
                     }
@@ -801,9 +801,9 @@ public final class ApkFile implements AutoCloseable {
          */
         @NonNull
         public InputStream getRealInputStream() throws IOException {
-            if (cachedFile != null && cachedFile.exists()) return new FileInputStream(cachedFile);
+            if (Paths.exists(cachedFile)) return new FileInputStream(cachedFile);
             if (zipEntry != null) return Objects.requireNonNull(zipFile).getInputStream(zipEntry);
-            if (source != null && source.exists()) return new FileInputStream(source);
+            if (Paths.exists(source)) return new FileInputStream(source);
             else throw new IOException("Neither zipEntry nor source is defined.");
         }
 

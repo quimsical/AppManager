@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Set;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
-import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizationDialog;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
@@ -87,6 +86,7 @@ public class OneClickOpsActivity extends BaseActivity {
                 blockComponents(listPair.first, listPair.second));
         mViewModel.watchAppOpsCount().observe(this, listPairPair ->
                 setAppOps(listPairPair.first, listPairPair.second.first, listPairPair.second.second));
+        mViewModel.getClearDataCandidates().observe(this, this::clearData);
         mViewModel.watchTrimCachesResult().observe(this, isSuccessful -> {
             mProgressIndicator.hide();
             UIUtils.displayShortToast(isSuccessful ? R.string.done : R.string.failed);
@@ -119,8 +119,8 @@ public class OneClickOpsActivity extends BaseActivity {
                             })
                             .show();
                 });
-        mItemCreator.addItemWithTitleSubtitle(getString(R.string.block_components_dots),
-                        getString(R.string.block_components_description))
+        mItemCreator.addItemWithTitleSubtitle(getString(R.string.block_unblock_components_dots),
+                        getString(R.string.block_unblock_components_description))
                 .setOnClickListener(v -> {
                     if (!Ops.isPrivileged()) {
                         UIUtils.displayShortToast(R.string.only_works_in_root_or_adb_mode);
@@ -129,7 +129,7 @@ public class OneClickOpsActivity extends BaseActivity {
                     new TextInputDialogBuilder(this, R.string.input_signatures)
                             .setHelperText(R.string.input_signatures_description)
                             .setCheckboxLabel(R.string.apply_to_system_apps)
-                            .setTitle(R.string.block_components_dots)
+                            .setTitle(R.string.block_unblock_components_dots)
                             .setPositiveButton(R.string.search, (dialog, which, signatureNames, systemApps) -> {
                                 if (signatureNames == null) return;
                                 mProgressIndicator.show();
@@ -150,14 +150,18 @@ public class OneClickOpsActivity extends BaseActivity {
                 getText(R.string.restore_msg)).setOnClickListener(v ->
                 new RestoreTasksDialogFragment().show(getSupportFragmentManager(),
                         RestoreTasksDialogFragment.TAG));
-//        if (BuildConfig.DEBUG) {
-//            mItemCreator.addItemWithTitleSubtitle(getString(R.string.clear_data_from_uninstalled_apps),
-//                            getString(R.string.clear_data_from_uninstalled_apps_description))
-//                    .setOnClickListener(v -> clearData());
-//            mItemCreator.addItemWithTitleSubtitle(getString(R.string.clear_app_cache),
-//                            getString(R.string.clear_app_cache_description))
-//                    .setOnClickListener(v -> clearAppCache());
-//        }
+        mItemCreator.addItemWithTitleSubtitle(getString(R.string.clear_data_from_uninstalled_apps),
+                        getString(R.string.clear_data_from_uninstalled_apps_description))
+                .setOnClickListener(v -> {
+                    if (!Ops.isPrivileged()) {
+                        UIUtils.displayShortToast(R.string.only_works_in_root_or_adb_mode);
+                        return;
+                    }
+                    mViewModel.clearData();
+                });
+//        mItemCreator.addItemWithTitleSubtitle(getString(R.string.clear_app_cache),
+//                        getString(R.string.clear_app_cache_description))
+//                .setOnClickListener(v -> clearAppCache());
         mItemCreator.addItemWithTitleSubtitle(getString(R.string.trim_caches_in_all_apps),
                         getString(R.string.trim_caches_in_all_apps_description))
                 .setOnClickListener(v -> {
@@ -269,11 +273,22 @@ public class OneClickOpsActivity extends BaseActivity {
         new SearchableMultiChoiceDialogBuilder<>(this, selectedPackages, packageNamesWithComponentCount)
                 .addSelections(selectedPackages)
                 .setTitle(R.string.filtered_packages)
-                .setPositiveButton(R.string.apply, (dialog1, which1, selectedItems) -> {
+                .setPositiveButton(R.string.block, (dialog1, which1, selectedItems) -> {
                     mProgressIndicator.show();
                     Intent intent = new Intent(this, BatchOpsService.class);
                     intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, selectedItems);
                     intent.putExtra(BatchOpsService.EXTRA_OP, BatchOpsManager.OP_BLOCK_COMPONENTS);
+                    intent.putExtra(BatchOpsService.EXTRA_HEADER, getString(R.string.one_click_ops));
+                    Bundle args = new Bundle();
+                    args.putStringArray(BatchOpsManager.ARG_SIGNATURES, signatures);
+                    intent.putExtra(BatchOpsService.EXTRA_OP_EXTRA_ARGS, args);
+                    ContextCompat.startForegroundService(this, intent);
+                })
+                .setNeutralButton(R.string.unblock, (dialog1, which1, selectedItems) -> {
+                    mProgressIndicator.show();
+                    Intent intent = new Intent(this, BatchOpsService.class);
+                    intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, selectedItems);
+                    intent.putExtra(BatchOpsService.EXTRA_OP, BatchOpsManager.OP_UNBLOCK_COMPONENTS);
                     intent.putExtra(BatchOpsService.EXTRA_HEADER, getString(R.string.one_click_ops));
                     Bundle args = new Bundle();
                     args.putStringArray(BatchOpsManager.ARG_SIGNATURES, signatures);
@@ -363,9 +378,20 @@ public class OneClickOpsActivity extends BaseActivity {
                 .show();
     }
 
-    private void clearData() {
-        // TODO
-        Toast.makeText(this, "Not implemented yet.", Toast.LENGTH_SHORT).show();
+    private void clearData(@NonNull List<String> candidatePackages) {
+        String[] packages = candidatePackages.toArray(new String[0]);
+        new SearchableMultiChoiceDialogBuilder<>(this, packages, packages)
+                .setTitle(R.string.filtered_packages)
+                .setPositiveButton(R.string.apply, (dialog1, which1, selectedItems) -> {
+                    mProgressIndicator.show();
+                    Intent intent = new Intent(this, BatchOpsService.class);
+                    intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, selectedItems);
+                    intent.putExtra(BatchOpsService.EXTRA_OP, BatchOpsManager.OP_UNINSTALL);
+                    intent.putExtra(BatchOpsService.EXTRA_HEADER, getString(R.string.one_click_ops));
+                    ContextCompat.startForegroundService(this, intent);
+                })
+                .setNegativeButton(R.string.cancel, (dialog1, which1, selectedItems) -> mProgressIndicator.hide())
+                .show();
     }
 
     private void clearAppCache() {

@@ -1035,10 +1035,14 @@ public abstract class VirtualFileSystem {
         }
 
         if (read && write && !checkAccess(path, OsConstants.R_OK | OsConstants.W_OK)) {
-            throw new IOException(path + " cannot be opened for both reading and writing.");
-        } else if (read && !checkAccess(path, OsConstants.R_OK)) {
+            write = false;
+            // The below does not work with ContentProvider, only disable writing
+            // throw new IOException(path + " cannot be opened for both reading and writing.");
+        }
+        if (read && !checkAccess(path, OsConstants.R_OK)) {
             throw new IOException(path + " cannot be opened for both reading.");
-        } else if (write && !checkAccess(path, OsConstants.W_OK)) {
+        }
+        if (write && !checkAccess(path, OsConstants.W_OK)) {
             throw new IOException(path + " cannot be opened for both writing.");
         }
         Node<?> targetNode = getNode(path);
@@ -1074,7 +1078,7 @@ public abstract class VirtualFileSystem {
             // The file exists physically. It has to be cached first.
             try (InputStream is = getInputStream(node);
                  FileOutputStream os = new FileOutputStream(cachedFile)) {
-                IoUtils.copy(is, os);
+                IoUtils.copy(is, os, -1, null);
             }
         }
         fileCacheItem = new FileCacheItem(cachedFile);
@@ -1219,6 +1223,7 @@ public abstract class VirtualFileSystem {
                     : basePath + File.separatorChar) + child.name;
         }
 
+        @SuppressWarnings("SuspiciousRegexArgument") // Not on Windows
         @Nullable
         private static <T> Node<T> getLastNode(@NonNull Node<T> baseNode, @Nullable String dirtyPath) {
             if (dirtyPath == null) return baseNode;

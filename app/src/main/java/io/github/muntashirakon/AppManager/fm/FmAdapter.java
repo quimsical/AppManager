@@ -2,6 +2,9 @@
 
 package io.github.muntashirakon.AppManager.fm;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.text.format.Formatter;
 import android.view.LayoutInflater;
@@ -12,7 +15,6 @@ import android.view.ViewGroup;
 
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
-import androidx.appcompat.widget.AppCompatImageView;
 import androidx.appcompat.widget.AppCompatTextView;
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.appcompat.widget.PopupMenu;
@@ -21,20 +23,27 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.imageview.ShapeableImageView;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.fm.icons.FmIconFetcher;
+import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
 import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
 import io.github.muntashirakon.widget.MultiSelectionView;
 
-public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> {
-    private final List<FmItem> adapterList = new ArrayList<>();
+class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> {
+    private static final List<String> DEX_EXTENSIONS = Arrays.asList("dex", "jar");
+
+    private final List<FmItem> adapterList = Collections.synchronizedList(new ArrayList<>());
     private final FmViewModel viewModel;
     private final FmActivity fmActivity;
     @ColorInt
@@ -61,7 +70,7 @@ public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> 
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext()).inflate(io.github.muntashirakon.ui.R.layout.m3_preference, parent, false);
+        View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_fm, parent, false);
         View actionView = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_right_standalone_action, parent, false);
         LinearLayoutCompat layout = view.findViewById(android.R.id.widget_frame);
         layout.addView(actionView);
@@ -74,14 +83,14 @@ public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> 
         holder.title.setText(item.path.getName());
         String modificationDate = DateUtils.formatDateTime(item.path.lastModified());
         // Set icon
+        ImageLoader.getInstance().displayImage(item.tag, holder.icon, new FmIconFetcher(item));
+        // Set sub-icon
+        // TODO: 24/5/23 Set sub-icon if needed
         if (item.type == FileType.DIRECTORY) {
-            holder.icon.setImageResource(R.drawable.ic_folder);
             holder.subtitle.setText(String.format(Locale.getDefault(), "%d • %s", item.path.listFiles().length,
                     modificationDate));
-            holder.itemView.setOnClickListener(v -> fmActivity.loadNewFragment(
-                    FmFragment.getNewInstance(item.path.getUri())));
+            holder.itemView.setOnClickListener(v -> viewModel.loadFiles(item.path.getUri()));
         } else {
-            holder.icon.setImageResource(R.drawable.ic_file_document);
             holder.subtitle.setText(String.format(Locale.getDefault(), "%s • %s",
                     Formatter.formatShortFileSize(fmActivity, item.path.length()), modificationDate));
             holder.itemView.setOnClickListener(v -> {
@@ -90,6 +99,8 @@ public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> 
                 fragment.show(fmActivity.getSupportFragmentManager(), OpenWithDialogFragment.TAG);
             });
         }
+        // Symbolic link
+        holder.symbolicLinkIcon.setVisibility(item.path.isSymbolicLink() ? View.VISIBLE : View.GONE);
         // Set background colors
         holder.itemView.setCardBackgroundColor(ContextCompat.getColor(holder.itemView.getContext(), android.R.color.transparent));
         // Set selections
@@ -220,9 +231,24 @@ public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> 
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return true;
         });
+        boolean isVfs = viewModel.getOptions().isVfs;
+        menu.findItem(R.id.action_shortcut)
+                // TODO: 31/5/23 Enable creating shortcuts for VFS
+                .setEnabled(!isVfs)
+                .setVisible(!isVfs)
+                .setOnMenuItemClickListener(menuItem -> {
+                    viewModel.createShortcut(item);
+                    return true;
+                });
+        menu.findItem(R.id.action_copy_path).setOnMenuItemClickListener(menuItem -> {
+            String path = FmUtils.getDisplayablePath(item.path);
+            ClipboardManager clipboard = (ClipboardManager) fmActivity.getSystemService(Context.CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("File path", path));
+            UIUtils.displayShortToast(R.string.copied_to_clipboard);
+            return true;
+        });
         menu.findItem(R.id.action_properties).setOnMenuItemClickListener(menuItem -> {
-            FilePropertiesDialogFragment dialogFragment = FilePropertiesDialogFragment.getInstance(item.path);
-            dialogFragment.show(fmActivity.getSupportFragmentManager(), FilePropertiesDialogFragment.TAG);
+            viewModel.getDisplayPropertiesLiveData().setValue(item.path.getUri());
             return true;
         });
         popupMenu.show();
@@ -230,7 +256,8 @@ public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> 
 
     protected static class ViewHolder extends MultiSelectionView.ViewHolder {
         final MaterialCardView itemView;
-        final AppCompatImageView icon;
+        final ShapeableImageView icon;
+        final ShapeableImageView symbolicLinkIcon;
         final MaterialButton action;
         final AppCompatTextView title;
         final AppCompatTextView subtitle;
@@ -239,6 +266,7 @@ public class FmAdapter extends MultiSelectionView.Adapter<FmAdapter.ViewHolder> 
             super(itemView);
             this.itemView = (MaterialCardView) itemView;
             icon = itemView.findViewById(android.R.id.icon);
+            symbolicLinkIcon = itemView.findViewById(R.id.symolic_link_icon);
             action = itemView.findViewById(android.R.id.button1);
             title = itemView.findViewById(android.R.id.title);
             subtitle = itemView.findViewById(android.R.id.summary);

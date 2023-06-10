@@ -2,8 +2,10 @@
 
 package io.github.muntashirakon.AppManager.apk.behavior;
 
-import static io.github.muntashirakon.AppManager.utils.UIUtils.dimBitmap;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getBitmapFromDrawable;
+import static io.github.muntashirakon.AppManager.utils.UIUtils.getDimmedBitmap;
 
 import android.annotation.SuppressLint;
 import android.app.KeyguardManager;
@@ -36,8 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
@@ -46,7 +47,7 @@ import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
-import io.github.muntashirakon.AppManager.utils.PackageUtils;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 
 public class FreezeUnfreezeService extends Service {
     public static final String TAG = FreezeUnfreezeService.class.getSimpleName();
@@ -59,12 +60,14 @@ public class FreezeUnfreezeService extends Service {
     private final Map<String, FreezeUnfreeze.ShortcutInfo> packagesToShortcut = new HashMap<>();
     private final Map<String, Integer> packagesToNotificationId = new HashMap<>();
     private static final Timer timer = new Timer();
-    private static final ExecutorService executor = Executors.newFixedThreadPool(1);
     private final BroadcastReceiver screenLockedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             try {
-                executor.submit(() -> checkLock(-1));
+                if (checkLockResult != null) {
+                    checkLockResult.cancel(true);
+                }
+                checkLockResult = ThreadUtils.postOnBackgroundThread(() -> checkLock(-1));
             } catch (Throwable th) {
                 th.printStackTrace();
             }
@@ -73,6 +76,8 @@ public class FreezeUnfreezeService extends Service {
 
     private CheckLockTask checkLockTask;
     private boolean isWorking;
+    @Nullable
+    private Future<?> checkLockResult;
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
@@ -98,7 +103,7 @@ public class FreezeUnfreezeService extends Service {
                 .setOngoing(true)
                 .setContentTitle(null)
                 .setContentText(getString(R.string.waiting_for_the_phone_to_be_locked))
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_default_notification)
                 .setSubText(getText(R.string.freeze_unfreeze))
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .addAction(stopServiceAction);
@@ -115,7 +120,9 @@ public class FreezeUnfreezeService extends Service {
     public void onDestroy() {
         unregisterReceiver(screenLockedReceiver);
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-        executor.shutdownNow();
+        if (checkLockResult != null) {
+            checkLockResult.cancel(true);
+        }
         super.onDestroy();
     }
 
@@ -170,12 +177,13 @@ public class FreezeUnfreezeService extends Service {
             Integer notificationId = packagesToNotificationId.get(packageName);
             if (shortcutInfo != null) {
                 try {
-                    ApplicationInfo applicationInfo = PackageManagerCompat.getApplicationInfo(shortcutInfo.packageName, PackageUtils.flagMatchUninstalled | PackageUtils.flagDisabledComponents, shortcutInfo.userId);
+                    ApplicationInfo applicationInfo = PackageManagerCompat.getApplicationInfo(shortcutInfo.packageName,
+                            MATCH_UNINSTALLED_PACKAGES | MATCH_DISABLED_COMPONENTS
+                                    | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, shortcutInfo.userId);
                     Bitmap icon = getBitmapFromDrawable(applicationInfo.loadIcon(getApplication().getPackageManager()));
                     shortcutInfo.setLabel(applicationInfo.loadLabel(getApplication().getPackageManager()).toString());
                     FreezeUtils.freeze(shortcutInfo.packageName, shortcutInfo.userId);
-                    dimBitmap(icon);
-                    shortcutInfo.setIcon(icon);
+                    shortcutInfo.setIcon(getDimmedBitmap(icon));
                     updateShortcuts(shortcutInfo);
                 } catch (RemoteException | PackageManager.NameNotFoundException e) {
                     e.printStackTrace();
