@@ -16,30 +16,31 @@ import static io.github.muntashirakon.AppManager.apk.installer.PackageInstallerC
 import static io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat.STATUS_FAILURE_STORAGE;
 import static io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat.STATUS_SUCCESS;
 
-import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.PendingIntentCompat;
 import androidx.core.app.ServiceCompat;
-
-import java.util.Collections;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.ApkFile;
-import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
+import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizer;
+import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.intercept.IntentCompat;
 import io.github.muntashirakon.AppManager.main.MainActivity;
 import io.github.muntashirakon.AppManager.progress.NotificationProgressHandler;
+import io.github.muntashirakon.AppManager.progress.NotificationProgressHandler.NotificationInfo;
+import io.github.muntashirakon.AppManager.progress.ProgressHandler;
 import io.github.muntashirakon.AppManager.progress.QueuedProgressHandler;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
-import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.types.ForegroundService;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
@@ -62,32 +63,31 @@ public class PackageInstallerService extends ForegroundService {
     }
 
     @Nullable
-    private OnInstallFinished onInstallFinished;
-    private int sessionId;
-    private String packageName;
-    private QueuedProgressHandler progressHandler;
-    private NotificationProgressHandler.NotificationInfo notificationInfo;
+    private OnInstallFinished mOnInstallFinished;
+    private int mSessionId;
+    private String mPackageName;
+    private QueuedProgressHandler mProgressHandler;
+    private NotificationInfo mNotificationInfo;
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
         if (isWorking()) {
             return super.onStartCommand(intent, flags, startId);
         }
-        progressHandler = new NotificationProgressHandler(
+        mProgressHandler = new NotificationProgressHandler(
                 this,
                 new NotificationProgressHandler.NotificationManagerInfo(CHANNEL_ID, "Install Progress", NotificationManagerCompat.IMPORTANCE_LOW),
                 NotificationUtils.HIGH_PRIORITY_NOTIFICATION_INFO,
                 NotificationUtils.HIGH_PRIORITY_NOTIFICATION_INFO
         );
+        mProgressHandler.setProgressTextInterface(ProgressHandler.PROGRESS_PERCENT);
         Intent notificationIntent = new Intent(this, MainActivity.class);
-        @SuppressLint("WrongConstant")
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
-                PendingIntentCompat.FLAG_IMMUTABLE);
-        notificationInfo = new NotificationProgressHandler.NotificationInfo()
+        PendingIntent pendingIntent = PendingIntentCompat.getActivity(this, 0, notificationIntent, 0, false);
+        mNotificationInfo = new NotificationInfo()
                 .setBody(getString(R.string.install_in_progress))
                 .setOperationName(getText(R.string.package_installer))
                 .setDefaultAction(pendingIntent);
-        progressHandler.onAttach(this, notificationInfo);
+        mProgressHandler.onAttach(this, mNotificationInfo);
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -104,15 +104,15 @@ public class PackageInstallerService extends ForegroundService {
         installer.setOnInstallListener(new PackageInstallerCompat.OnInstallListener() {
             @Override
             public void onStartInstall(int sessionId, String packageName) {
-                PackageInstallerService.this.sessionId = sessionId;
-                PackageInstallerService.this.packageName = packageName;
+                PackageInstallerService.this.mSessionId = sessionId;
+                PackageInstallerService.this.mPackageName = packageName;
             }
 
             // MIUI-begin: MIUI 12.5+ workaround
             @Override
             public void onAnotherAttemptInMiui(@Nullable ApkFile apkFile) {
                 if (apkFile != null) {
-                    installer.install(apkFile, apkQueueItem.getUserId(), progressHandler);
+                    installer.install(apkFile, apkQueueItem.getUserId(), mProgressHandler);
                 }
             }
             // MIUI-end
@@ -120,15 +120,21 @@ public class PackageInstallerService extends ForegroundService {
             @Override
             public void onFinishedInstall(int sessionId, String packageName, int result,
                                           @Nullable String blockingPackage, @Nullable String statusMessage) {
-                // Block trackers if requested
-                if (result == STATUS_SUCCESS && Ops.isRoot() && Prefs.Installer.blockTrackers()) {
-                    ComponentUtils.blockTrackingComponents(Collections.singletonList(
-                            new UserPackagePair(packageName, apkQueueItem.getUserId())));
+                if (result == STATUS_SUCCESS) {
+                    // Block trackers if requested
+                    if (Prefs.Installer.blockTrackers()) {
+                        ComponentUtils.blockTrackingComponents(new UserPackagePair(packageName, apkQueueItem.getUserId()));
+                    }
+                    // Perform force dex optimization if requested
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && Prefs.Installer.forceDexOpt()) {
+                        // Ignore the result because it's irrelevant
+                        new DexOptimizer(PackageManagerCompat.getPackageManager(), packageName).forceDexOpt();
+                    }
                 }
-                if (onInstallFinished != null) {
+                if (mOnInstallFinished != null) {
                     ThreadUtils.postOnMainThread(() -> {
-                        if (onInstallFinished != null) {
-                            onInstallFinished.onFinished(packageName, result, blockingPackage, statusMessage);
+                        if (mOnInstallFinished != null) {
+                            mOnInstallFinished.onFinished(packageName, result, blockingPackage, statusMessage);
                         }
                     });
                 } else sendNotification(result, apkQueueItem.getAppLabel(), blockingPackage, statusMessage);
@@ -169,7 +175,7 @@ public class PackageInstallerService extends ForegroundService {
                 // No apk file, abort
                 return;
             }
-            installer.install(apkFile, apkQueueItem.getUserId(), progressHandler);
+            installer.install(apkFile, apkQueueItem.getUserId(), mProgressHandler);
         }
     }
 
@@ -178,13 +184,13 @@ public class PackageInstallerService extends ForegroundService {
         if (intent == null) return;
         ApkQueueItem apkQueueItem = IntentCompat.getParcelableExtra(intent, EXTRA_QUEUE_ITEM, ApkQueueItem.class);
         String appLabel = apkQueueItem != null ? apkQueueItem.getAppLabel() : null;
-        Object notificationInfo = new NotificationProgressHandler.NotificationInfo()
+        Object notificationInfo = new NotificationInfo()
                 .setAutoCancel(true)
                 .setOperationName(getString(R.string.package_installer))
                 .setTitle(appLabel)
                 .setBody(getString(R.string.added_to_queue))
                 .setTime(System.currentTimeMillis());
-        progressHandler.onQueue(notificationInfo);
+        mProgressHandler.onQueue(notificationInfo);
     }
 
     @Override
@@ -192,15 +198,25 @@ public class PackageInstallerService extends ForegroundService {
         if (intent == null) return;
         // Set app name in the ongoing notification
         ApkQueueItem apkQueueItem = IntentCompat.getParcelableExtra(intent, EXTRA_QUEUE_ITEM, ApkQueueItem.class);
-        String appLabel = apkQueueItem != null ? apkQueueItem.getAppLabel() : null;
-        notificationInfo.setTitle(appLabel);
-        progressHandler.onProgressStart(-1, 0, notificationInfo);
+        String appName;
+        if (apkQueueItem != null) {
+            String appLabel = apkQueueItem.getAppLabel();
+            appName = appLabel != null ? appLabel : apkQueueItem.getPackageName();
+        } else appName = null;
+        CharSequence title;
+        if (appName != null) {
+            title = getString(R.string.installing_package, appName);
+        } else {
+            title = getString(R.string.install_in_progress);
+        }
+        mNotificationInfo.setTitle(title);
+        mProgressHandler.onProgressStart(-1, 0, mNotificationInfo);
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        if (progressHandler != null) {
-            progressHandler.onDetach(this);
+        if (mProgressHandler != null) {
+            mProgressHandler.onDetach(this);
         }
     }
 
@@ -211,29 +227,28 @@ public class PackageInstallerService extends ForegroundService {
     }
 
     public void setOnInstallFinished(@Nullable OnInstallFinished onInstallFinished) {
-        this.onInstallFinished = onInstallFinished;
+        this.mOnInstallFinished = onInstallFinished;
     }
 
     public int getCurrentSessionId() {
-        return sessionId;
+        return mSessionId;
     }
 
     public String getCurrentPackageName() {
-        return packageName;
+        return mPackageName;
     }
 
-    @SuppressLint("WrongConstant")
     private void sendNotification(@PackageInstallerCompat.Status int status,
                                   @Nullable String appLabel,
                                   @Nullable String blockingPackage,
                                   @Nullable String statusMessage) {
-        Intent intent = getPackageManager().getLaunchIntentForPackage(packageName);
-        PendingIntent defaultAction = intent != null ? PendingIntent.getActivity(this, 0, intent,
-                PendingIntent.FLAG_ONE_SHOT | PendingIntentCompat.FLAG_IMMUTABLE) : null;
+        Intent intent = getPackageManager().getLaunchIntentForPackage(mPackageName);
+        PendingIntent defaultAction = intent != null ? PendingIntentCompat.getActivity(this, 0, intent,
+                PendingIntent.FLAG_ONE_SHOT, false) : null;
         String subject = getStringFromStatus(this, status, appLabel, blockingPackage);
         NotificationCompat.Style content = statusMessage != null ? new NotificationCompat.BigTextStyle()
                 .bigText(subject + "\n\n" + statusMessage) : null;
-        Object notificationInfo = new NotificationProgressHandler.NotificationInfo()
+        Object notificationInfo = new NotificationInfo()
                 .setAutoCancel(true)
                 .setTime(System.currentTimeMillis())
                 .setOperationName(getText(R.string.package_installer))
@@ -241,7 +256,12 @@ public class PackageInstallerService extends ForegroundService {
                 .setBody(subject)
                 .setStyle(content)
                 .setDefaultAction(defaultAction);
-        ThreadUtils.postOnMainThread(() -> progressHandler.onResult(notificationInfo));
+        NotificationInfo progressNotificationInfo = (NotificationInfo) mProgressHandler.getLastMessage();
+        if (progressNotificationInfo != null) {
+            progressNotificationInfo.setBody(getString(R.string.done));
+        }
+        mProgressHandler.setProgressTextInterface(null);
+        ThreadUtils.postOnMainThread(() -> mProgressHandler.onResult(notificationInfo));
     }
 
     @NonNull

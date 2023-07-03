@@ -6,21 +6,26 @@ import android.annotation.UserIdInt;
 import android.content.Context;
 import android.os.Build;
 import android.os.IUserManager;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.os.UserManager;
+import android.os.UserHandleHidden;
 
+import androidx.annotation.IntRange;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import io.github.muntashirakon.AppManager.AppManager;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
+import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.ipc.ProxyBinder;
 import io.github.muntashirakon.AppManager.logs.Log;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
+import io.github.muntashirakon.AppManager.utils.ExUtils;
 
 public final class Users {
     public static final String TAG = "Users";
@@ -30,33 +35,45 @@ public final class Users {
     @NonNull
     public static List<UserInfo> getAllUsers() {
         if (sUserInfoList.isEmpty()) {
-            try {
-                List<android.content.pm.UserInfo> userInfoList;
-                IUserManager userManager = IUserManager.Stub.asInterface(ProxyBinder.getService(Context.USER_SERVICE));
+            IUserManager userManager = IUserManager.Stub.asInterface(ProxyBinder.getService(Context.USER_SERVICE));
+            if (SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_USERS)
+                    || SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.CREATE_USERS)) {
+                List<android.content.pm.UserInfo> userInfoList = null;
                 try {
                     userInfoList = userManager.getUsers(true);
-                } catch (NoSuchMethodError e) {
+                } catch (RemoteException | NoSuchMethodError e) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        userInfoList = userManager.getUsers(true, true, true);
-                    } else throw new SecurityException(e);
+                        userInfoList = ExUtils.exceptionAsNull(() -> userManager.getUsers(true, true, true));
+                    }
                 }
-                if (userInfoList == null) {
-                    throw new SecurityException();
+                if (userInfoList != null) {
+                    for (android.content.pm.UserInfo userInfo : userInfoList) {
+                        sUserInfoList.add(new UserInfo(userInfo));
+                    }
                 }
+            }
+            if (sUserInfoList.isEmpty()) {
+                // The above didn't succeed, try no-root mode
+                Log.d(TAG, "Missing required permission: MANAGE_USERS or CREATE_USERS (7+). Falling back to unprivileged mode.");
+                List<android.content.pm.UserInfo> userInfoList = userManager.getProfiles(
+                        UserHandleHidden.getUserId(getSelfOrRemoteUid()), false);
                 for (android.content.pm.UserInfo userInfo : userInfoList) {
                     sUserInfoList.add(new UserInfo(userInfo));
-                }
-            } catch (RemoteException | SecurityException e) {
-                // Try other means in no-root mode
-                Log.d(TAG, "Could not fetch list of users using privileged mode, falling back to no-root check");
-                Context ctx = AppManager.getContext();
-                UserManager manager = (UserManager) ctx.getSystemService(Context.USER_SERVICE);
-                for (UserHandle userHandle : manager.getUserProfiles()) {
-                    sUserInfoList.add(new UserInfo(userHandle, null));
                 }
             }
         }
         return sUserInfoList;
+    }
+
+    @NonNull
+    @UserIdInt
+    public static int[] getAllUserIds() {
+        getAllUsers();
+        List<Integer> users = new ArrayList<>();
+        for (UserInfo userInfo : sUserInfoList) {
+            users.add(userInfo.id);
+        }
+        return ArrayUtils.convertToIntArray(users);
     }
 
     @NonNull
@@ -95,5 +112,14 @@ public final class Users {
             }
         }
         return null;
+    }
+
+    @IntRange(from = 0)
+    public static int getSelfOrRemoteUid() {
+        try {
+            return LocalServices.getAmService().getUid();
+        } catch (RemoteException e) {
+            return Process.myUid();
+        }
     }
 }

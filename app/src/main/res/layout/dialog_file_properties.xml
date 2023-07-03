@@ -135,9 +135,6 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/padding_small"
             android:hint="@string/file_shortcut_target_file"
-            app:endIconMode="custom"
-            app:endIconDrawable="@drawable/ic_open_in_new"
-            app:endIconContentDescription="@string/open_in_new_window"
             app:hintEnabled="true">
 
             <io.github.muntashirakon.widget.TextInputTextView
@@ -152,7 +149,6 @@
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.AppTheme.TextInputLayout.Small"
-            android:id="@+id/open_with_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/padding_small"
@@ -238,6 +234,8 @@
                 android:layout_marginEnd="4dp"
                 android:layout_marginBottom="@dimen/padding_small"
                 android:hint="@string/file_modification_date"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_touch_app"
                 app:hintEnabled="true">
 
                 <io.github.muntashirakon.widget.TextInputTextView
@@ -259,6 +257,8 @@
                 android:layout_marginStart="4dp"
                 android:layout_marginBottom="@dimen/padding_small"
                 android:hint="@string/file_accessed_date"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_touch_app"
                 app:hintEnabled="true">
 
                 <io.github.muntashirakon.widget.TextInputTextView
@@ -306,6 +306,8 @@
                 android:layout_marginEnd="4dp"
                 android:layout_marginBottom="@dimen/padding_small"
                 android:hint="@string/file_owner_id"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_edit"
                 app:hintEnabled="true">
 
                 <io.github.muntashirakon.widget.TextInputTextView
@@ -327,6 +329,8 @@
                 android:layout_marginStart="4dp"
                 android:layout_marginBottom="@dimen/padding_small"
                 android:hint="@string/file_group_id"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_edit"
                 app:hintEnabled="true">
 
                 <io.github.muntashirakon.widget.TextInputTextView
@@ -355,6 +359,8 @@
                 android:layout_marginEnd="4dp"
                 android:layout_marginBottom="@dimen/padding_small"
                 android:hint="@string/unix_file_permissions"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_edit"
                 app:hintEnabled="true">
 
                 <io.github.muntashirakon.widget.TextInputTextView
@@ -376,6 +382,8 @@
                 android:layout_marginStart="4dp"
                 android:layout_marginBottom="@dimen/padding_small"
                 android:hint="@string/selinux_context"
+                app:endIconMode="custom"
+                app:endIconDrawable="@drawable/ic_edit"
                 app:hintEnabled="true">
 
                 <io.github.muntashirakon.widget.TextInputTextView

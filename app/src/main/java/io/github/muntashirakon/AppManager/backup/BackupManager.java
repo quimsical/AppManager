@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Locale;
 
 import io.github.muntashirakon.AppManager.logs.Log;
+import io.github.muntashirakon.AppManager.progress.ProgressHandler;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
@@ -52,18 +53,18 @@ public class BackupManager {
     }
 
     @NonNull
-    private final UserPackagePair targetPackage;
+    private final UserPackagePair mTargetPackage;
     @NonNull
-    private final MetadataManager metadataManager;
+    private final MetadataManager mMetadataManager;
     @NonNull
-    private final BackupFlags requestedFlags;
+    private final BackupFlags mRequestedFlags;
 
-    private boolean requiresRestart;
+    private boolean mRequiresRestart;
 
     protected BackupManager(@NonNull UserPackagePair targetPackage, int flags) {
-        this.targetPackage = targetPackage;
-        metadataManager = MetadataManager.getNewInstance();
-        requestedFlags = new BackupFlags(flags);
+        mTargetPackage = targetPackage;
+        mMetadataManager = MetadataManager.getNewInstance();
+        mRequestedFlags = new BackupFlags(flags);
         try {
             BackupFiles.createNoMediaIfNotExists();
         } catch (IOException e) {
@@ -73,30 +74,36 @@ public class BackupManager {
     }
 
     public boolean requiresRestart() {
-        return requiresRestart;
+        return mRequiresRestart;
     }
 
     /**
      * Backup the given package belonging to the given user. If multiple backup names given, iterate
      * over the backup names and perform the identical backups several times.
      */
-    public void backup(@Nullable String[] backupNames) throws BackupException {
-        if (requestedFlags.isEmpty()) {
+    public void backup(@Nullable String[] backupNames, @Nullable ProgressHandler progressHandler)
+            throws BackupException {
+        if (mRequestedFlags.isEmpty()) {
             throw new BackupException("Backup is requested without any flags.");
         }
-        if (targetPackage.getPackageName().equals("android")) {
+        if (mTargetPackage.getPackageName().equals("android")) {
             throw new BackupException("Android System (android) cannot be backed up.");
         }
         backupNames = getProcessedBackupNames(backupNames);
         try {
             // Get backup files based on the number of backupNames
-            BackupFiles backupFiles = new BackupFiles(targetPackage.getPackageName(), targetPackage.getUserHandle(), backupNames);
-            BackupFiles.BackupFile[] backupFileList = requestedFlags.backupMultiple() ?
+            BackupFiles backupFiles = new BackupFiles(mTargetPackage.getPackageName(), mTargetPackage.getUserHandle(), backupNames);
+            BackupFiles.BackupFile[] backupFileList = mRequestedFlags.backupMultiple() ?
                     backupFiles.getFreshBackupPaths() : backupFiles.getBackupPaths(true);
+            if (progressHandler != null) {
+                int max = calculateMaxProgress(backupFileList.length);
+                progressHandler.setProgressTextInterface(ProgressHandler.PROGRESS_PERCENT);
+                progressHandler.postUpdate(max, 0f);
+            }
             for (BackupFiles.BackupFile backupFile : backupFileList) {
-                try (BackupOp backupOp = new BackupOp(targetPackage.getPackageName(), metadataManager, requestedFlags,
-                        backupFile, targetPackage.getUserHandle())) {
-                    backupOp.runBackup();
+                try (BackupOp backupOp = new BackupOp(mTargetPackage.getPackageName(), mMetadataManager, mRequestedFlags,
+                        backupFile, mTargetPackage.getUserHandle())) {
+                    backupOp.runBackup(progressHandler);
                     BackupUtils.putBackupToDbAndBroadcast(ContextUtils.getContext(), backupOp.getMetadata());
                 }
             }
@@ -107,11 +114,11 @@ public class BackupManager {
 
     @Nullable
     private String[] getProcessedBackupNames(@Nullable String[] backupNames) {
-        if (requestedFlags.backupMultiple()) {
+        if (mRequestedFlags.backupMultiple()) {
             // Multiple backups requested
             if (backupNames == null) {
                 // Create a singleton backupNames array with current time
-                backupNames = new String[]{DateUtils.formatDateTime(System.currentTimeMillis())};
+                backupNames = new String[]{DateUtils.formatDateTime(ContextUtils.getContext(), System.currentTimeMillis())};
             }
             for (int i = 0; i < backupNames.length; ++i) {
                 // Replace illegal characters
@@ -130,11 +137,12 @@ public class BackupManager {
      *                    the full name of base backup is {@code 0} and the full name of another
      *                    backup {@code foo} is {@code 0_foo}.
      */
-    public void restore(@Nullable String[] backupNames) throws BackupException {
-        if (requestedFlags.isEmpty()) {
+    public void restore(@Nullable String[] backupNames, @Nullable ProgressHandler progressHandler)
+            throws BackupException {
+        if (mRequestedFlags.isEmpty()) {
             throw new BackupException("Restore is requested without any flags.");
         }
-        if (targetPackage.getPackageName().equals("android")) {
+        if (mTargetPackage.getPackageName().equals("android")) {
             throw new BackupException("Android System (android) cannot be restored.");
         }
         if (backupNames != null && backupNames.length != 1) {
@@ -157,11 +165,11 @@ public class BackupManager {
         }
         // Set backup userHandle to the userHandle we're working with.
         // This value is only set if backupNames is null or it consisted of only user handle
-        if (backupUserHandle == -1) backupUserHandle = targetPackage.getUserHandle();
+        if (backupUserHandle == -1) backupUserHandle = mTargetPackage.getUserHandle();
         BackupFiles backupFiles;
         BackupFiles.BackupFile[] backupFileList;
         try {
-            backupFiles = new BackupFiles(targetPackage.getPackageName(), backupUserHandle, backupNames);
+            backupFiles = new BackupFiles(mTargetPackage.getPackageName(), backupUserHandle, backupNames);
             backupFileList = backupFiles.getBackupPaths(false);
         } catch (IOException e) {
             throw new BackupException("Could not get backup files.", e);
@@ -171,11 +179,16 @@ public class BackupManager {
             if (backupFileList.length > 1) {
                 Log.w(RestoreOp.TAG, "More than one backups found! Restoring only the first backup.");
             }
-            try (RestoreOp restoreOp = new RestoreOp(targetPackage.getPackageName(),
-                    metadataManager, requestedFlags, backupFileList[0],
-                    targetPackage.getUserHandle())) {
-                restoreOp.runRestore();
-                requiresRestart |= restoreOp.requiresRestart();
+            if (progressHandler != null) {
+                int max = calculateMaxProgress(1);
+                progressHandler.setProgressTextInterface(ProgressHandler.PROGRESS_PERCENT);
+                progressHandler.postUpdate(max, 0f);
+            }
+            try (RestoreOp restoreOp = new RestoreOp(mTargetPackage.getPackageName(),
+                    mMetadataManager, mRequestedFlags, backupFileList[0],
+                    mTargetPackage.getUserHandle())) {
+                restoreOp.runRestore(progressHandler);
+                mRequiresRestart |= restoreOp.requiresRestart();
                 BackupUtils.putBackupToDbAndBroadcast(ContextUtils.getContext(), restoreOp.getMetadata());
             }
         } else {
@@ -189,8 +202,8 @@ public class BackupManager {
             BackupFiles backupFiles;
             BackupFiles.BackupFile[] backupFileList;
             try {
-                backupFiles = new BackupFiles(targetPackage.getPackageName(),
-                        targetPackage.getUserHandle(), null);
+                backupFiles = new BackupFiles(mTargetPackage.getPackageName(),
+                        mTargetPackage.getUserHandle(), null);
                 backupFileList = backupFiles.getBackupPaths(false);
             } catch (IOException e) {
                 throw new BackupException("Could not get backup files.", e);
@@ -213,7 +226,7 @@ public class BackupManager {
             for (String backupName : backupNames) {
                 MetadataManager.Metadata metadata;
                 try {
-                    backupFile = new BackupFiles.BackupFile(BackupFiles.getPackagePath(targetPackage.getPackageName(),
+                    backupFile = new BackupFiles.BackupFile(BackupFiles.getPackagePath(mTargetPackage.getPackageName(),
                             false).findFile(backupName), false);
                     metadata = MetadataManager.getMetadata(backupFile);
                 } catch (IOException e) {
@@ -237,11 +250,11 @@ public class BackupManager {
         }
         // Set backup userHandle to the userHandle we're working with.
         // This value is only set if backupNames is null or it consisted of only user handle
-        if (backupUserHandle == -1) backupUserHandle = targetPackage.getUserHandle();
+        if (backupUserHandle == -1) backupUserHandle = mTargetPackage.getUserHandle();
         BackupFiles backupFiles;
         BackupFiles.BackupFile[] backupFileList;
         try {
-            backupFiles = new BackupFiles(targetPackage.getPackageName(), backupUserHandle,
+            backupFiles = new BackupFiles(mTargetPackage.getPackageName(), backupUserHandle,
                     backupName == null ? null : new String[]{backupName});
             backupFileList = backupFiles.getBackupPaths(false);
         } catch (IOException e) {
@@ -252,11 +265,20 @@ public class BackupManager {
             if (backupFileList.length > 1) {
                 Log.w(VerifyOp.TAG, "More than one backups found! Verifying only the first backup.");
             }
-            try (VerifyOp restoreOp = new VerifyOp(metadataManager, backupFileList[0])) {
+            try (VerifyOp restoreOp = new VerifyOp(mMetadataManager, backupFileList[0])) {
                 restoreOp.verify();
             }
         } else {
             throw new BackupException("No backups found.");
         }
+    }
+
+    private int calculateMaxProgress(int multiplier) {
+        int tasks = 1;
+        if (mRequestedFlags.backupApkFiles()) ++tasks;
+        if (mRequestedFlags.backupData()) ++tasks;
+        if (mRequestedFlags.backupExtras()) ++tasks;
+        if (mRequestedFlags.backupRules()) ++tasks;
+        return tasks * multiplier;
     }
 }

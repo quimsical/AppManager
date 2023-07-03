@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import io.github.muntashirakon.widget.NoFilterArrayAdapter;
+import io.github.muntashirakon.adapters.NoFilterArrayAdapter;
 
 public class HistoryEditText {
     private static final String DELIMITER = "';'";
@@ -45,7 +45,7 @@ public class HistoryEditText {
         protected void showHistory() {
             List<String> items = getHistoryItems();
             ArrayAdapter<String> adapter = new NoFilterArrayAdapter<>(mContext,
-                    io.github.muntashirakon.ui.R.layout.item_checked_text_view, items);
+                    io.github.muntashirakon.ui.R.layout.auto_complete_dropdown_item, items);
             mEditor.setAdapter(adapter);
         }
 
@@ -115,7 +115,7 @@ public class HistoryEditText {
      * define history function for these editors
      */
     public HistoryEditText(@NonNull Activity context, @NonNull MaterialAutoCompleteTextView... editors) {
-        this.mContext = context;
+        mContext = context;
         mEditorHandlers = new EditorHandler[editors.length];
 
         for (int i = 0; i < editors.length; i++) {

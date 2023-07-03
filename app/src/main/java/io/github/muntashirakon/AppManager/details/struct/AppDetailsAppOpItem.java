@@ -10,12 +10,14 @@ import android.os.RemoteException;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresPermission;
 import androidx.annotation.WorkerThread;
 import androidx.core.content.pm.PermissionInfoCompat;
 
 import java.util.List;
 
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.permission.DevelopmentPermission;
 import io.github.muntashirakon.AppManager.permission.PermUtils;
 import io.github.muntashirakon.AppManager.permission.Permission;
@@ -36,16 +38,16 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
     public final boolean appContainsPermission;
 
     @Nullable
-    private AppOpsManagerCompat.OpEntry opEntry;
+    private AppOpsManagerCompat.OpEntry mOpEntry;
 
     public AppDetailsAppOpItem(@NonNull AppOpsManagerCompat.OpEntry opEntry) {
         this(opEntry.getOp());
-        this.opEntry = opEntry;
+        mOpEntry = opEntry;
     }
 
     public AppDetailsAppOpItem(int op) {
         super(op);
-        opEntry = null;
+        mOpEntry = null;
         permissionInfo = null;
         permission = null;
         isDangerous = false;
@@ -56,7 +58,7 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
     public AppDetailsAppOpItem(@NonNull AppOpsManagerCompat.OpEntry opEntry, @NonNull PermissionInfo permissionInfo,
                                boolean isGranted, int permissionFlags, boolean appContainsPermission) {
         super(opEntry.getOp());
-        this.opEntry = opEntry;
+        mOpEntry = opEntry;
         this.permissionInfo = permissionInfo;
         this.appContainsPermission = appContainsPermission;
         isDangerous = PermissionInfoCompat.getProtection(permissionInfo) == PermissionInfo.PROTECTION_DANGEROUS;
@@ -74,7 +76,7 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
     public AppDetailsAppOpItem(int op, @NonNull PermissionInfo permissionInfo,
                                boolean isGranted, int permissionFlags, boolean appContainsPermission) {
         super(op);
-        this.opEntry = null;
+        mOpEntry = null;
         this.permissionInfo = permissionInfo;
         this.appContainsPermission = appContainsPermission;
         isDangerous = PermissionInfoCompat.getProtection(permissionInfo) == PermissionInfo.PROTECTION_DANGEROUS;
@@ -95,35 +97,35 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
 
     @AppOpsManagerCompat.Mode
     public int getMode() {
-        if (opEntry != null) {
-            return opEntry.getMode();
+        if (mOpEntry != null) {
+            return mOpEntry.getMode();
         }
         return AppOpsManagerCompat.opToDefaultMode(getOp());
     }
 
     public long getDuration() {
-        if (opEntry != null) {
-            return opEntry.getDuration();
+        if (mOpEntry != null) {
+            return mOpEntry.getDuration();
         }
         return 0L;
     }
 
     public long getTime() {
-        if (opEntry != null) {
-            return opEntry.getTime();
+        if (mOpEntry != null) {
+            return mOpEntry.getTime();
         }
         return 0L;
     }
 
     public long getRejectTime() {
-        if (opEntry != null) {
-            return opEntry.getRejectTime();
+        if (mOpEntry != null) {
+            return mOpEntry.getRejectTime();
         }
         return 0L;
     }
 
     public boolean isRunning() {
-        return opEntry != null && opEntry.isRunning();
+        return mOpEntry != null && mOpEntry.isRunning();
     }
 
     public boolean isAllowed() {
@@ -146,6 +148,10 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
      *
      * @return {@code true} iff the app op could be allowed.
      */
+    @RequiresPermission(allOf = {
+            "android.permission.MANAGE_APP_OPS_MODES",
+            ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS,
+    })
     @WorkerThread
     public boolean allowAppOp(@NonNull PackageInfo packageInfo, @NonNull AppOpsManagerCompat appOpsManager)
             throws RemoteException, PermissionException {
@@ -168,6 +174,10 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
      *
      * @return {@code true} iff the app op could be disallowed.
      */
+    @RequiresPermission(allOf = {
+            "android.permission.MANAGE_APP_OPS_MODES",
+            ManifestCompat.permission.REVOKE_RUNTIME_PERMISSIONS,
+    })
     @WorkerThread
     public boolean disallowAppOp(@NonNull PackageInfo packageInfo, @NonNull AppOpsManagerCompat appOpsManager)
             throws RemoteException, PermissionException {
@@ -190,6 +200,11 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
      *
      * @return {@code true} iff the app op could be set.
      */
+    @RequiresPermission(allOf = {
+            "android.permission.MANAGE_APP_OPS_MODES",
+            ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS,
+            ManifestCompat.permission.REVOKE_RUNTIME_PERMISSIONS,
+    })
     @WorkerThread
     public boolean setAppOp(@NonNull PackageInfo packageInfo, @NonNull AppOpsManagerCompat appOpsManager,
                             @AppOpsManagerCompat.Mode int mode)
@@ -212,10 +227,11 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
         return isSuccessful;
     }
 
+    @RequiresPermission("android.permission.MANAGE_APP_OPS_MODES")
     public void invalidate(@NonNull AppOpsManagerCompat appOpsManager, @NonNull PackageInfo packageInfo)
             throws RemoteException {
         List<AppOpsManagerCompat.OpEntry> opEntryList = appOpsManager.getOpsForPackage(packageInfo.applicationInfo.uid,
                 packageInfo.packageName, new int[]{getOp()}).get(0).getOps();
-        opEntry = opEntryList.size() > 0 ? opEntryList.get(0) : null;
+        mOpEntry = opEntryList.size() > 0 ? opEntryList.get(0) : null;
     }
 }

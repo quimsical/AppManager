@@ -7,7 +7,6 @@ import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MAT
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getBitmapFromDrawable;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getDimmedBitmap;
 
-import android.annotation.SuppressLint;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -27,6 +26,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.PendingIntentCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
@@ -43,7 +43,6 @@ import java.util.concurrent.Future;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
-import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
@@ -57,27 +56,27 @@ public class FreezeUnfreezeService extends Service {
 
     private static final String STOP_ACTION = BuildConfig.APPLICATION_ID + ".action.STOP_FREEZE_UNFREEZE_MONITOR";
 
-    private final Map<String, FreezeUnfreeze.ShortcutInfo> packagesToShortcut = new HashMap<>();
-    private final Map<String, Integer> packagesToNotificationId = new HashMap<>();
-    private static final Timer timer = new Timer();
-    private final BroadcastReceiver screenLockedReceiver = new BroadcastReceiver() {
+    private final Map<String, FreezeUnfreezeShortcutInfo> mPackagesToShortcut = new HashMap<>();
+    private final Map<String, Integer> mPackagesToNotificationId = new HashMap<>();
+    private static final Timer sTimer = new Timer();
+    private final BroadcastReceiver mScreenLockedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             try {
-                if (checkLockResult != null) {
-                    checkLockResult.cancel(true);
+                if (mCheckLockResult != null) {
+                    mCheckLockResult.cancel(true);
                 }
-                checkLockResult = ThreadUtils.postOnBackgroundThread(() -> checkLock(-1));
+                mCheckLockResult = ThreadUtils.postOnBackgroundThread(() -> checkLock(-1));
             } catch (Throwable th) {
                 th.printStackTrace();
             }
         }
     };
 
-    private CheckLockTask checkLockTask;
-    private boolean isWorking;
+    private CheckLockTask mCheckLockTask;
+    private boolean mIsWorking;
     @Nullable
-    private Future<?> checkLockResult;
+    private Future<?> mCheckLockResult;
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
@@ -86,15 +85,14 @@ public class FreezeUnfreezeService extends Service {
             return START_NOT_STICKY;
         }
         onHandleIntent(intent);
-        if (isWorking) {
+        if (mIsWorking) {
             return START_NOT_STICKY;
         }
-        isWorking = true;
+        mIsWorking = true;
         NotificationManagerCompat notificationManager = NotificationUtils.getNewNotificationManager(this, CHANNEL_ID,
                 "Freeze/unfreeze Monitor", NotificationManagerCompat.IMPORTANCE_LOW);
         Intent stopIntent = new Intent(this, FreezeUnfreezeService.class).setAction(STOP_ACTION);
-        @SuppressLint("WrongConstant")
-        PendingIntent pendingIntent = PendingIntent.getService(this, 0, stopIntent, PendingIntentCompat.FLAG_IMMUTABLE | PendingIntent.FLAG_ONE_SHOT);
+        PendingIntent pendingIntent = PendingIntentCompat.getService(this, 0, stopIntent, PendingIntent.FLAG_ONE_SHOT, false);
         NotificationCompat.Action stopServiceAction = new NotificationCompat.Action.Builder(null,
                 getString(R.string.action_stop_service), pendingIntent)
                 .setAuthenticationRequired(true)
@@ -112,16 +110,16 @@ public class FreezeUnfreezeService extends Service {
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_USER_PRESENT);
-        registerReceiver(screenLockedReceiver, filter);
+        registerReceiver(mScreenLockedReceiver, filter);
         return START_NOT_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        unregisterReceiver(screenLockedReceiver);
+        unregisterReceiver(mScreenLockedReceiver);
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-        if (checkLockResult != null) {
-            checkLockResult.cancel(true);
+        if (mCheckLockResult != null) {
+            mCheckLockResult.cancel(true);
         }
         super.onDestroy();
     }
@@ -134,11 +132,11 @@ public class FreezeUnfreezeService extends Service {
 
     private void onHandleIntent(@Nullable Intent intent) {
         if (intent == null) return;
-        FreezeUnfreeze.ShortcutInfo shortcutInfo = FreezeUnfreeze.getShortcutInfo(intent);
+        FreezeUnfreezeShortcutInfo shortcutInfo = FreezeUnfreeze.getShortcutInfo(intent);
         if (shortcutInfo == null) return;
-        packagesToShortcut.put(shortcutInfo.packageName, shortcutInfo);
+        mPackagesToShortcut.put(shortcutInfo.packageName, shortcutInfo);
         int notificationId = shortcutInfo.hashCode();
-        packagesToNotificationId.put(shortcutInfo.packageName, notificationId);
+        mPackagesToNotificationId.put(shortcutInfo.packageName, notificationId);
     }
 
     @WorkerThread
@@ -153,15 +151,15 @@ public class FreezeUnfreezeService extends Service {
         Log.i(TAG, String.format(Locale.ROOT, "checkLock: isProtected=%b, isLocked=%b, isInteractive=%b, delay=%d",
                 isProtected, isLocked, isInteractive, checkLockDelays[delayIndex]));
 
-        if (checkLockTask != null) {
-            Log.i(TAG, String.format(Locale.ROOT, "checkLock: cancelling CheckLockTask[%x]", System.identityHashCode(checkLockTask)));
-            checkLockTask.cancel();
+        if (mCheckLockTask != null) {
+            Log.i(TAG, String.format(Locale.ROOT, "checkLock: cancelling CheckLockTask[%x]", System.identityHashCode(mCheckLockTask)));
+            mCheckLockTask.cancel();
         }
 
         if (isProtected && !isLocked && !isInteractive) {
-            checkLockTask = new CheckLockTask(delayIndex);
-            Log.i(TAG, String.format(Locale.ROOT, "checkLock: scheduling CheckLockTask[%x] for %d ms", System.identityHashCode(checkLockTask), checkLockDelays[delayIndex]));
-            timer.schedule(checkLockTask, checkLockDelays[delayIndex]);
+            mCheckLockTask = new CheckLockTask(delayIndex);
+            Log.i(TAG, String.format(Locale.ROOT, "checkLock: scheduling CheckLockTask[%x] for %d ms", System.identityHashCode(mCheckLockTask), checkLockDelays[delayIndex]));
+            sTimer.schedule(mCheckLockTask, checkLockDelays[delayIndex]);
         } else {
             Log.d(TAG, "checkLock: no need to schedule CheckLockTask");
             if (isProtected && isLocked) {
@@ -172,16 +170,16 @@ public class FreezeUnfreezeService extends Service {
 
     @WorkerThread
     private void freezeAllPackages() {
-        for (String packageName : packagesToShortcut.keySet()) {
-            FreezeUnfreeze.ShortcutInfo shortcutInfo = packagesToShortcut.get(packageName);
-            Integer notificationId = packagesToNotificationId.get(packageName);
+        for (String packageName : mPackagesToShortcut.keySet()) {
+            FreezeUnfreezeShortcutInfo shortcutInfo = mPackagesToShortcut.get(packageName);
+            Integer notificationId = mPackagesToNotificationId.get(packageName);
             if (shortcutInfo != null) {
                 try {
                     ApplicationInfo applicationInfo = PackageManagerCompat.getApplicationInfo(shortcutInfo.packageName,
                             MATCH_UNINSTALLED_PACKAGES | MATCH_DISABLED_COMPONENTS
                                     | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, shortcutInfo.userId);
                     Bitmap icon = getBitmapFromDrawable(applicationInfo.loadIcon(getApplication().getPackageManager()));
-                    shortcutInfo.setLabel(applicationInfo.loadLabel(getApplication().getPackageManager()).toString());
+                    shortcutInfo.setName(applicationInfo.loadLabel(getApplication().getPackageManager()));
                     FreezeUtils.freeze(shortcutInfo.packageName, shortcutInfo.userId);
                     shortcutInfo.setIcon(getDimmedBitmap(icon));
                     updateShortcuts(shortcutInfo);
@@ -196,13 +194,13 @@ public class FreezeUnfreezeService extends Service {
         stopSelf();
     }
 
-    private void updateShortcuts(@NonNull FreezeUnfreeze.ShortcutInfo shortcutInfo) {
+    private void updateShortcuts(@NonNull FreezeUnfreezeShortcutInfo shortcutInfo) {
         Intent intent = FreezeUnfreeze.getShortcutIntent(this, shortcutInfo);
         // Set action for shortcut
         intent.setAction(Intent.ACTION_CREATE_SHORTCUT);
-        ShortcutInfoCompat shortcutInfoCompat = new ShortcutInfoCompat.Builder(this, shortcutInfo.shortcutId)
-                .setShortLabel(shortcutInfo.getLabel())
-                .setLongLabel(shortcutInfo.getLabel())
+        ShortcutInfoCompat shortcutInfoCompat = new ShortcutInfoCompat.Builder(this, shortcutInfo.getId())
+                .setShortLabel(shortcutInfo.getName())
+                .setLongLabel(shortcutInfo.getName())
                 .setIcon(IconCompat.createWithBitmap(shortcutInfo.getIcon()))
                 .setIntent(intent)
                 .build();

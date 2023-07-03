@@ -29,7 +29,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
 import androidx.appcompat.widget.PopupMenu;
-import androidx.fragment.app.DialogFragment;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
@@ -44,10 +43,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsComponentItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsServiceItem;
@@ -55,17 +54,19 @@ import io.github.muntashirakon.AppManager.intercept.ActivityInterceptor;
 import io.github.muntashirakon.AppManager.rules.RuleType;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
+import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
-import io.github.muntashirakon.AppManager.utils.PermissionUtils;
+import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
-import io.github.muntashirakon.util.ProgressIndicatorCompat;
+import io.github.muntashirakon.view.ProgressIndicatorCompat;
 import io.github.muntashirakon.widget.MaterialAlertView;
 import io.github.muntashirakon.widget.RecyclerView;
 
@@ -129,7 +130,8 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
 
     @Override
     public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
-        if (viewModel != null && !viewModel.isExternalApk() && Ops.isRoot()) {
+        if (viewModel != null && !viewModel.isExternalApk() && SelfPermissions.canModifyAppComponentStates(
+                viewModel.getUserId(), viewModel.getPackageName(), viewModel.isTestOnlyApp())) {
             inflater.inflate(R.menu.fragment_app_details_components_actions, menu);
             mBlockingToggler = menu.findItem(R.id.action_toggle_blocking);
             viewModel.getRuleApplicationStatus().observe(activity, status -> {
@@ -154,8 +156,9 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         if (viewModel == null || viewModel.isExternalApk()) {
             return;
         }
-        if (Ops.isRoot()) {
-            menu.findItem(AppDetailsFragment.sSortMenuItemIdsMap[viewModel.getSortOrder(mNeededProperty)]).setChecked(true);
+        MenuItem sortItem = menu.findItem(AppDetailsFragment.sSortMenuItemIdsMap[viewModel.getSortOrder(mNeededProperty)]);
+        if (sortItem != null) {
+            sortItem.setChecked(true);
         }
     }
 
@@ -275,7 +278,9 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         private int mRequestedProperty;
         @Nullable
         private String mConstraint;
-        private boolean mTestOnlyApp;
+        private int mUserId;
+        private boolean mCanModifyComponentStates;
+        private boolean mCanStartAnyActivity;
         private final int mCardColor1;
         private final int mDefaultIndicatorColor;
 
@@ -288,8 +293,16 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         @UiThread
         void setDefaultList(@NonNull List<AppDetailsItem<?>> list) {
             mRequestedProperty = mNeededProperty;
-            mConstraint = viewModel == null ? null : viewModel.getSearchQuery();
-            mTestOnlyApp = viewModel != null && viewModel.isTestOnlyApp();
+            mCanStartAnyActivity = SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.START_ANY_ACTIVITY);
+            if (viewModel != null) {
+                mCanModifyComponentStates = !mIsExternalApk && SelfPermissions.canModifyAppComponentStates(mUserId, viewModel.getPackageName(), viewModel.isTestOnlyApp());
+                mConstraint = viewModel.getSearchQuery();
+                mUserId = viewModel.getUserId();
+            } else {
+                mCanModifyComponentStates = false;
+                mConstraint = null;
+                mUserId = UserHandleHidden.myUserId();
+            }
             ProgressIndicatorCompat.setVisibility(progressIndicator, false);
             synchronized (mAdapterList) {
                 mAdapterList.clear();
@@ -406,6 +419,11 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             holder.toggleSwitch.setOnLongClickListener(v -> {
                 PopupMenu popupMenu = new PopupMenu(activity, holder.toggleSwitch);
                 popupMenu.inflate(R.menu.fragment_app_details_components_selection_actions);
+                if (!SelfPermissions.canBlockByIFW()) {
+                    Menu menu = popupMenu.getMenu();
+                    menu.findItem(R.id.action_ifw_and_disable).setEnabled(false);
+                    menu.findItem(R.id.action_ifw).setEnabled(false);
+                }
                 popupMenu.setOnMenuItemClickListener(item1 -> {
                     int id = item1.getItemId();
                     String componentStatus;
@@ -494,7 +512,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             // 1) Not from an external APK
             // 2) Root enabled or the activity is exportable
             // 3) App or the activity is not disabled and/or blocked
-            boolean canLaunch = !mIsExternalApk && (Ops.isRoot() || isExported)
+            boolean canLaunch = !mIsExternalApk && (mCanStartAnyActivity || isExported)
                     && !isDisabled
                     && !componentItem.isBlocked();
             if (canLaunch) {
@@ -503,33 +521,29 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                     intent.setClassName(mPackageName, activityName);
                     intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     try {
-                        ActivityManagerCompat.startActivity(activity, intent,
-                                Objects.requireNonNull(viewModel).getUserHandle());
+                        ActivityManagerCompat.startActivity(intent, mUserId);
                     } catch (Throwable e) {
                         UIUtils.displayLongToast(e.getLocalizedMessage());
                     }
                 });
                 if (FeatureController.isInterceptorEnabled()) {
-                    boolean needRoot = Ops.isRoot() && (!isExported || (activityInfo.permission != null
-                            && !PermissionUtils.hasSelfPermission(activityInfo.permission)));
                     holder.launchBtn.setOnLongClickListener(v -> {
+                        boolean needRoot = mCanStartAnyActivity && (!isExported || !SelfPermissions.checkSelfOrRemotePermission(activityInfo.permission));
                         Intent intent = new Intent(activity, ActivityInterceptor.class);
                         intent.putExtra(ActivityInterceptor.EXTRA_PACKAGE_NAME, mPackageName);
                         intent.putExtra(ActivityInterceptor.EXTRA_CLASS_NAME, activityName);
-                        intent.putExtra(ActivityInterceptor.EXTRA_USER_HANDLE,
-                                Objects.requireNonNull(viewModel).getUserHandle());
+                        intent.putExtra(ActivityInterceptor.EXTRA_USER_HANDLE, mUserId);
                         intent.putExtra(ActivityInterceptor.EXTRA_ROOT, needRoot);
                         startActivity(intent);
                         return true;
                     });
                 }
                 holder.shortcutBtn.setOnClickListener(v -> {
-                    DialogFragment dialog = new EditShortcutDialogFragment();
-                    Bundle args = new Bundle();
-                    args.putParcelable(EditShortcutDialogFragment.ARG_ACTIVITY_INFO, activityInfo);
-                    args.putCharSequence(EditShortcutDialogFragment.ARG_SHORTCUT_NAME, label);
-                    dialog.setArguments(args);
-                    dialog.show(getParentFragmentManager(), EditShortcutDialogFragment.TAG);
+                    PackageItemShortcutInfo<ActivityInfo> shortcutInfo = new PackageItemShortcutInfo<>(activityInfo, ActivityInfo.class);
+                    shortcutInfo.setName(label);
+                    shortcutInfo.setIcon(UIUtils.getBitmapFromDrawable(activityInfo.loadIcon(packageManager)));
+                    CreateShortcutDialogFragment dialog = CreateShortcutDialogFragment.getInstance(shortcutInfo);
+                    dialog.show(getParentFragmentManager(), CreateShortcutDialogFragment.TAG);
                 });
                 holder.shortcutBtn.setVisibility(View.VISIBLE);
                 holder.launchBtn.setVisibility(View.VISIBLE);
@@ -538,7 +552,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 holder.launchBtn.setVisibility(View.GONE);
             }
             // Blocking
-            if (!mIsExternalApk && (Ops.isRoot() || (Ops.isPrivileged() && mTestOnlyApp))) {
+            if (mCanModifyComponentStates) {
                 handleBlock(holder, componentItem, RuleType.ACTIVITY);
             } else holder.toggleSwitch.setVisibility(View.GONE);
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
@@ -598,7 +612,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             // 2) Root enabled or the service is exportable without any permission
             // 3) App or the service is not disabled and/or blocked
             boolean canLaunch = !mIsExternalApk
-                    && (Ops.isRoot() || (serviceInfo.exported && serviceInfo.permission == null))
+                    && canLaunchService(serviceInfo)
                     && !isDisabled
                     && !serviceItem.isBlocked();
             if (canLaunch) {
@@ -606,8 +620,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                     Intent intent = new Intent();
                     intent.setClassName(mPackageName, serviceInfo.name);
                     try {
-                        ActivityManagerCompat.startService(activity, intent,
-                                Objects.requireNonNull(viewModel).getUserHandle(), true);
+                        ActivityManagerCompat.startService(intent, mUserId, true);
                     } catch (Throwable th) {
                         th.printStackTrace();
                         Toast.makeText(context, th.toString(), Toast.LENGTH_LONG).show();
@@ -618,7 +631,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 holder.launchBtn.setVisibility(View.GONE);
             }
             // Blocking
-            if (!mIsExternalApk && (Ops.isRoot() || (Ops.isPrivileged() && mTestOnlyApp))) {
+            if (mCanModifyComponentStates) {
                 handleBlock(holder, serviceItem, RuleType.SERVICE);
             } else holder.toggleSwitch.setVisibility(View.GONE);
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
@@ -677,7 +690,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                         getString(R.string.process_name), processName));
             } else holder.processNameView.setVisibility(View.GONE);
             // Blocking
-            if (!mIsExternalApk && (Ops.isRoot() || (Ops.isPrivileged() && mTestOnlyApp))) {
+            if (mCanModifyComponentStates) {
                 handleBlock(holder, componentItem, RuleType.RECEIVER);
             } else holder.toggleSwitch.setVisibility(View.GONE);
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
@@ -759,10 +772,24 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                         getString(R.string.process_name), processName));
             } else holder.processNameView.setVisibility(View.GONE);
             // Blocking
-            if (!mIsExternalApk && (Ops.isRoot() || (Ops.isPrivileged() && mTestOnlyApp))) {
+            if (mCanModifyComponentStates) {
                 handleBlock(holder, componentItem, RuleType.PROVIDER);
             } else holder.toggleSwitch.setVisibility(View.GONE);
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
         }
+    }
+
+    public static boolean canLaunchService(@NonNull ServiceInfo info) {
+        if (info.exported && info.permission == null) {
+            return true;
+        }
+        int uid = Users.getSelfOrRemoteUid();
+        if (uid == Ops.ROOT_UID || (uid == Ops.SYSTEM_UID && info.permission == null)) {
+            return true;
+        }
+        if (info.permission == null) {
+            return false;
+        }
+        return SelfPermissions.checkSelfOrRemotePermission(info.permission, uid);
     }
 }

@@ -19,6 +19,7 @@ import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextPaint;
+import android.text.TextUtils;
 import android.text.style.AbsoluteSizeSpan;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
@@ -53,7 +54,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.Locale;
 
-import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.dialog.DialogTitleBuilder;
@@ -66,7 +66,7 @@ public class UIUtils {
     public static Spannable getHighlightedText(@NonNull String text, @Nullable String constraint,
                                                @ColorInt int color) {
         Spannable spannable = sSpannableFactory.newSpannable(text);
-        if (TextUtilsCompat.isEmpty(constraint)) {
+        if (TextUtils.isEmpty(constraint)) {
             return spannable;
         }
         int start = text.toLowerCase(Locale.ROOT).indexOf(constraint);
@@ -212,14 +212,6 @@ public class UIUtils {
         return typedValue.data;
     }
 
-    public static int getAccentColor(@NonNull Context context) {
-        return MaterialColors.getColor(context, androidx.appcompat.R.attr.colorAccent, -1);
-    }
-
-    public static int getPrimaryColor(@NonNull Context context) {
-        return MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, -1);
-    }
-
     public static int getTextColorPrimary(@NonNull Context context) {
         return MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, -1);
     }
@@ -241,11 +233,6 @@ public class UIUtils {
     public static View getDialogTitle(@NonNull FragmentActivity activity, @NonNull CharSequence title,
                                       @Nullable Drawable drawable, @Nullable CharSequence subtitle) {
         return new DialogTitleBuilder(activity).setTitle(title).setSubtitle(subtitle).setStartIcon(drawable).build();
-    }
-
-    @NonNull
-    public static AlertDialog getProgressDialog(@NonNull FragmentActivity activity) {
-        return getProgressDialog(activity, null);
     }
 
     @NonNull
@@ -302,34 +289,34 @@ public class UIUtils {
 
     @UiThread
     public static void displayShortToast(@StringRes int res) {
-        Toast.makeText(AppManager.getContext(), res, Toast.LENGTH_SHORT).show();
+        Toast.makeText(ContextUtils.getContext(), res, Toast.LENGTH_SHORT).show();
     }
 
     @UiThread
     public static void displayShortToast(@StringRes int res, Object... args) {
-        Context appContext = AppManager.getContext();
+        Context appContext = ContextUtils.getContext();
         Toast.makeText(appContext, appContext.getString(res, args), Toast.LENGTH_SHORT).show();
     }
 
     @UiThread
     public static void displayLongToast(CharSequence message) {
-        Toast.makeText(AppManager.getContext(), message, Toast.LENGTH_LONG).show();
+        Toast.makeText(ContextUtils.getContext(), message, Toast.LENGTH_LONG).show();
     }
 
     @UiThread
     public static void displayLongToast(@StringRes int res) {
-        Toast.makeText(AppManager.getContext(), res, Toast.LENGTH_LONG).show();
+        Toast.makeText(ContextUtils.getContext(), res, Toast.LENGTH_LONG).show();
     }
 
     @UiThread
     public static void displayLongToast(@StringRes int res, Object... args) {
-        Context appContext = AppManager.getContext();
+        Context appContext = ContextUtils.getContext();
         Toast.makeText(appContext, appContext.getString(res, args), Toast.LENGTH_LONG).show();
     }
 
     @UiThread
     public static void displayLongToastPl(@PluralsRes int res, int count, Object... args) {
-        Context appContext = AppManager.getContext();
+        Context appContext = ContextUtils.getContext();
         Toast.makeText(appContext, appContext.getResources().getQuantityString(res, count, args), Toast.LENGTH_LONG).show();
     }
 

@@ -326,10 +326,30 @@ public final class ApplicationInfoCompat {
         return (info.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
     }
 
+    public static boolean isStopped(@NonNull ApplicationInfo info) {
+        return (info.flags & ApplicationInfo.FLAG_STOPPED) != 0;
+    }
+
     public static boolean isInstalled(@NonNull ApplicationInfo info) {
         return (info.flags & ApplicationInfo.FLAG_INSTALLED) != 0
                 && info.processName != null
                 && Paths.exists(info.publicSourceDir);
+    }
+
+    public static boolean isTestOnly(@NonNull ApplicationInfo info) {
+        return (info.flags & ApplicationInfo.FLAG_TEST_ONLY) != 0;
+    }
+
+    public static boolean isSuspended(@NonNull ApplicationInfo info) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return (info.flags & ApplicationInfo.FLAG_SUSPENDED) != 0;
+        }
+        // Not supported
+        return false;
+    }
+
+    public static boolean isHidden(@NonNull ApplicationInfo info) {
+        return (getPrivateFlags(info) & PRIVATE_FLAG_HIDDEN) != 0;
     }
 
     public static boolean isStaticSharedLibrary(@NonNull ApplicationInfo info) {

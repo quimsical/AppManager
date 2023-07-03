@@ -2,9 +2,9 @@
 
 package io.github.muntashirakon.AppManager.details;
 
+import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.GET_SIGNING_CERTIFICATES;
 import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
 import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
-import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.GET_SIGNING_CERTIFICATES;
 
 import android.annotation.SuppressLint;
 import android.annotation.UserIdInt;
@@ -67,6 +67,7 @@ import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PermissionCompat;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsAppOpItem;
@@ -91,15 +92,13 @@ import io.github.muntashirakon.AppManager.rules.struct.AppOpRule;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.rules.struct.RuleEntry;
 import io.github.muntashirakon.AppManager.scanner.NativeLibraries;
-import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.types.PackageChangeReceiver;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
-import io.github.muntashirakon.AppManager.utils.PackageUtils;
-import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 import io.github.muntashirakon.io.IoUtils;
 
 public class AppDetailsViewModel extends AndroidViewModel {
@@ -118,13 +117,14 @@ public class AppDetailsViewModel extends AndroidViewModel {
     private String mPackageName;
     @GuardedBy("blockerLocker")
     private ComponentsBlocker mBlocker;
+    @Nullable
     private PackageIntentReceiver mReceiver;
     @Nullable
     private String mApkPath;
     @Nullable
     private ApkFile mApkFile;
     private int mApkFileKey;
-    private int mUserHandle;
+    private int mUserId;
     @AppDetailsFragment.SortOrder
     private int mSortOrderComponents = Prefs.AppDetailsPage.getComponentsSortOrder();
     @AppDetailsFragment.SortOrder
@@ -225,21 +225,21 @@ public class AppDetailsViewModel extends AndroidViewModel {
     }
 
     @AnyThread
-    public void setUserHandle(@UserIdInt int userHandle) {
-        this.mUserHandle = userHandle;
+    public void setUserId(@UserIdInt int userId) {
+        mUserId = userId;
     }
 
     @AnyThread
-    public int getUserHandle() {
-        return mUserHandle;
+    public int getUserId() {
+        return mUserId;
     }
 
     @AnyThread
     @GuardedBy("blockerLocker")
     private void setPackageName(String packageName) {
-        if (this.mPackageName != null) return;
+        if (mPackageName != null) return;
         Log.d(TAG, "Package name is being set for " + packageName);
-        this.mPackageName = packageName;
+        mPackageName = packageName;
         if (mExternalApk) return;
         mExecutor.submit(() -> {
             synchronized (mBlockerLocker) {
@@ -251,7 +251,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                         mBlocker.setReadOnly();
                         mBlocker.close();
                     }
-                    mBlocker = ComponentsBlocker.getInstance(packageName, mUserHandle);
+                    mBlocker = ComponentsBlocker.getInstance(packageName, mUserId);
                 } finally {
                     mWaitForBlocker = false;
                     mBlockerLocker.notifyAll();
@@ -271,7 +271,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     }
 
     public boolean isTestOnlyApp() {
-        return mPackageInfo != null && PackageUtils.isTestOnlyApp(mPackageInfo.applicationInfo);
+        return mPackageInfo != null && ApplicationInfoCompat.isTestOnly(mPackageInfo.applicationInfo);
     }
 
     @AnyThread
@@ -317,9 +317,9 @@ public class AppDetailsViewModel extends AndroidViewModel {
 
     @AnyThread
     public void setSearchQuery(String searchQuery, int searchType, @AppDetailsFragment.Property int property) {
-        this.mSearchQuery = searchType == AdvancedSearchView.SEARCH_TYPE_REGEX ? searchQuery
+        mSearchQuery = searchType == AdvancedSearchView.SEARCH_TYPE_REGEX ? searchQuery
                 : searchQuery.toLowerCase(Locale.ROOT);
-        this.mSearchType = searchType;
+        mSearchType = searchType;
         mExecutor.submit(() -> filterAndSortItemsInternal(property));
     }
 
@@ -665,7 +665,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     }
 
     @NonNull
-    private final AppOpsManagerCompat mAppOpsManager = new AppOpsManagerCompat(getApplication());
+    private final AppOpsManagerCompat mAppOpsManager = new AppOpsManagerCompat();
 
     @WorkerThread
     @GuardedBy("blockerLocker")
@@ -755,7 +755,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
         if (mExternalApk) return false;
         if (getPackageInfoInternal() == null || mPackageName == null) return false;
         try {
-            mAppOpsManager.resetAllModes(mUserHandle, mPackageName);
+            mAppOpsManager.resetAllModes(mUserId, mPackageName);
             mExecutor.submit(this::loadAppOps);
             // Save values to the blocking rules
             mExecutor.submit(() -> {
@@ -874,8 +874,9 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 return getInternal(mSharedLibraries, this::loadSharedLibraries);
             case AppDetailsFragment.APP_INFO:
                 return getInternal(appInfo, this::loadAppInfo);
+            default:
+                throw new IllegalArgumentException("Invalid property: " + property);
         }
-        return null;
     }
 
     @SuppressWarnings("unchecked")
@@ -1035,7 +1036,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                                 | PackageManager.GET_SERVICES | PackageManager.GET_CONFIGURATIONS | GET_SIGNING_CERTIFICATES
                                 | PackageManager.GET_SHARED_LIBRARY_FILES | PackageManager.GET_URI_PERMISSION_PATTERNS
                                 | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES,
-                        mUserHandle);
+                        mUserId);
                 if (!ApplicationInfoCompat.isInstalled(mInstalledPackageInfo.applicationInfo)) {
                     throw new ApkFile.ApkFileException("App not installed. It only has data.");
                 }
@@ -1056,7 +1057,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     throw new PackageManager.NameNotFoundException("Package cannot be parsed");
                 }
                 if (mInstalledPackageInfo == null) {
-                    Log.d(TAG, mPackageName + " not installed for user " + mUserHandle);
+                    Log.d(TAG, mPackageName + " not installed for user " + mUserId);
                 }
                 mPackageInfo.applicationInfo.sourceDir = mApkPath;
                 mPackageInfo.applicationInfo.publicSourceDir = mApkPath;
@@ -1110,7 +1111,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
             } else userInfoList = null;
             if (userInfoList != null && userInfoList.size() > 1) {
                 for (UserInfo userInfo : userInfoList) {
-                    if (userInfo.id == mUserHandle) {
+                    if (userInfo.id == mUserId) {
                         userInfoMutableLiveData.postValue(userInfo);
                         break;
                     }
@@ -1184,7 +1185,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 return;
             }
             List<ActivityManager.RunningServiceInfo> runningServiceInfoList;
-            runningServiceInfoList = ActivityManagerCompat.getRunningServices(mPackageName, mUserHandle);
+            runningServiceInfoList = ActivityManagerCompat.getRunningServices(mPackageName, mUserId);
             for (ServiceInfo serviceInfo : packageInfo.services) {
                 AppDetailsServiceItem serviceItem = new AppDetailsServiceItem(serviceInfo);
                 serviceItem.name = serviceInfo.name;
@@ -1298,7 +1299,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
         }
         ComponentName componentName = new ComponentName(componentInfo.packageName, componentInfo.name);
         try {
-            int componentEnabledSetting = PackageManagerCompat.getComponentEnabledSetting(componentName, mUserHandle);
+            int componentEnabledSetting = PackageManagerCompat.getComponentEnabledSetting(componentName, mUserId);
             switch (componentEnabledSetting) {
                 case PackageManager.COMPONENT_ENABLED_STATE_DISABLED:
                 case PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED:
@@ -1310,7 +1311,6 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 default:
             }
         } catch (Throwable ignore) {
-            // May throw illegal exception
         }
         return !componentInfo.isEnabled();
     }
@@ -1334,12 +1334,12 @@ public class AppDetailsViewModel extends AndroidViewModel {
 
     @WorkerThread
     private void loadAppOps() {
-        boolean privileged = Ops.isPrivileged();
         PackageInfo packageInfo = getPackageInfoInternal();
-        if (packageInfo == null || mExternalApk || !(privileged || PermissionUtils.hasAppOpsPermission())) {
+        if (packageInfo == null || mExternalApk || !SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.GET_APP_OPS_STATS)) {
             mAppOps.postValue(Collections.emptyList());
             return;
         }
+        boolean canGetGrantRevokeRuntimePermissions = SelfPermissions.checkGetGrantRevokeRuntimePermissions();
         synchronized (mAppOpItems) {
             mAppOpItems.clear();
             try {
@@ -1379,10 +1379,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     AppDetailsAppOpItem appDetailsItem;
                     String permissionName = AppOpsManagerCompat.opToPermission(entry.getOp());
                     if (permissionName != null) {
-                        boolean isGranted = privileged && PermissionCompat.checkPermission(permissionName,
-                                packageName, mUserHandle) == PackageManager.PERMISSION_GRANTED;
-                        int permissionFlags = privileged ? PermissionCompat.getPermissionFlags(permissionName,
-                                packageName, mUserHandle) : 0;
+                        boolean isGranted = PermissionCompat.checkPermission(permissionName, packageName, mUserId)
+                                == PackageManager.PERMISSION_GRANTED;
+                        int permissionFlags = canGetGrantRevokeRuntimePermissions
+                                ? PermissionCompat.getPermissionFlags(permissionName, packageName, mUserId)
+                                : PermissionCompat.FLAG_PERMISSION_NONE;
                         PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(permissionName, packageName, 0);
                         if (permissionInfo == null) {
                             permissionInfo = new PermissionInfo();
@@ -1401,10 +1402,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     AppDetailsAppOpItem appDetailsItem;
                     String permissionName = AppOpsManagerCompat.opToPermission(op);
                     if (permissionName != null) {
-                        boolean isGranted = privileged && PermissionCompat.checkPermission(permissionName,
-                                packageName, mUserHandle) == PackageManager.PERMISSION_GRANTED;
-                        int permissionFlags = privileged ? PermissionCompat.getPermissionFlags(permissionName,
-                                packageName, mUserHandle) : 0;
+                        boolean isGranted = PermissionCompat.checkPermission(permissionName, packageName, mUserId)
+                                == PackageManager.PERMISSION_GRANTED;
+                        int permissionFlags = canGetGrantRevokeRuntimePermissions
+                                ? PermissionCompat.getPermissionFlags(permissionName, packageName, mUserId)
+                                : PermissionCompat.FLAG_PERMISSION_NONE;
                         PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(permissionName, packageName, 0);
                         if (permissionInfo == null) {
                             permissionInfo = new PermissionInfo();
@@ -1496,10 +1498,10 @@ public class AppDetailsViewModel extends AndroidViewModel {
             int appOp = AppOpsManagerCompat.permissionToOpCode(permissionName);
             int permissionFlags;
             boolean appOpAllowed = false;
-            if (!mExternalApk) {
-                permissionFlags = ExUtils.requireNonNullElse(() -> PermissionCompat.getPermissionFlags(
-                        permissionName, packageInfo.packageName, mUserHandle), 0);
-            } else permissionFlags = 0;
+            if (!mExternalApk && SelfPermissions.checkGetGrantRevokeRuntimePermissions()) {
+                permissionFlags = PermissionCompat.getPermissionFlags(
+                        permissionName, packageInfo.packageName, mUserId);
+            } else permissionFlags = PermissionCompat.FLAG_PERMISSION_NONE;
             if (!mExternalApk && appOp != AppOpsManagerCompat.OP_NONE) {
                 int mode = AppOpsManagerCompat.getModeFromOpEntriesOrDefault(appOp, opEntries);
                 appOpAllowed = mode == AppOpsManager.MODE_ALLOWED;
@@ -1841,7 +1843,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
 
         public PackageIntentReceiver(@NonNull AppDetailsViewModel model) {
             super(model.getApplication());
-            this.mModel = model;
+            mModel = model;
         }
 
         @Override

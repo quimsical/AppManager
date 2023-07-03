@@ -11,12 +11,12 @@ import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
-import android.os.UserHandleHidden;
 
 import androidx.annotation.IntRange;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.annotation.RequiresPermission;
 import androidx.collection.SparseArrayCompat;
 
 import com.android.internal.app.IAppOpsService;
@@ -35,9 +35,8 @@ import aosp.libcore.util.EmptyArray;
 import dev.rikka.tools.refine.Refine;
 import io.github.muntashirakon.AppManager.ipc.ProxyBinder;
 import io.github.muntashirakon.AppManager.logs.Log;
-import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.MiuiUtils;
-import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 
 @SuppressLint("SoonBlockedPrivateApi")
 public class AppOpsManagerCompat {
@@ -361,16 +360,16 @@ public class AppOpsManagerCompat {
 
         @Override
         public void writeToParcel(@NonNull Parcel dest, int flags) {
-            dest.writeString(this.mPackageName);
-            dest.writeInt(this.mUid);
-            dest.writeTypedList(this.mEntries);
+            dest.writeString(mPackageName);
+            dest.writeInt(mUid);
+            dest.writeTypedList(mEntries);
         }
 
         protected PackageOps(@NonNull Parcel in) {
-            this.mPackageName = in.readString();
-            this.mUid = in.readInt();
-            this.mEntries = new ArrayList<>();
-            in.readTypedList(this.mEntries, OpEntry.CREATOR);
+            mPackageName = in.readString();
+            mUid = in.readInt();
+            mEntries = new ArrayList<>();
+            in.readTypedList(mEntries, OpEntry.CREATOR);
         }
 
         public static final Parcelable.Creator<PackageOps> CREATOR = new Parcelable.Creator<PackageOps>() {
@@ -389,14 +388,14 @@ public class AppOpsManagerCompat {
     }
 
     public static class OpEntry implements Parcelable {
-        private final AppOpsManagerHidden.OpEntry opEntry;
+        private final AppOpsManagerHidden.OpEntry mOpEntry;
 
         public OpEntry(Parcelable opEntry) {
-            this.opEntry = Refine.unsafeCast(opEntry);
+            mOpEntry = Refine.unsafeCast(opEntry);
         }
 
         protected OpEntry(Parcel in) {
-            opEntry = AppOpsManagerHidden.OpEntry.CREATOR.createFromParcel(in);
+            mOpEntry = AppOpsManagerHidden.OpEntry.CREATOR.createFromParcel(in);
         }
 
         public static final Creator<OpEntry> CREATOR = new Creator<OpEntry>() {
@@ -414,7 +413,7 @@ public class AppOpsManagerCompat {
         };
 
         public int getOp() {
-            return opEntry.getOp();
+            return mOpEntry.getOp();
         }
 
         @NonNull
@@ -429,7 +428,7 @@ public class AppOpsManagerCompat {
 
         @Mode
         public int getMode() {
-            return opEntry.getMode();
+            return mOpEntry.getMode();
         }
 
         @Mode
@@ -443,37 +442,37 @@ public class AppOpsManagerCompat {
 
         public long getLastAccessTime(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastAccessTime(flags);
+                return mOpEntry.getLastAccessTime(flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastAccessTime();
+                return mOpEntry.getLastAccessTime();
             }
-            return opEntry.getTime();
+            return mOpEntry.getTime();
         }
 
         public long getLastAccessForegroundTime(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastAccessForegroundTime(flags);
+                return mOpEntry.getLastAccessForegroundTime(flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastAccessForegroundTime();
-            } else return opEntry.getTime();
+                return mOpEntry.getLastAccessForegroundTime();
+            } else return mOpEntry.getTime();
         }
 
         public long getLastAccessBackgroundTime(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastAccessBackgroundTime(flags);
+                return mOpEntry.getLastAccessBackgroundTime(flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastAccessBackgroundTime();
-            } else return opEntry.getTime();
+                return mOpEntry.getLastAccessBackgroundTime();
+            } else return mOpEntry.getTime();
         }
 
         public long getLastAccessTime(@UidState int fromUidState,
                                       @UidState int toUidState,
                                       @OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastAccessTime(fromUidState, toUidState, flags);
+                return mOpEntry.getLastAccessTime(fromUidState, toUidState, flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastTimeFor(fromUidState);
-            } else return opEntry.getTime();
+                return mOpEntry.getLastTimeFor(fromUidState);
+            } else return mOpEntry.getTime();
         }
 
         public long getRejectTime() {
@@ -482,40 +481,40 @@ public class AppOpsManagerCompat {
 
         public long getLastRejectTime(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastRejectTime(flags);
+                return mOpEntry.getLastRejectTime(flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastRejectTime();
-            } else return opEntry.getRejectTime();
+                return mOpEntry.getLastRejectTime();
+            } else return mOpEntry.getRejectTime();
         }
 
         public long getLastRejectForegroundTime(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastRejectForegroundTime(flags);
+                return mOpEntry.getLastRejectForegroundTime(flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastRejectForegroundTime();
-            } else return opEntry.getRejectTime();
+                return mOpEntry.getLastRejectForegroundTime();
+            } else return mOpEntry.getRejectTime();
         }
 
         public long getLastRejectBackgroundTime(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastRejectBackgroundTime(flags);
+                return mOpEntry.getLastRejectBackgroundTime(flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastRejectBackgroundTime();
-            } else return opEntry.getRejectTime();
+                return mOpEntry.getLastRejectBackgroundTime();
+            } else return mOpEntry.getRejectTime();
         }
 
         public long getLastRejectTime(@UidState int fromUidState,
                                       @UidState int toUidState,
                                       @OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastRejectTime(fromUidState, toUidState, flags);
+                return mOpEntry.getLastRejectTime(fromUidState, toUidState, flags);
             } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-                return opEntry.getLastRejectTimeFor(fromUidState);
-            } else return opEntry.getRejectTime();
+                return mOpEntry.getLastRejectTimeFor(fromUidState);
+            } else return mOpEntry.getRejectTime();
         }
 
         public boolean isRunning() {
-            return opEntry.isRunning();
+            return mOpEntry.isRunning();
         }
 
         public long getDuration() {
@@ -524,43 +523,43 @@ public class AppOpsManagerCompat {
 
         @RequiresApi(Build.VERSION_CODES.R)
         public long getLastDuration(@OpFlags int flags) {
-            return opEntry.getLastDuration(flags);
+            return mOpEntry.getLastDuration(flags);
         }
 
         public long getLastForegroundDuration(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastForegroundDuration(flags);
-            } else return opEntry.getDuration();
+                return mOpEntry.getLastForegroundDuration(flags);
+            } else return mOpEntry.getDuration();
         }
 
         public long getLastBackgroundDuration(@OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastBackgroundDuration(flags);
-            } else return opEntry.getDuration();
+                return mOpEntry.getLastBackgroundDuration(flags);
+            } else return mOpEntry.getDuration();
         }
 
         public long getLastDuration(@UidState int fromUidState,
                                     @UidState int toUidState,
                                     @OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getLastDuration(fromUidState, toUidState, flags);
-            } else return opEntry.getDuration();
+                return mOpEntry.getLastDuration(fromUidState, toUidState, flags);
+            } else return mOpEntry.getDuration();
         }
 
         // Deprecated in R
         @Deprecated
         @RequiresApi(Build.VERSION_CODES.M)
         public int getProxyUid() {
-            return opEntry.getProxyUid();
+            return mOpEntry.getProxyUid();
         }
 
         // Deprecated in R
         @Deprecated
         public int getProxyUid(@UidState int uidState, @OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getProxyUid(uidState, flags);
+                return mOpEntry.getProxyUid(uidState, flags);
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                return opEntry.getProxyUid();
+                return mOpEntry.getProxyUid();
             }
             return 0;
         }
@@ -569,7 +568,7 @@ public class AppOpsManagerCompat {
         @RequiresApi(Build.VERSION_CODES.M)
         @Nullable
         public String getProxyPackageName() {
-            return opEntry.getProxyPackageName();
+            return mOpEntry.getProxyPackageName();
         }
 
         // Deprecated in R
@@ -577,9 +576,9 @@ public class AppOpsManagerCompat {
         @Nullable
         public String getProxyPackageName(@UidState int uidState, @OpFlags int flags) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return opEntry.getProxyPackageName(uidState, flags);
+                return mOpEntry.getProxyPackageName(uidState, flags);
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                return opEntry.getProxyPackageName();
+                return mOpEntry.getProxyPackageName();
             }
             return null;
         }
@@ -594,7 +593,7 @@ public class AppOpsManagerCompat {
 
         @Override
         public void writeToParcel(@NonNull Parcel dest, int flags) {
-            dest.writeParcelable(opEntry, flags);
+            dest.writeParcelable(mOpEntry, flags);
         }
     }
 
@@ -621,21 +620,10 @@ public class AppOpsManagerCompat {
         return Collections.emptyList();
     }
 
-    private final IAppOpsService appOpsService;
+    private final IAppOpsService mAppOpsService;
 
-    public AppOpsManagerCompat(Context context) {
-        if (!PermissionUtils.hasAppOpsPermission() && Ops.isReallyPrivileged()) {
-            try {
-                PermissionCompat.grantPermission(
-                        context.getPackageName(),
-                        ManifestCompat.permission.GET_APP_OPS_STATS,
-                        UserHandleHidden.myUserId());
-            } catch (RemoteException e) {
-                throw new RuntimeException("Couldn't grant " + ManifestCompat.permission.GET_APP_OPS_STATS, e);
-            }
-        }
-        // Local/remote services are handled automatically
-        this.appOpsService = IAppOpsService.Stub.asInterface(ProxyBinder.getService(Context.APP_OPS_SERVICE));
+    public AppOpsManagerCompat() {
+        mAppOpsService = IAppOpsService.Stub.asInterface(ProxyBinder.getService(Context.APP_OPS_SERVICE));
     }
 
     /**
@@ -649,27 +637,42 @@ public class AppOpsManagerCompat {
      */
     @AppOpsManagerCompat.Mode
     public int checkOperation(int op, int uid, String packageName) throws RemoteException {
-        return appOpsService.checkOperation(op, uid, packageName);
+        return mAppOpsService.checkOperation(op, uid, packageName);
     }
 
+    /**
+     * Same as {@link AppOpsManager#checkOpNoThrow(String, int, String)}. To be used with App Manager itself.
+     */
+    @AppOpsManagerCompat.Mode
+    public int checkOpNoThrow(int op, int uid, String packageName) {
+        try {
+            int mode = mAppOpsService.checkOperation(op, uid, packageName);
+            return mode == AppOpsManager.MODE_FOREGROUND ? AppOpsManager.MODE_ALLOWED : mode;
+        } catch (RemoteException e) {
+            return ExUtils.rethrowFromSystemServer(e);
+        }
+    }
+
+    @RequiresPermission(ManifestCompat.permission.GET_APP_OPS_STATS)
     public List<AppOpsManagerCompat.PackageOps> getOpsForPackage(int uid, String packageName, @Nullable int[] ops)
             throws RemoteException {
         // Check using uid mode and package mode, override ops in package mode from uid mode
         List<AppOpsManagerCompat.OpEntry> opEntries = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                addAllRelevantOpEntriesWithNoOverride(opEntries, appOpsService.getUidOps(uid, ops));
+                addAllRelevantOpEntriesWithNoOverride(opEntries, mAppOpsService.getUidOps(uid, ops));
             } catch (NullPointerException e) {
                 Log.e("AppOpsManagerCompat", "Could not get app ops for UID " + uid, e);
             }
         }
-        addAllRelevantOpEntriesWithNoOverride(opEntries, appOpsService.getOpsForPackage(uid, packageName, ops));
+        addAllRelevantOpEntriesWithNoOverride(opEntries, mAppOpsService.getOpsForPackage(uid, packageName, ops));
         return Collections.singletonList(new AppOpsManagerCompat.PackageOps(packageName, uid, opEntries));
     }
 
+    @RequiresPermission(ManifestCompat.permission.GET_APP_OPS_STATS)
     @NonNull
     public List<AppOpsManagerCompat.PackageOps> getPackagesForOps(int[] ops) throws RemoteException {
-        List<Parcelable> opsForPackage = appOpsService.getPackagesForOps(ops);
+        List<Parcelable> opsForPackage = mAppOpsService.getPackagesForOps(ops);
         List<AppOpsManagerCompat.PackageOps> packageOpsList = new ArrayList<>();
         if (opsForPackage != null) {
             for (Parcelable o : opsForPackage) {
@@ -680,20 +683,22 @@ public class AppOpsManagerCompat {
         return packageOpsList;
     }
 
+    @RequiresPermission("android.permission.MANAGE_APP_OPS_MODES")
     public void setMode(int op, int uid, String packageName, @AppOpsManagerCompat.Mode int mode)
             throws RemoteException {
         if (AppOpsManagerCompat.isMiuiOp(op) || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             // Only package mode works in MIUI-only app ops and before Android M
-            appOpsService.setMode(op, uid, packageName, mode);
+            mAppOpsService.setMode(op, uid, packageName, mode);
         } else {
             // Set UID mode
-            appOpsService.setUidMode(op, uid, mode);
+            mAppOpsService.setUidMode(op, uid, mode);
         }
     }
 
+    @RequiresPermission("android.permission.MANAGE_APP_OPS_MODES")
     public void resetAllModes(@UserIdInt int reqUserId, @NonNull String reqPackageName) throws RemoteException {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            appOpsService.resetAllModes(reqUserId, reqPackageName);
+            mAppOpsService.resetAllModes(reqUserId, reqPackageName);
         }
     }
 

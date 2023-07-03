@@ -4,6 +4,7 @@ package io.github.muntashirakon.AppManager.settings;
 
 import static io.github.muntashirakon.AppManager.backup.MetadataManager.TAR_TYPES;
 
+import android.Manifest;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
@@ -16,6 +17,7 @@ import androidx.annotation.StyleRes;
 
 import java.io.File;
 
+import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.apk.signing.SigSchemes;
 import io.github.muntashirakon.AppManager.apk.signing.Signer;
 import io.github.muntashirakon.AppManager.backup.BackupFlags;
@@ -27,12 +29,11 @@ import io.github.muntashirakon.AppManager.logcat.helper.LogcatHelper;
 import io.github.muntashirakon.AppManager.main.MainListOptions;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.runningapps.RunningAppsActivity;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
-import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 import io.github.muntashirakon.AppManager.utils.TarUtils;
-import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
 
@@ -171,13 +172,13 @@ public final class Prefs {
             AppPref.set(AppPref.PrefKey.PREF_BACKUP_FLAGS_INT, flags);
         }
 
-        public static boolean backupDirectoryExists(Context context) {
+        public static boolean backupDirectoryExists() {
             Uri uri = Storage.getVolumePath();
             Path path;
             if (uri.getScheme().equals(ContentResolver.SCHEME_FILE)) {
                 // Append AppManager only if storage permissions are granted
                 String newPath = uri.getPath();
-                if (PermissionUtils.hasStoragePermission() || Ops.isPrivileged()) {
+                if (SelfPermissions.checkStoragePermission()) {
                     newPath += File.separator + "AppManager";
                 }
                 path = Paths.get(newPath);
@@ -194,7 +195,7 @@ public final class Prefs {
         @ComponentRule.ComponentStatus
         public static String getDefaultBlockingMethod() {
             String selectedStatus = AppPref.getString(AppPref.PrefKey.PREF_DEFAULT_BLOCKING_METHOD_STR);
-            if (Ops.isAdb()) {
+            if (!SelfPermissions.canBlockByIFW()) {
                 if (selectedStatus.equals(ComponentRule.COMPONENT_TO_BE_BLOCKED_IFW_DISABLE)
                         || selectedStatus.equals(ComponentRule.COMPONENT_TO_BE_BLOCKED_IFW)) {
                     // Lower the status
@@ -211,11 +212,19 @@ public final class Prefs {
         @FreezeUtils.FreezeType
         public static int getDefaultFreezingMethod() {
             int freezeType = AppPref.getInt(AppPref.PrefKey.PREF_FREEZE_TYPE_INT);
-            if (freezeType == FreezeUtils.FREEZE_HIDE && !PermissionUtils.hasSelfOrRemotePermission(ManifestCompat.permission.MANAGE_USERS)) {
-                return FreezeUtils.FREEZE_DISABLE;
+            if (freezeType == FreezeUtils.FREEZE_HIDE) {
+                // Requires MANAGE_USERS permission
+                if (!SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_USERS)) {
+                    return FreezeUtils.FREEZE_DISABLE;
+                }
             }
-            if (freezeType == FreezeUtils.FREEZE_SUSPEND && Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-                return FreezeUtils.FREEZE_DISABLE;
+            if (freezeType == FreezeUtils.FREEZE_SUSPEND) {
+                // 7+ only. Requires MANAGE_USERS permission until P. Requires SUSPEND_APPS permission after that.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N
+                        || Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.SUSPEND_APPS)
+                        || (Build.VERSION.SDK_INT < Build.VERSION_CODES.P && !SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_USERS))) {
+                    return FreezeUtils.FREEZE_DISABLE;
+                }
             }
             return freezeType;
         }
@@ -300,6 +309,11 @@ public final class Prefs {
             return AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_BLOCK_TRACKERS_BOOL);
         }
 
+        public static boolean forceDexOpt() {
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                    && AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_FORCE_DEX_OPT_BOOL);
+        }
+
         public static boolean canSignApk() {
             if (!AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_SIGN_APK_BOOL)) {
                 // Signing not enabled
@@ -318,6 +332,9 @@ public final class Prefs {
 
         @NonNull
         public static String getInstallerPackageName() {
+            if (!SelfPermissions.checkSelfOrRemotePermission(Manifest.permission.INSTALL_PACKAGES)) {
+                return BuildConfig.APPLICATION_ID;
+            }
             return AppPref.getString(AppPref.PrefKey.PREF_INSTALLER_INSTALLER_APP_STR);
         }
 
@@ -412,7 +429,7 @@ public final class Prefs {
         @Nullable
         public static String getFilteredProfileName() {
             String profileName = AppPref.getString(AppPref.PrefKey.PREF_MAIN_WINDOW_FILTER_PROFILE_STR);
-            if (TextUtilsCompat.isEmpty(profileName)) {
+            if (TextUtils.isEmpty(profileName)) {
                 return null;
             }
             return profileName;
@@ -426,7 +443,6 @@ public final class Prefs {
     public static final class Misc {
         @Nullable
         public static int[] getSelectedUsers() {
-            if (!Ops.isPrivileged()) return null;
             String usersStr = AppPref.getString(AppPref.PrefKey.PREF_SELECTED_USERS_STR);
             if ("".equals(usersStr)) return null;
             String[] usersSplitStr = usersStr.split(",");
@@ -438,7 +454,7 @@ public final class Prefs {
         }
 
         public static void setSelectedUsers(@Nullable int[] users) {
-            if (users == null || !Ops.isPrivileged()) {
+            if (users == null) {
                 AppPref.set(AppPref.PrefKey.PREF_SELECTED_USERS_STR, "");
                 return;
             }
@@ -539,7 +555,7 @@ public final class Prefs {
         @Nullable
         public static String getApiKey() {
             String apiKey = AppPref.getString(AppPref.PrefKey.PREF_VIRUS_TOTAL_API_KEY_STR);
-            if (TextUtilsCompat.isEmpty(apiKey)) {
+            if (TextUtils.isEmpty(apiKey)) {
                 return null;
             }
             return apiKey;

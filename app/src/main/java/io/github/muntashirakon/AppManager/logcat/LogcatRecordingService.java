@@ -2,7 +2,6 @@
 
 package io.github.muntashirakon.AppManager.logcat;
 
-import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -16,6 +15,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.PendingIntentCompat;
 import androidx.core.app.ServiceCompat;
 
 import java.io.IOException;
@@ -24,7 +24,6 @@ import java.util.regex.Pattern;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
-import io.github.muntashirakon.AppManager.compat.PendingIntentCompat;
 import io.github.muntashirakon.AppManager.intercept.IntentCompat;
 import io.github.muntashirakon.AppManager.logcat.helper.SaveLogHelper;
 import io.github.muntashirakon.AppManager.logcat.helper.ServiceHelper;
@@ -62,7 +61,7 @@ public class LogcatRecordingService extends ForegroundService {
     private LogcatReader mReader;
     private boolean mKilled;
     private Handler mHandler;
-    private QueuedProgressHandler progressHandler;
+    private QueuedProgressHandler mProgressHandler;
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -115,7 +114,7 @@ public class LogcatRecordingService extends ForegroundService {
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Update widget
         WidgetHelper.updateWidgets(getApplicationContext());
-        progressHandler = new NotificationProgressHandler(this,
+        mProgressHandler = new NotificationProgressHandler(this,
                 new NotificationProgressHandler.NotificationManagerInfo(CHANNEL_ID, "Logcat Recorder", NotificationManagerCompat.IMPORTANCE_DEFAULT),
                 NotificationUtils.HIGH_PRIORITY_NOTIFICATION_INFO,
                 null);
@@ -124,16 +123,15 @@ public class LogcatRecordingService extends ForegroundService {
         // Have to make this unique for God knows what reason
         stopRecordingIntent.setData(Uri.withAppendedPath(Uri.parse(URI_SCHEME + "://stop/"),
                 Long.toHexString(new Random().nextLong())));
-        @SuppressLint("WrongConstant")
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(this, 0 /* no requestCode */,
-                stopRecordingIntent, PendingIntent.FLAG_ONE_SHOT | PendingIntentCompat.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntentCompat.getBroadcast(this, 0 /* no requestCode */,
+                stopRecordingIntent, PendingIntent.FLAG_ONE_SHOT, false);
 
         Object notificationInfo = new NotificationProgressHandler.NotificationInfo()
                 .setTitle(getString(R.string.notification_title))
                 .setBody(getString(R.string.notification_subtext))
                 .setStatusBarText(getText(R.string.notification_ticker))
                 .setDefaultAction(pendingIntent);
-        progressHandler.onAttach(this, notificationInfo);
+        mProgressHandler.onAttach(this, notificationInfo);
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -195,7 +193,7 @@ public class LogcatRecordingService extends ForegroundService {
             } else {
                 notificationInfo.setTitle(getString(R.string.unable_to_save_log));
             }
-            ThreadUtils.postOnMainThread(() -> progressHandler.onResult(notificationInfo));
+            ThreadUtils.postOnMainThread(() -> mProgressHandler.onResult(notificationInfo));
         }
     }
 
@@ -205,14 +203,13 @@ public class LogcatRecordingService extends ForegroundService {
     }
 
 
-    @SuppressLint("WrongConstant")
     private PendingIntent getLogcatActivityToViewSavedFile(String filename) {
         // Start up the logcat activity if necessary and show the saved file
         Intent targetIntent = new Intent(getApplicationContext(), LogViewerActivity.class);
         targetIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
         targetIntent.setAction(Intent.ACTION_MAIN);
         targetIntent.putExtra(LogViewerActivity.EXTRA_FILENAME, filename);
-        return PendingIntent.getActivity(this, 0, targetIntent, PendingIntent.FLAG_ONE_SHOT | PendingIntentCompat.FLAG_IMMUTABLE);
+        return PendingIntentCompat.getActivity(this, 0, targetIntent, PendingIntent.FLAG_ONE_SHOT, false);
     }
 
 

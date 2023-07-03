@@ -5,11 +5,9 @@ package io.github.muntashirakon.AppManager.utils;
 import android.Manifest;
 import android.app.Notification;
 import android.content.Context;
-import android.content.pm.PackageManager;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -22,6 +20,7 @@ import java.util.Map;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.progress.NotificationProgressHandler;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 
 public final class NotificationUtils {
     private static final String HIGH_PRIORITY_CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.HIGH_PRIORITY";
@@ -60,15 +59,15 @@ public final class NotificationUtils {
         Notification build(NotificationCompat.Builder builder);
     }
 
-    private static final Map<String, Integer> notificationIds = Collections.synchronizedMap(new HashMap<>());
+    private static final Map<String, Integer> sNotificationIds = Collections.synchronizedMap(new HashMap<>());
 
     public static int getNotificationId(String channelId) {
-        Integer id = notificationIds.get(channelId);
+        Integer id = sNotificationIds.get(channelId);
         if (id == null) {
-            notificationIds.put(channelId, 1);
+            sNotificationIds.put(channelId, 1);
             return 1;
         }
-        notificationIds.put(channelId, id + 1);
+        sNotificationIds.put(channelId, id + 1);
         return id;
     }
 
@@ -129,7 +128,7 @@ public final class NotificationUtils {
         NotificationManagerCompat manager = getNewNotificationManager(context, channelId, channelName, importance);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId)
                 .setPriority(importanceToPriority(importance));
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+        if (SelfPermissions.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)) {
             manager.notify(notificationId, notification.build(builder));
         }
     }

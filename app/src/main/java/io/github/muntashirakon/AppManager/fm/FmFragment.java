@@ -2,14 +2,17 @@
 
 package io.github.muntashirakon.AppManager.fm;
 
+import static io.github.muntashirakon.AppManager.fm.FmTasks.FmTask.TYPE_CUT;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getSecondaryText;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getSmallerText;
 
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.format.Formatter;
@@ -19,38 +22,60 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.WorkerThread;
 import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SearchView;
 import androidx.collection.ArrayMap;
+import androidx.core.content.ContextCompat;
+import androidx.core.os.BundleCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.leinardi.android.speeddial.SpeedDialActionItem;
+import com.leinardi.android.speeddial.SpeedDialView;
 
 import java.io.File;
+import java.io.IOException;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.muntashirakon.AppManager.R;
-import io.github.muntashirakon.AppManager.compat.BundleCompat;
-import io.github.muntashirakon.AppManager.shortcut.LauncherShortcuts;
+import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
+import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.StorageUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
+import io.github.muntashirakon.AppManager.utils.UIUtils;
+import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.dialog.SearchableItemsDialogBuilder;
 import io.github.muntashirakon.dialog.TextInputDialogBuilder;
 import io.github.muntashirakon.io.Path;
+import io.github.muntashirakon.io.Paths;
+import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.util.UiUtils;
+import io.github.muntashirakon.widget.FloatingActionButtonGroup;
 import io.github.muntashirakon.widget.MultiSelectionView;
 import io.github.muntashirakon.widget.RecyclerView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
-public class FmFragment extends Fragment implements SearchView.OnQueryTextListener, SwipeRefreshLayout.OnRefreshListener {
+public class FmFragment extends Fragment implements SearchView.OnQueryTextListener, SwipeRefreshLayout.OnRefreshListener,
+        SpeedDialView.OnActionSelectedListener, ReflowMenuViewWrapper.OnItemSelectedListener {
     public static final String TAG = FmFragment.class.getSimpleName();
 
     public static final String ARG_URI = "uri";
@@ -70,23 +95,30 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         return fragment;
     }
 
-    private FmViewModel model;
+    private FmViewModel mModel;
     @Nullable
-    private RecyclerView recyclerView;
+    private RecyclerView mRecyclerView;
     @Nullable
-    private FmAdapter adapter;
+    private FmAdapter mAdapter;
     @Nullable
-    private SwipeRefreshLayout swipeRefresh;
+    private SwipeRefreshLayout mSwipeRefresh;
     @Nullable
-    private MultiSelectionView multiSelectionView;
-    private FmPathListAdapter pathListAdapter;
-    private FmActivity activity;
+    private MultiSelectionView mMultiSelectionView;
+    private FmPathListAdapter mPathListAdapter;
+    private FmActivity mActivity;
+
+    @Nullable
+    private FolderShortInfo mFolderShortInfo;
 
     private final OnBackPressedCallback mBackPressedCallback = new OnBackPressedCallback(true) {
         @Override
         public void handleOnBackPressed() {
-            if (pathListAdapter != null && pathListAdapter.getCurrentPosition() > 0) {
-                model.loadFiles(pathListAdapter.calculateUri(pathListAdapter.getCurrentPosition() - 1));
+            if (mAdapter != null && mMultiSelectionView != null && mAdapter.isInSelectionMode()) {
+                mMultiSelectionView.cancel();
+                return;
+            }
+            if (mPathListAdapter != null && mPathListAdapter.getCurrentPosition() > 0) {
+                mModel.loadFiles(mPathListAdapter.calculateUri(mPathListAdapter.getCurrentPosition() - 1));
                 return;
             }
             setEnabled(false);
@@ -98,7 +130,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setHasOptionsMenu(true);
-        model = new ViewModelProvider(this).get(FmViewModel.class);
+        mModel = new ViewModelProvider(this).get(FmViewModel.class);
     }
 
     @Nullable
@@ -124,22 +156,18 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         if (options == null) {
             options = Objects.requireNonNull(BundleCompat.getParcelable(requireArguments(), ARG_OPTIONS, FmActivity.Options.class));
         }
-        activity = (FmActivity) requireActivity();
+        mActivity = (FmActivity) requireActivity();
         // Set title and subtitle
-        ActionBar actionBar = activity.getSupportActionBar();
-        swipeRefresh = view.findViewById(R.id.swipe_refresh);
-        swipeRefresh.setOnRefreshListener(this);
+        ActionBar actionBar = mActivity.getSupportActionBar();
+        mSwipeRefresh = view.findViewById(R.id.swipe_refresh);
+        mSwipeRefresh.setOnRefreshListener(this);
         RecyclerView pathListView = view.findViewById(R.id.path_list);
-        pathListView.setLayoutManager(new LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false));
-        pathListAdapter = new FmPathListAdapter(model);
-        pathListAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+        pathListView.setLayoutManager(new LinearLayoutManager(mActivity, RecyclerView.HORIZONTAL, false));
+        mPathListAdapter = new FmPathListAdapter(mModel);
+        mPathListAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override
             public void onChanged() {
-                LinearLayoutManager layoutManager = (LinearLayoutManager) pathListView.getLayoutManager();
-                if (layoutManager == null) {
-                    return;
-                }
-                layoutManager.scrollToPositionWithOffset(pathListAdapter.getCurrentPosition(), 0);
+                pathListView.setSelection(mPathListAdapter.getCurrentPosition());
             }
 
             @Override
@@ -147,75 +175,101 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                 onChanged();
             }
         });
-        pathListView.setAdapter(pathListAdapter);
+        pathListView.setAdapter(mPathListAdapter);
         MaterialButton pathEditButton = view.findViewById(R.id.uri_edit);
         pathEditButton.setOnClickListener(v -> {
-            String path = FmUtils.getDisplayablePath(model.getCurrentUri());
-            new TextInputDialogBuilder(activity, null)
+            String path = FmUtils.getDisplayablePath(mModel.getCurrentUri());
+            new TextInputDialogBuilder(mActivity, null)
                     .setTitle(R.string.go_to_path)
                     .setInputText(path)
                     .setPositiveButton(R.string.go, (dialog, which, inputText, isChecked) -> {
                         if (!TextUtils.isEmpty(inputText)) {
                             String p = inputText.toString();
-                            model.loadFiles(p.startsWith(File.separator) ? Uri.fromFile(new File(p)) : Uri.parse(p));
+                            mModel.loadFiles(p.startsWith(File.separator) ? Uri.fromFile(new File(p)) : Uri.parse(p));
                         }
                     })
                     .setNegativeButton(R.string.close, null)
                     .show();
         });
-        recyclerView = view.findViewById(R.id.list_item);
-        recyclerView.setLayoutManager(new LinearLayoutManager(activity));
-        adapter = new FmAdapter(model, activity);
-        adapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+        FloatingActionButtonGroup fabGroup = view.findViewById(R.id.fab);
+        fabGroup.inflate(R.menu.fragment_fm_speed_dial);
+        fabGroup.setOnActionSelectedListener(this);
+        UiUtils.applyWindowInsetsAsMargin(view.findViewById(R.id.fab_holder));
+        mRecyclerView = view.findViewById(R.id.list_item);
+        mRecyclerView.setLayoutManager(new LinearLayoutManager(mActivity));
+        mAdapter = new FmAdapter(mModel, mActivity);
+        mAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override
             public void onChanged() {
-                LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
-                if (layoutManager == null) {
-                    return;
-                }
                 if (scrollPosition.get() != RecyclerView.NO_POSITION) {
                     // Update scroll position
-                    layoutManager.scrollToPositionWithOffset(scrollPosition.get(), 0);
+                    mRecyclerView.setSelection(scrollPosition.get());
                     scrollPosition.set(RecyclerView.NO_POSITION);
                 } else {
-                    layoutManager.scrollToPositionWithOffset(model.getCurrentScrollPosition(), 0);
+                    mRecyclerView.setSelection(mModel.getCurrentScrollPosition());
                 }
             }
         });
-        recyclerView.setAdapter(adapter);
-        multiSelectionView = view.findViewById(R.id.selection_view);
-        multiSelectionView.hide();
+        mRecyclerView.setAdapter(mAdapter);
+        mRecyclerView.addOnScrollListener(new androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull androidx.recyclerview.widget.RecyclerView recyclerView, int dx, int dy) {
+                if (mFolderShortInfo == null) {
+                    return;
+                }
+                if (dy < 0 && mFolderShortInfo.canWrite && !fabGroup.isShown()) {
+                    fabGroup.show();
+                } else if (dy > 0 && fabGroup.isShown()) {
+                    fabGroup.hide();
+                }
+            }
+        });
+        mMultiSelectionView = view.findViewById(R.id.selection_view);
+        mMultiSelectionView.setOnItemSelectedListener(this);
+        mMultiSelectionView.setAdapter(mAdapter);
+        mMultiSelectionView.updateCounter(true);
+        BatchOpsHandler batchOpsHandler = new BatchOpsHandler(mMultiSelectionView);
+        mMultiSelectionView.setOnSelectionChangeListener(batchOpsHandler);
         // Set observer
-        model.getLastUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
+        mModel.getLastUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
             if (uri1 == null) {
                 return;
             }
-            if (recyclerView != null) {
-                View v = recyclerView.getChildAt(0);
+            if (mRecyclerView != null) {
+                View v = mRecyclerView.getChildAt(0);
                 if (v != null) {
-                    model.setScrollPosition(uri1, recyclerView.getChildAdapterPosition(v));
+                    mModel.setScrollPosition(uri1, mRecyclerView.getChildAdapterPosition(v));
                 }
-                adapter.setFmList(Collections.emptyList());
+                mAdapter.setFmList(Collections.emptyList());
+            }
+            if (mMultiSelectionView.isShown()) {
+                mMultiSelectionView.cancel();
             }
         });
-        model.getFmItemsLiveData().observe(getViewLifecycleOwner(), fmItems -> {
-            if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
-            adapter.setFmList(fmItems);
+        mModel.getFmItemsLiveData().observe(getViewLifecycleOwner(), fmItems -> {
+            if (mSwipeRefresh != null) {
+                mSwipeRefresh.setRefreshing(false);
+            }
+            mAdapter.setFmList(fmItems);
         });
-        model.getUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
+        mModel.getUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
+            FmActivity.Options options1 = mModel.getOptions();
+            String alternativeRootName = options1.isVfs ? options1.uri.getLastPathSegment() : null;
             if (actionBar != null) {
                 String title = uri1.getLastPathSegment();
                 if (TextUtils.isEmpty(title)) {
-                    title = "Root"; // FIXME: 21/5/23 Use localisation?
+                    title = alternativeRootName != null ? alternativeRootName : "Root";
                 }
                 actionBar.setTitle(title);
             }
-            if (swipeRefresh != null) {
-                swipeRefresh.setRefreshing(true);
+            if (mSwipeRefresh != null) {
+                mSwipeRefresh.setRefreshing(true);
             }
-            pathListAdapter.setCurrentUri(uri1);
+            mPathListAdapter.setCurrentUri(uri1);
+            mPathListAdapter.setAlternativeRootName(alternativeRootName);
         });
-        model.getFolderShortInfoLiveData().observe(getViewLifecycleOwner(), folderShortInfo -> {
+        mModel.getFolderShortInfoLiveData().observe(getViewLifecycleOwner(), folderShortInfo -> {
+            mFolderShortInfo = folderShortInfo;
             if (actionBar == null) {
                 return;
             }
@@ -227,7 +281,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
             // 2. Folders and files
             if (folderShortInfo.folderCount > 0 && folderShortInfo.fileCount > 0) {
                 subtitle.append(getResources().getQuantityString(R.plurals.folder_count, folderShortInfo.folderCount,
-                        folderShortInfo.folderCount))
+                                folderShortInfo.folderCount))
                         .append(", ")
                         .append(getResources().getQuantityString(R.plurals.file_count, folderShortInfo.fileCount,
                                 folderShortInfo.fileCount));
@@ -250,34 +304,50 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                     subtitle.append("W");
                 }
             }
+            if (!folderShortInfo.canWrite) {
+                if (fabGroup.isShown()) {
+                    fabGroup.hide();
+                }
+            } else {
+                if (!fabGroup.isShown()) {
+                    fabGroup.show();
+                }
+            }
             actionBar.setSubtitle(subtitle);
         });
-        model.getDisplayPropertiesLiveData().observe(getViewLifecycleOwner(), uri1 -> {
+        mModel.getDisplayPropertiesLiveData().observe(getViewLifecycleOwner(), uri1 -> {
             FilePropertiesDialogFragment dialogFragment = FilePropertiesDialogFragment.getInstance(uri1);
-            dialogFragment.show(activity.getSupportFragmentManager(), FilePropertiesDialogFragment.TAG);
+            dialogFragment.show(mActivity.getSupportFragmentManager(), FilePropertiesDialogFragment.TAG);
         });
-        model.getShortcutCreatorLiveData().observe(getViewLifecycleOwner(), pathBitmapPair -> {
+        mModel.getShortcutCreatorLiveData().observe(getViewLifecycleOwner(), pathBitmapPair -> {
             Path path = pathBitmapPair.first;
             Bitmap icon = pathBitmapPair.second;
-            if (path.isDirectory()) {
-                LauncherShortcuts.fm_createForFolder(activity, path.getName(), path.getUri());
+            FmShortcutInfo shortcutInfo = new FmShortcutInfo(path, null);
+            if (icon != null) {
+                shortcutInfo.setIcon(icon);
             } else {
-                LauncherShortcuts.fm_createForFile(activity, path.getName(), icon, path.getUri(), null);
+                Drawable drawable = Objects.requireNonNull(ContextCompat.getDrawable(requireContext(),
+                        path.isDirectory() ? R.drawable.ic_folder : R.drawable.ic_file));
+                shortcutInfo.setIcon(UIUtils.getBitmapFromDrawable(drawable));
             }
+            CreateShortcutDialogFragment dialog = CreateShortcutDialogFragment.getInstance(shortcutInfo);
+            dialog.show(getChildFragmentManager(), CreateShortcutDialogFragment.TAG);
         });
-        model.setOptions(options, uri);
+        mModel.getSharableItemsLiveData().observe(getViewLifecycleOwner(), sharableItems ->
+                mActivity.startActivity(sharableItems.toSharableIntent()));
+        mModel.setOptions(options, uri);
     }
 
     @Override
     public void onSaveInstanceState(@NonNull Bundle outState) {
-        if (model != null) {
-            outState.putParcelable(ARG_URI, model.getCurrentUri());
-            outState.putParcelable(ARG_OPTIONS, model.getOptions());
+        if (mModel != null) {
+            outState.putParcelable(ARG_URI, mModel.getCurrentUri());
+            outState.putParcelable(ARG_OPTIONS, mModel.getOptions());
         }
-        if (recyclerView != null) {
-            View v = recyclerView.getChildAt(0);
+        if (mRecyclerView != null) {
+            View v = mRecyclerView.getChildAt(0);
             if (v != null) {
-                outState.putInt(ARG_POSITION, recyclerView.getChildAdapterPosition(v));
+                outState.putInt(ARG_POSITION, mRecyclerView.getChildAdapterPosition(v));
             }
         }
     }
@@ -292,28 +362,36 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     @Override
     public void onCreateOptionsMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
         inflater.inflate(R.menu.activity_fm_actions, menu);
-        super.onCreateOptionsMenu(menu, inflater);
+    }
+
+    @Override
+    public void onPrepareOptionsMenu(@NonNull Menu menu) {
+        MenuItem pasteMenu = menu.findItem(R.id.action_paste);
+        if (pasteMenu != null) {
+            FmTasks.FmTask fmTask = FmTasks.getInstance().peek();
+            pasteMenu.setEnabled(mFolderShortInfo != null && fmTask != null && mFolderShortInfo.canWrite && fmTask.canPaste());
+        }
     }
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_refresh) {
-            model.reload();
+            mModel.reload();
             return true;
         } else if (id == R.id.action_shortcut) {
-            Uri uri = pathListAdapter.getCurrentUri();
+            Uri uri = mPathListAdapter.getCurrentUri();
             if (uri != null) {
-                model.createShortcut(uri);
+                mModel.createShortcut(uri);
             }
             return true;
         } else if (id == R.id.action_storage) {
             ThreadUtils.postOnBackgroundThread(() -> {
-                ArrayMap<String, Uri> storageLocations = StorageUtils.getAllStorageLocations(activity);
+                ArrayMap<String, Uri> storageLocations = StorageUtils.getAllStorageLocations(mActivity);
                 if (storageLocations.size() == 0) {
-                    activity.runOnUiThread(() -> {
+                    mActivity.runOnUiThread(() -> {
                         if (isDetached()) return;
-                        new MaterialAlertDialogBuilder(activity)
+                        new MaterialAlertDialogBuilder(mActivity)
                                 .setTitle(R.string.storage)
                                 .setMessage(R.string.no_volumes_found)
                                 .setNegativeButton(R.string.ok, null)
@@ -326,14 +404,14 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                 for (int i = 0; i < storageLocations.size(); ++i) {
                     backupVolumes[i] = storageLocations.valueAt(i);
                     backupVolumesStr[i] = new SpannableStringBuilder(storageLocations.keyAt(i)).append("\n")
-                            .append(getSecondaryText(activity, getSmallerText(backupVolumes[i].getPath())));
+                            .append(getSecondaryText(mActivity, getSmallerText(backupVolumes[i].getPath())));
                 }
-                activity.runOnUiThread(() -> {
+                mActivity.runOnUiThread(() -> {
                     if (isDetached()) return;
-                    new SearchableItemsDialogBuilder<>(activity, backupVolumesStr)
+                    new SearchableItemsDialogBuilder<>(mActivity, backupVolumesStr)
                             .setTitle(R.string.storage)
                             .setOnItemClickListener((dialog, which, item1) -> {
-                                model.loadFiles(backupVolumes[which]);
+                                mModel.loadFiles(backupVolumes[which]);
                                 dialog.dismiss();
                             })
                             .setNegativeButton(R.string.cancel, null)
@@ -343,16 +421,86 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
             return true;
         } else if (id == R.id.action_list_options) {
             FmListOptions listOptions = new FmListOptions();
-            listOptions.setListOptionActions(model);
+            listOptions.setListOptionActions(mModel);
             listOptions.show(getChildFragmentManager(), FmListOptions.TAG);
             return true;
+        } else if (id == R.id.action_paste) {
+            FmTasks.FmTask task = FmTasks.getInstance().dequeue();
+            if (task != null) {
+                startBatchPaste(task);
+            }
+            return true;
         } else if (id == R.id.action_new_window) {
-            Intent intent = new Intent(activity, FmActivity.class);
+            Intent intent = new Intent(mActivity, FmActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
             startActivity(intent);
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public boolean onActionSelected(@NonNull SpeedDialActionItem actionItem) {
+        int id = actionItem.getId();
+        if (id == R.id.action_file) {
+            NewFileDialogFragment dialog = NewFileDialogFragment.getInstance(this::createNewFile);
+            dialog.show(getChildFragmentManager(), NewFileDialogFragment.TAG);
+        } else if (id == R.id.action_folder) {
+            NewFolderDialogFragment dialog = NewFolderDialogFragment.getInstance(this::createNewFolder);
+            dialog.show(getChildFragmentManager(), NewFolderDialogFragment.TAG);
+        } else if (id == R.id.action_symbolic_link) {
+            Uri uri = mPathListAdapter.getCurrentUri();
+            if (uri == null) {
+                return false;
+            }
+            Path path = Paths.get(uri);
+            if (path.getFile() == null) {
+                UIUtils.displayLongToast(R.string.symbolic_link_not_supported);
+                return false;
+            }
+            NewSymbolicLinkDialogFragment dialog = NewSymbolicLinkDialogFragment.getInstance(this::createNewSymbolicLink);
+            dialog.show(getChildFragmentManager(), NewSymbolicLinkDialogFragment.TAG);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+        int id = item.getItemId();
+        List<Path> selectedFiles = mModel.getSelectedItems();
+        if (selectedFiles.size() == 0) {
+            // Do nothing on empty list
+            return false;
+        }
+        if (id == R.id.action_share) {
+            mModel.shareFiles(selectedFiles);
+        } else if (id == R.id.action_rename) {
+            RenameDialogFragment dialog = RenameDialogFragment.getInstance(null, (prefix, extension) ->
+                    startBatchRenaming(selectedFiles, prefix, extension));
+            dialog.show(getChildFragmentManager(), RenameDialogFragment.TAG);
+        } else if (id == R.id.action_delete) {
+            new MaterialAlertDialogBuilder(mActivity)
+                    .setTitle(R.string.title_confirm_deletion)
+                    .setMessage(R.string.are_you_sure)
+                    .setPositiveButton(R.string.cancel, null)
+                    .setNegativeButton(R.string.confirm_file_deletion, (dialog, which) -> startBatchDeletion(selectedFiles))
+                    .show();
+        } else if (id == R.id.action_cut) {
+            FmTasks.FmTask fmTask = new FmTasks.FmTask(TYPE_CUT, selectedFiles);
+            FmTasks.getInstance().enqueue(fmTask);
+            UIUtils.displayShortToast(R.string.copied_to_clipboard);
+        } else if (id == R.id.action_copy) {
+            FmTasks.FmTask fmTask = new FmTasks.FmTask(FmTasks.FmTask.TYPE_COPY, selectedFiles);
+            FmTasks.getInstance().enqueue(fmTask);
+            UIUtils.displayShortToast(R.string.copied_to_clipboard);
+        } else if (id == R.id.action_copy_path) {
+            List<String> paths = new ArrayList<>(selectedFiles.size());
+            for (Path path : selectedFiles) {
+                paths.add(FmUtils.getDisplayablePath(path));
+            }
+            Utils.copyToClipboard(mActivity, "Paths", TextUtils.join("\n", paths));
+        }
+        return false;
     }
 
     @Override
@@ -368,6 +516,373 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
 
     @Override
     public void onRefresh() {
-        if (model != null) model.reload();
+        if (mModel != null) mModel.reload();
+    }
+
+    private void createNewFolder(String name) {
+        Uri uri = mPathListAdapter.getCurrentUri();
+        if (uri == null) {
+            return;
+        }
+        Path path = Paths.get(uri);
+        String displayName = findNextBestDisplayName(path, name, null);
+        try {
+            Path newDir = path.createNewDirectory(displayName);
+            UIUtils.displayShortToast(R.string.done);
+            mModel.reload(newDir.getName());
+        } catch (IOException e) {
+            e.printStackTrace();
+            UIUtils.displayShortToast(R.string.failed);
+        }
+    }
+
+    private void createNewFile(String prefix, @Nullable String extension, String template) {
+        Uri uri = mPathListAdapter.getCurrentUri();
+        if (uri == null) {
+            return;
+        }
+        Path path = Paths.get(uri);
+        String displayName = findNextBestDisplayName(path, prefix, extension);
+        try {
+            Path newFile = path.createNewFile(displayName, null);
+            FileUtils.copyFromAsset(requireContext(), "blanks/" + template, newFile);
+            UIUtils.displayShortToast(R.string.done);
+            mModel.reload(newFile.getName());
+        } catch (IOException e) {
+            e.printStackTrace();
+            UIUtils.displayShortToast(R.string.failed);
+        }
+    }
+
+    private void createNewSymbolicLink(String prefix, @Nullable String extension, String targetPath) {
+        Uri uri = mPathListAdapter.getCurrentUri();
+        if (uri == null) {
+            return;
+        }
+        Path basePath = Paths.get(uri);
+        String displayName = findNextBestDisplayName(basePath, prefix, extension);
+        Path sourcePath = Paths.build(basePath, displayName);
+        if (sourcePath != null && sourcePath.createNewSymbolicLink(targetPath)) {
+            UIUtils.displayShortToast(R.string.done);
+            mModel.reload(sourcePath.getName());
+        } else {
+            UIUtils.displayShortToast(R.string.failed);
+        }
+    }
+
+    private void startBatchDeletion(@NonNull List<Path> paths) {
+        // TODO: 27/6/23 Ideally, these should be done in a bound service
+        AtomicReference<Future<?>> deletionThread = new AtomicReference<>();
+        View view = View.inflate(requireContext(), R.layout.dialog_progress, null);
+        TextView label = view.findViewById(android.R.id.text1);
+        TextView counter = view.findViewById(android.R.id.text2);
+        counter.setText(String.format(Locale.getDefault(), "%d/%d", 0, paths.size()));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.delete)
+                .setView(view)
+                .setPositiveButton(R.string.action_stop_service, (dialog1, which) -> {
+                    if (deletionThread.get() != null) {
+                        deletionThread.get().cancel(true);
+                    }
+                })
+                .setCancelable(false)
+                .show();
+        deletionThread.set(ThreadUtils.postOnBackgroundThread(() -> {
+            WeakReference<TextView> labelRef = new WeakReference<>(label);
+            WeakReference<TextView> counterRef = new WeakReference<>(counter);
+            WeakReference<AlertDialog> dialogRef = new WeakReference<>(dialog);
+            try {
+                int i = 1;
+                for (Path path : paths) {
+                    // Update label
+                    TextView l = labelRef.get();
+                    if (l != null) {
+                        ThreadUtils.postOnMainThread(() -> l.setText(path.getName()));
+                    }
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                    // Sleep, delete, progress
+                    SystemClock.sleep(2_000);
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                    path.delete();
+                    TextView c = counterRef.get();
+                    if (c != null) {
+                        int finalI = i;
+                        ThreadUtils.postOnMainThread(() ->
+                                c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, paths.size())));
+                    }
+                    ++i;
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                }
+            } finally {
+                AlertDialog d = dialogRef.get();
+                if (d != null) {
+                    ThreadUtils.postOnMainThread(() -> {
+                        d.dismiss();
+                        UIUtils.displayShortToast(R.string.deleted_successfully);
+                        mModel.reload();
+                    });
+                }
+            }
+        }));
+    }
+
+    private void startBatchRenaming(List<Path> paths, String prefix, @Nullable String extension) {
+        AtomicReference<Future<?>> renameThread = new AtomicReference<>();
+        View view = View.inflate(requireContext(), R.layout.dialog_progress, null);
+        TextView label = view.findViewById(android.R.id.text1);
+        TextView counter = view.findViewById(android.R.id.text2);
+        counter.setText(String.format(Locale.getDefault(), "%d/%d", 0, paths.size()));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.rename)
+                .setView(view)
+                .setPositiveButton(R.string.action_stop_service, (dialog1, which) -> {
+                    if (renameThread.get() != null) {
+                        renameThread.get().cancel(true);
+                    }
+                })
+                .setCancelable(false)
+                .show();
+        renameThread.set(ThreadUtils.postOnBackgroundThread(() -> {
+            WeakReference<TextView> labelRef = new WeakReference<>(label);
+            WeakReference<TextView> counterRef = new WeakReference<>(counter);
+            WeakReference<AlertDialog> dialogRef = new WeakReference<>(dialog);
+            try {
+                int i = 1;
+                for (Path path : paths) {
+                    // Update label
+                    TextView l = labelRef.get();
+                    if (l != null) {
+                        ThreadUtils.postOnMainThread(() -> l.setText(path.getName()));
+                    }
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                    // Sleep, rename, progress
+                    SystemClock.sleep(2_000);
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                    Path basePath = path.getParentFile();
+                    if (basePath != null) {
+                        String displayName = findNextBestDisplayName(basePath, prefix, extension, i);
+                        path.renameTo(displayName);
+                    }
+                    TextView c = counterRef.get();
+                    if (c != null) {
+                        int finalI = i;
+                        ThreadUtils.postOnMainThread(() ->
+                                c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, paths.size())));
+                    }
+                    ++i;
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                }
+            } finally {
+                AlertDialog d = dialogRef.get();
+                if (d != null) {
+                    ThreadUtils.postOnMainThread(() -> {
+                        d.dismiss();
+                        UIUtils.displayShortToast(R.string.renamed_successfully);
+                        mModel.reload();
+                    });
+                }
+            }
+        }));
+    }
+
+    private void startBatchPaste(@NonNull FmTasks.FmTask task) {
+        Uri uri = mPathListAdapter.getCurrentUri();
+        if (uri == null) {
+            return;
+        }
+        AtomicReference<Future<?>> pasteThread = new AtomicReference<>();
+        View view = View.inflate(requireContext(), R.layout.dialog_progress, null);
+        TextView label = view.findViewById(android.R.id.text1);
+        TextView counter = view.findViewById(android.R.id.text2);
+        counter.setText(String.format(Locale.getDefault(), "%d/%d", 0, task.files.size()));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.paste)
+                .setView(view)
+                .setPositiveButton(R.string.action_stop_service, (dialog1, which) -> {
+                    if (pasteThread.get() != null) {
+                        pasteThread.get().cancel(true);
+                    }
+                })
+                .setCancelable(false)
+                .show();
+        pasteThread.set(ThreadUtils.postOnBackgroundThread(() -> {
+            WeakReference<TextView> labelRef = new WeakReference<>(label);
+            WeakReference<TextView> counterRef = new WeakReference<>(counter);
+            WeakReference<AlertDialog> dialogRef = new WeakReference<>(dialog);
+            Path targetPath = Paths.get(uri);
+            try {
+                int i = 1;
+                for (Path sourcePath : task.files) {
+                    // Update label
+                    TextView l = labelRef.get();
+                    if (l != null) {
+                        ThreadUtils.postOnMainThread(() -> l.setText(sourcePath.getName()));
+                    }
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                    // Sleep, copy, progress
+                    SystemClock.sleep(2_000);
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                    if (!copy(sourcePath, targetPath)) {
+                        // Failed to copy, abort
+                        ThreadUtils.postOnMainThread(() -> new MaterialAlertDialogBuilder(requireContext())
+                                .setTitle(R.string.error)
+                                .setMessage(getString(R.string.failed_to_copy_specified_file, sourcePath.getName()))
+                                .setPositiveButton(R.string.close, null)
+                                .show());
+                        return;
+                    }
+                    if (task.type == TYPE_CUT) {
+                        if (!sourcePath.delete()) {
+                            // Failed to move, abort
+                            ThreadUtils.postOnMainThread(() -> new MaterialAlertDialogBuilder(requireContext())
+                                    .setTitle(R.string.error)
+                                    .setMessage(getString(R.string.failed_to_delete_specified_file_after_copying, sourcePath.getName()))
+                                    .setPositiveButton(R.string.close, null)
+                                    .show());
+                            return;
+                        }
+                    }
+                    TextView c = counterRef.get();
+                    if (c != null) {
+                        int finalI = i;
+                        ThreadUtils.postOnMainThread(() ->
+                                c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, task.files.size())));
+                    }
+                    ++i;
+                    if (ThreadUtils.isInterrupted()) {
+                        break;
+                    }
+                }
+                UIUtils.displayShortToast(task.type == TYPE_CUT ? R.string.moved_successfully : R.string.copied_successfully);
+            } finally {
+                AlertDialog d = dialogRef.get();
+                if (d != null) {
+                    ThreadUtils.postOnMainThread(() -> {
+                        d.dismiss();
+                        mModel.reload();
+                    });
+                }
+            }
+        }));
+    }
+
+    @WorkerThread
+    private boolean copy(Path source, Path dest) {
+        String name = source.getName();
+        if (dest.hasFile(name)) {
+            // Duplicate found. Ask user for what to do.
+            CountDownLatch waitForUser = new CountDownLatch(1);
+            AtomicReference<Boolean> keepBoth = new AtomicReference<>(null);
+            ThreadUtils.postOnMainThread(() -> new MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(R.string.conflict_detected_while_copying)
+                    .setMessage(getString(R.string.conflict_detected_while_copying_message, name))
+                    .setCancelable(false)
+                    .setOnDismissListener(dialog -> waitForUser.countDown())
+                    .setPositiveButton(R.string.replace, (dialog, which) -> keepBoth.set(false))
+                    .setNegativeButton(R.string.action_stop_service, (dialog, which) -> keepBoth.set(null))
+                    .setNeutralButton(R.string.copy_keep_both_file, (dialog, which) -> keepBoth.set(true))
+                    .show());
+            try {
+                waitForUser.await();
+            } catch (InterruptedException ignore) {
+            }
+            if (keepBoth.get() == null) {
+                // Abort copying
+                return false;
+            }
+            if (keepBoth.get()) {
+                // Keep both
+                String prefix;
+                String extension;
+                if (!source.isDirectory()) {
+                    prefix = Paths.trimPathExtension(name);
+                    extension = Paths.getPathExtension(name);
+                } else {
+                    prefix = name;
+                    extension = null;
+                }
+                String newName = findNextBestDisplayName(dest, prefix, extension);
+                try {
+                    Path newPath = source.isDirectory() ? dest.createNewDirectory(newName) : dest.createNewFile(newName, null);
+                    // Need to create that path again
+                    newPath.delete();
+                    return source.copyTo(newPath) != null;
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    return false;
+                }
+            } else {
+                // Overwrite
+                return source.copyTo(dest, true) != null;
+            }
+        }
+        // Simply copy
+        return source.copyTo(dest, false) != null;
+    }
+
+    private String findNextBestDisplayName(@NonNull Path basePath, @NonNull String prefix, @Nullable String extension) {
+        return findNextBestDisplayName(basePath, prefix, extension, 1);
+    }
+
+    private String findNextBestDisplayName(@NonNull Path basePath, @NonNull String prefix, @Nullable String extension, int startIndex) {
+        if (TextUtils.isEmpty(extension)) {
+            extension = "";
+        } else extension = "." + extension;
+        String displayName = prefix + extension;
+        int i = startIndex;
+        // We need to find the next best file name if current exists
+        while (basePath.hasFile(displayName)) {
+            displayName = String.format(Locale.ROOT, "%s (%d)%s", prefix, i, extension);
+            ++i;
+        }
+        return displayName;
+    }
+
+    private class BatchOpsHandler implements MultiSelectionView.OnSelectionChangeListener {
+        private final MenuItem mShareMenu;
+        private final MenuItem mRenameMenu;
+        private final MenuItem mDeleteMenu;
+        private final MenuItem mCutMenu;
+        private final MenuItem mCopyMenu;
+        private final MenuItem mCopyPathsMenu;
+
+        public BatchOpsHandler(@NonNull MultiSelectionView multiSelectionView) {
+            Menu menu = multiSelectionView.getMenu();
+            mShareMenu = menu.findItem(R.id.action_share);
+            mRenameMenu = menu.findItem(R.id.action_rename);
+            mDeleteMenu = menu.findItem(R.id.action_delete);
+            mCutMenu = menu.findItem(R.id.action_cut);
+            mCopyMenu = menu.findItem(R.id.action_copy);
+            mCopyPathsMenu = menu.findItem(R.id.action_copy_path);
+        }
+
+        @Override
+        public void onSelectionChange(int selectionCount) {
+            boolean nonZeroSelection = selectionCount > 0;
+            boolean canRead = mFolderShortInfo != null && mFolderShortInfo.canRead;
+            boolean canWrite = mFolderShortInfo != null && mFolderShortInfo.canWrite;
+            mShareMenu.setEnabled(nonZeroSelection && canRead);
+            mRenameMenu.setEnabled(nonZeroSelection && canWrite);
+            mDeleteMenu.setEnabled(nonZeroSelection && canWrite);
+            mCutMenu.setEnabled(nonZeroSelection && canWrite);
+            mCopyMenu.setEnabled(nonZeroSelection && canRead);
+            mCopyPathsMenu.setEnabled(nonZeroSelection);
+        }
     }
 }

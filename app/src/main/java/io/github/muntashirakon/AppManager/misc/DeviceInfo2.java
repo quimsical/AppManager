@@ -12,6 +12,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.FeatureInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.SELinux;
 import android.os.UserHandleHidden;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
@@ -35,6 +36,7 @@ import java.security.Security;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -65,7 +67,7 @@ public class DeviceInfo2 implements LocalizedString {
     public final int minSdk = SystemProperties.getInt("ro.build.version.min_supported_target_sdk", 0);
     // Security
     public boolean hasRoot;
-    public int SELinux;
+    public int selinux;
     public String encryptionStatus;
     public final String patchLevel;
     public final Provider[] securityProviders = Security.getProviders();
@@ -99,16 +101,16 @@ public class DeviceInfo2 implements LocalizedString {
     // Features
     public FeatureInfo[] features;
 
-    private final FragmentActivity activity;
-    private final ActivityManager activityManager;
-    private final PackageManager pm;
-    private final Display display;
+    private final FragmentActivity mActivity;
+    private final ActivityManager mActivityManager;
+    private final PackageManager mPm;
+    private final Display mDisplay;
 
     public DeviceInfo2(@NonNull FragmentActivity activity) {
-        this.activity = activity;
-        activityManager = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-        pm = activity.getPackageManager();
-        display = getDisplay();
+        this.mActivity = activity;
+        mActivityManager = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+        mPm = activity.getPackageManager();
+        mDisplay = getDisplay();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             patchLevel = getSecurityPatch();
         } else patchLevel = null;
@@ -117,31 +119,31 @@ public class DeviceInfo2 implements LocalizedString {
     @WorkerThread
     public void loadInfo() {
         hasRoot = RunnerUtils.isRootAvailable();
-        SELinux = getSelinuxStatus();
+        selinux = getSelinuxStatus();
         encryptionStatus = getEncryptionStatus();
         cpuHardware = getCpuHardware();
         availableProcessors = Runtime.getRuntime().availableProcessors();
-        glEsVersion = Utils.getGlEsVersion(activityManager.getDeviceConfigurationInfo().reqGlEsVersion);
+        glEsVersion = Utils.getGlEsVersion(mActivityManager.getDeviceConfigurationInfo().reqGlEsVersion);
         // TODO(19/12/20): Get vendor name
-        activityManager.getMemoryInfo(memoryInfo);
+        mActivityManager.getMemoryInfo(memoryInfo);
         batteryCapacityMAh = getBatteryCapacity();
         // TODO(19/12/20): Get more battery info
         DisplayMetrics displayMetrics = new DisplayMetrics();
         // Actual size
-        display.getRealMetrics(displayMetrics);
+        mDisplay.getRealMetrics(displayMetrics);
         scalingFactor = displayMetrics.density;
         actualWidthPx = displayMetrics.widthPixels;
         actualHeightPx = displayMetrics.heightPixels;
         // Window size
-        display.getMetrics(displayMetrics);
+        mDisplay.getMetrics(displayMetrics);
         windowWidthPx = displayMetrics.widthPixels;
         windowHeightPx = displayMetrics.heightPixels;
-        refreshRate = display.getRefreshRate();
+        refreshRate = mDisplay.getRefreshRate();
         users = Users.getAllUsers();
         for (UserInfo info : users) {
             userPackages.put(info.id, getPackageStats(info.id));
         }
-        features = pm.getSystemAvailableFeatures();
+        features = mPm.getSystemAvailableFeatures();
     }
 
     @Override
@@ -167,8 +169,8 @@ public class DeviceInfo2 implements LocalizedString {
         // Security
         builder.append("\n").append(getTitleText(ctx, R.string.security)).append("\n");
         builder.append(getStyledKeyValue(ctx, R.string.root, String.valueOf(hasRoot))).append("\n");
-        if (SELinux != 2) {
-            builder.append(getStyledKeyValue(ctx, R.string.selinux, getString(SELinux == 1 ?
+        if (selinux != 2) {
+            builder.append(getStyledKeyValue(ctx, R.string.selinux, getString(selinux == 1 ?
                     R.string.enforcing : R.string.permissive))).append("\n");
         }
         builder.append(getStyledKeyValue(ctx, R.string.encryption, encryptionStatus)).append("\n");
@@ -187,7 +189,7 @@ public class DeviceInfo2 implements LocalizedString {
             builder.append(getStyledKeyValue(ctx, R.string.hardware, cpuHardware)).append("\n");
         }
         builder.append(getStyledKeyValue(ctx, R.string.support_architectures,
-                TextUtils.join(", ", supportedAbis))).append("\n")
+                        TextUtils.join(", ", supportedAbis))).append("\n")
                 .append(getStyledKeyValue(ctx, R.string.no_of_cores, String.format(Locale.getDefault(), "%d",
                         availableProcessors))).append("\n");
         // GPU info
@@ -271,16 +273,17 @@ public class DeviceInfo2 implements LocalizedString {
                 } else featureStrings.add(info.name);
             }
         }
+        Collections.sort(featureStrings, (o1, o2) -> String.CASE_INSENSITIVE_ORDER.compare(o1.toString(), o2.toString()));
         builder.append(TextUtilsCompat.joinSpannable("\n", featureStrings)).append("\n");
         return builder;
     }
 
     private Display getDisplay() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return activity.getDisplay();
+            return mActivity.getDisplay();
         } else {
             //noinspection deprecation
-            return activity.getWindowManager().getDefaultDisplay();
+            return mActivity.getWindowManager().getDefaultDisplay();
         }
     }
 
@@ -337,9 +340,14 @@ public class DeviceInfo2 implements LocalizedString {
 
     @WorkerThread
     private int getSelinuxStatus() {
-        Runner.Result result = Runner.runCommand("getenforce");
-        if (result.isSuccessful()) {
-            if (result.getOutput().trim().equals("Enforcing")) return 1;
+        if (SELinux.isSELinuxEnabled()) {
+            // if (SELinux.isSELinuxEnforced()) {
+            //    return 1;
+            // }
+            Runner.Result result = Runner.runCommand("getenforce");
+            if (result.isSuccessful() && result.getOutput().trim().equals("Enforcing")) {
+                return 1;
+            }
             return 0;
         }
         return 2;
@@ -369,7 +377,7 @@ public class DeviceInfo2 implements LocalizedString {
         double capacity = -1.0;
         try {
             Object powerProfile = Class.forName("com.android.internal.os.PowerProfile")
-                    .getConstructor(Context.class).newInstance(activity.getApplication());
+                    .getConstructor(Context.class).newInstance(mActivity.getApplication());
             //noinspection ConstantConditions
             capacity = (double) Class.forName("com.android.internal.os.PowerProfile")
                     .getMethod("getAveragePower", String.class)
@@ -399,6 +407,6 @@ public class DeviceInfo2 implements LocalizedString {
     }
 
     private String getString(@StringRes int strRes) {
-        return activity.getString(strRes);
+        return mActivity.getString(strRes);
     }
 }

@@ -5,26 +5,27 @@ package io.github.muntashirakon.AppManager.users;
 import android.os.UserHandleHidden;
 import android.system.ErrnoException;
 import android.system.StructPasswd;
+import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import io.github.muntashirakon.AppManager.compat.OsCompat;
 import io.github.muntashirakon.AppManager.utils.ExUtils;
+import io.github.muntashirakon.compat.system.OsCompat;
 
 public class Owners {
-    private static final Map<Integer, String> uidOwnerMap = new HashMap<>();
+    private static final Map<Integer, String> sUidOwnerMap = new HashMap<>();
 
     public static Map<Integer, String> getUidOwnerMap(boolean reload) {
-        synchronized (uidOwnerMap) {
-            if (uidOwnerMap.isEmpty() || reload) {
+        synchronized (sUidOwnerMap) {
+            if (sUidOwnerMap.isEmpty() || reload) {
                 try {
                     OsCompat.setpwent();
                     StructPasswd passwd;
                     while ((passwd = OsCompat.getpwent()) != null) {
-                        uidOwnerMap.put(passwd.pw_uid, passwd.pw_name);
+                        sUidOwnerMap.put(passwd.pw_uid, passwd.pw_name);
                     }
                 } catch (ErrnoException e) {
                     e.printStackTrace();
@@ -32,7 +33,7 @@ public class Owners {
                     ExUtils.exceptionAsIgnored(OsCompat::endpwent);
                 }
             }
-            return uidOwnerMap;
+            return sUidOwnerMap;
         }
     }
 
@@ -49,6 +50,14 @@ public class Owners {
     public static String formatUid(int uid) {
         StringBuilder sb = new StringBuilder();
         UserHandleHidden.formatUid(sb, uid);
+        if (sb.indexOf("u") == 0) {
+            // u-prefixed name, index 1 is a mandatory integer, but not so sure about others
+            int i = 2;
+            while (TextUtils.isDigitsOnly(String.valueOf(sb.charAt(i)))) {
+                ++i;
+            }
+            sb.insert(i, '_');
+        }
         return sb.toString();
     }
 }

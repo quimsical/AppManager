@@ -42,7 +42,6 @@ import org.xmlpull.v1.XmlPullParserException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
@@ -66,10 +65,8 @@ import io.github.muntashirakon.AppManager.profiles.ProfileMetaManager;
 import io.github.muntashirakon.AppManager.profiles.ProfilesActivity;
 import io.github.muntashirakon.AppManager.rules.RulesTypeSelectionDialogFragment;
 import io.github.muntashirakon.AppManager.runningapps.RunningAppsActivity;
-import io.github.muntashirakon.AppManager.self.filecache.InternalCacheCleanerService;
 import io.github.muntashirakon.AppManager.self.life.FundingCampaignChecker;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
-import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.settings.SettingsActivity;
 import io.github.muntashirakon.AppManager.usage.AppUsageActivity;
@@ -89,26 +86,25 @@ import io.github.muntashirakon.widget.MultiSelectionView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
 public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQueryTextListener,
-        SwipeRefreshLayout.OnRefreshListener, ReflowMenuViewWrapper.OnItemSelectedListener,
-        MultiSelectionView.OnSelectionChangeListener {
+        SwipeRefreshLayout.OnRefreshListener, ReflowMenuViewWrapper.OnItemSelectedListener {
     private static final String PACKAGE_NAME_APK_UPDATER = "com.apkupdater";
     private static final String ACTIVITY_NAME_APK_UPDATER = "com.apkupdater.activity.MainActivity";
 
     private static boolean SHOW_DISCLAIMER = true;
 
-    MainViewModel mModel;
+    MainViewModel viewModel;
 
     private MainRecyclerAdapter mAdapter;
     private AdvancedSearchView mSearchView;
     private LinearProgressIndicator mProgressIndicator;
     private SwipeRefreshLayout mSwipeRefresh;
-    private MultiSelectionView multiSelectionView;
-    private Menu selectionMenu;
-    private MenuItem appUsageMenu;
+    private MultiSelectionView mMultiSelectionView;
+    MainBatchOpsHandler mBatchOpsHandler;
+    private MenuItem mAppUsageMenu;
 
-    private final StoragePermission storagePermission = StoragePermission.init(this);
+    private final StoragePermission mStoragePermission = StoragePermission.init(this);
 
-    private final ActivityResultLauncher<String> batchExportRules = registerForActivityResult(
+    private final ActivityResultLauncher<String> mBatchExportRules = registerForActivityResult(
             new ActivityResultContracts.CreateDocument("text/tab-separated-values"),
             uri -> {
                 if (uri == null) {
@@ -119,13 +115,13 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                 Bundle args = new Bundle();
                 args.putInt(RulesTypeSelectionDialogFragment.ARG_MODE, RulesTypeSelectionDialogFragment.MODE_EXPORT);
                 args.putParcelable(RulesTypeSelectionDialogFragment.ARG_URI, uri);
-                args.putStringArrayList(RulesTypeSelectionDialogFragment.ARG_PKG, new ArrayList<>(mModel.getSelectedPackages().keySet()));
+                args.putStringArrayList(RulesTypeSelectionDialogFragment.ARG_PKG, new ArrayList<>(viewModel.getSelectedPackages().keySet()));
                 args.putIntArray(RulesTypeSelectionDialogFragment.ARG_USERS, Users.getUsersIds());
                 dialogFragment.setArguments(args);
                 dialogFragment.show(getSupportFragmentManager(), RulesTypeSelectionDialogFragment.TAG);
             });
 
-    private final ActivityResultLauncher<String> exportAppListXml = registerForActivityResult(
+    private final ActivityResultLauncher<String> mExportAppListXml = registerForActivityResult(
             new ActivityResultContracts.CreateDocument("text/xml"),
             uri -> {
                 if (uri == null) {
@@ -133,10 +129,10 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                     return;
                 }
                 mProgressIndicator.show();
-                mModel.saveExportedAppList(ListExporter.EXPORT_TYPE_XML, Paths.get(uri));
+                viewModel.saveExportedAppList(ListExporter.EXPORT_TYPE_XML, Paths.get(uri));
             });
 
-    private final ActivityResultLauncher<String> exportAppListMarkdown = registerForActivityResult(
+    private final ActivityResultLauncher<String> mExportAppListMarkdown = registerForActivityResult(
             new ActivityResultContracts.CreateDocument("text/markdown"),
             uri -> {
                 if (uri == null) {
@@ -144,7 +140,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                     return;
                 }
                 mProgressIndicator.show();
-                mModel.saveExportedAppList(ListExporter.EXPORT_TYPE_MARKDOWN, Paths.get(uri));
+                viewModel.saveExportedAppList(ListExporter.EXPORT_TYPE_MARKDOWN, Paths.get(uri));
             });
 
     private final BroadcastReceiver mBatchOpsBroadCastReceiver = new BroadcastReceiver() {
@@ -159,7 +155,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     protected void onAuthenticated(Bundle savedInstanceState) {
         setContentView(R.layout.activity_main);
         setSupportActionBar(findViewById(R.id.toolbar));
-        mModel = new ViewModelProvider(this).get(MainViewModel.class);
+        viewModel = new ViewModelProvider(this).get(MainViewModel.class);
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             actionBar.setDisplayShowCustomEnabled(true);
@@ -201,12 +197,12 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         recyclerView.setHasFixedSize(true);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(mAdapter);
-        multiSelectionView = findViewById(R.id.selection_view);
-        multiSelectionView.setOnItemSelectedListener(this);
-        multiSelectionView.setAdapter(mAdapter);
-        multiSelectionView.updateCounter(true);
-        multiSelectionView.setOnSelectionChangeListener(this);
-        selectionMenu = multiSelectionView.getMenu();
+        mMultiSelectionView = findViewById(R.id.selection_view);
+        mMultiSelectionView.setOnItemSelectedListener(this);
+        mMultiSelectionView.setAdapter(mAdapter);
+        mMultiSelectionView.updateCounter(true);
+        mBatchOpsHandler = new MainBatchOpsHandler(mMultiSelectionView, viewModel);
+        mMultiSelectionView.setOnSelectionChangeListener(mBatchOpsHandler);
 
         if (SHOW_DISCLAIMER && AppPref.getBoolean(AppPref.PrefKey.PREF_SHOW_DISCLAIMER_BOOL)) {
             // Disclaimer will only be shown the first time it is loaded.
@@ -228,11 +224,11 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         }
 
         // Set observer
-        mModel.getApplicationItems().observe(this, applicationItems -> {
+        viewModel.getApplicationItems().observe(this, applicationItems -> {
             if (mAdapter != null) mAdapter.setDefaultList(applicationItems);
             showProgressIndicator(false);
         });
-        mModel.getOperationStatus().observe(this, status -> {
+        viewModel.getOperationStatus().observe(this, status -> {
             mProgressIndicator.hide();
             if (status) {
                 UIUtils.displayShortToast(R.string.done);
@@ -244,8 +240,8 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
 
     @Override
     public void onBackPressed() {
-        if (mAdapter != null && multiSelectionView != null && mAdapter.isInSelectionMode()) {
-            multiSelectionView.cancel();
+        if (mAdapter != null && mMultiSelectionView != null && mAdapter.isInSelectionMode()) {
+            mMultiSelectionView.cancel();
             return;
         }
         super.onBackPressed();
@@ -254,7 +250,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.activity_main_actions, menu);
-        appUsageMenu = menu.findItem(R.id.action_app_usage);
+        mAppUsageMenu = menu.findItem(R.id.action_app_usage);
         MenuItem apkUpdaterMenu = menu.findItem(R.id.action_apk_updater);
         try {
             if (!getPackageManager().getApplicationInfo(PACKAGE_NAME_APK_UPDATER, 0).enabled)
@@ -269,7 +265,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     @Override
     public boolean onPrepareOptionsMenu(@NonNull Menu menu) {
         super.onPrepareOptionsMenu(menu);
-        appUsageMenu.setVisible(FeatureController.isUsageAccessEnabled());
+        mAppUsageMenu.setVisible(FeatureController.isUsageAccessEnabled());
         return true;
     }
 
@@ -283,12 +279,12 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
             startActivity(helpIntent);
         } else if (id == R.id.action_list_options) {
             MainListOptions listOptions = new MainListOptions();
-            listOptions.setListOptionActions(mModel);
+            listOptions.setListOptionActions(viewModel);
             listOptions.show(getSupportFragmentManager(), MainListOptions.TAG);
         } else if (id == R.id.action_refresh) {
-            if (mModel != null) {
+            if (viewModel != null) {
                 showProgressIndicator(true);
-                mModel.loadApplicationItems();
+                viewModel.loadApplicationItems();
             }
         } else if (id == R.id.action_settings) {
             Intent settingsIntent = SettingsActivity.getIntent(this);
@@ -330,14 +326,14 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     public boolean onNavigationItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_backup) {
-            if (mModel != null) {
-                BackupRestoreDialogFragment fragment = BackupRestoreDialogFragment.getInstance(mModel.getSelectedPackagesWithUsers());
+            if (viewModel != null) {
+                BackupRestoreDialogFragment fragment = BackupRestoreDialogFragment.getInstance(viewModel.getSelectedPackagesWithUsers());
                 fragment.setOnActionBeginListener(mode -> showProgressIndicator(true));
                 fragment.setOnActionCompleteListener((mode, failedPackages) -> showProgressIndicator(false));
                 fragment.show(getSupportFragmentManager(), BackupRestoreDialogFragment.TAG);
             }
         } else if (id == R.id.action_save_apk) {
-            storagePermission.request(granted -> {
+            mStoragePermission.request(granted -> {
                 if (granted) handleBatchOp(BatchOpsManager.OP_BACKUP_APK);
             });
         } else if (id == R.id.action_block_unblock_trackers) {
@@ -402,8 +398,8 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                     })
                     .show();
         } else if (id == R.id.action_export_blocking_rules) {
-            final String fileName = "app_manager_rules_export-" + DateUtils.formatDateTime(System.currentTimeMillis()) + ".am.tsv";
-            batchExportRules.launch(fileName);
+            final String fileName = "app_manager_rules_export-" + DateUtils.formatDateTime(this, System.currentTimeMillis()) + ".am.tsv";
+            mBatchExportRules.launch(fileName);
         } else if (id == R.id.action_export_app_list) {
             List<Integer> exportTypes = Arrays.asList(ListExporter.EXPORT_TYPE_XML, ListExporter.EXPORT_TYPE_MARKDOWN);
             new SearchableSingleChoiceDialogBuilder<>(this, exportTypes, R.array.export_app_list_options)
@@ -414,13 +410,13 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                         }
                         switch (item1) {
                             case ListExporter.EXPORT_TYPE_XML: {
-                                final String fileName = "app_manager_app_list-" + DateUtils.formatDateTime(System.currentTimeMillis()) + ".am.xml";
-                                exportAppListXml.launch(fileName);
+                                final String fileName = "app_manager_app_list-" + DateUtils.formatDateTime(this, System.currentTimeMillis()) + ".am.xml";
+                                mExportAppListXml.launch(fileName);
                                 break;
                             }
                             case ListExporter.EXPORT_TYPE_MARKDOWN: {
-                                final String fileName = "app_manager_app_list-" + DateUtils.formatDateTime(System.currentTimeMillis()) + ".am.md";
-                                exportAppListMarkdown.launch(fileName);
+                                final String fileName = "app_manager_app_list-" + DateUtils.formatDateTime(this, System.currentTimeMillis()) + ".am.md";
+                                mExportAppListMarkdown.launch(fileName);
                                 break;
                             }
                         }
@@ -444,7 +440,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                     .setPositiveButton(R.string.add, (dialog, which, selectedItems) -> {
                         for (ProfileMetaManager metaManager : selectedItems) {
                             try {
-                                metaManager.appendPackages(mModel.getSelectedPackages().keySet());
+                                metaManager.appendPackages(viewModel.getSelectedPackages().keySet());
                                 metaManager.writeProfile();
                             } catch (Throwable e) {
                                 e.printStackTrace();
@@ -460,72 +456,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     }
 
     @Override
-    public void onSelectionChange(int selectionCount) {
-        if (selectionMenu == null || mModel == null) return;
-        // TODO: 11/10/21 There is an efficient way to handle this:
-        //  1. Declare MenuItems as field variables
-        //  2. Check for properties during selection
-        Collection<ApplicationItem> selectedItems = mModel.getSelectedApplicationItems();
-        MenuItem uninstallMenu = selectionMenu.findItem(R.id.action_uninstall);
-        MenuItem enableDisableMenu = selectionMenu.findItem(R.id.action_freeze_unfreeze);
-        MenuItem forceStopMenu = selectionMenu.findItem(R.id.action_force_stop);
-        MenuItem clearDataCacheMenu = selectionMenu.findItem(R.id.action_clear_data_cache);
-        MenuItem saveApkMenu = selectionMenu.findItem(R.id.action_save_apk);
-        MenuItem backupRestoreMenu = selectionMenu.findItem(R.id.action_backup);
-        MenuItem preventBackgroundMenu = selectionMenu.findItem(R.id.action_disable_background);
-        MenuItem blockUnblockTrackersMenu = selectionMenu.findItem(R.id.action_block_unblock_trackers);
-        MenuItem netPolicyMenu = selectionMenu.findItem(R.id.action_net_policy);
-        MenuItem exportRulesMenu = selectionMenu.findItem(R.id.action_export_blocking_rules);
-        MenuItem addToProfileMenu = selectionMenu.findItem(R.id.action_add_to_profile);
-        boolean nonZeroSelection = selectedItems.size() > 0;
-        // It was ensured that the algorithm is greedy
-        // Best case: O(1)
-        // Worst case: O(n)
-        boolean areAllInstalled = true;
-        boolean areAllUninstalledSystem = true;
-        boolean areAllUninstalledHasBackup = true;
-        for (ApplicationItem item : selectedItems) {
-            if (item.isInstalled) continue;
-            areAllInstalled = false;
-            if (!areAllUninstalledHasBackup && !areAllUninstalledSystem) {
-                // No need to check further
-                break;
-            }
-            if (areAllUninstalledSystem && item.isUser) areAllUninstalledSystem = false;
-            if (areAllUninstalledHasBackup && item.backup == null) areAllUninstalledHasBackup = false;
-        }
-        /* === Enable/Disable === */
-        // Enable “Uninstall” action iff all selections are installed
-        uninstallMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        // Enable the following actions iff root/ADB enabled and all selections are installed
-        enableDisableMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        forceStopMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        clearDataCacheMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        preventBackgroundMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        netPolicyMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        // Enable “Save APK” action iff all selections are installed or the uninstalled apps are all system apps
-        saveApkMenu.setEnabled(nonZeroSelection && (areAllInstalled || areAllUninstalledSystem));
-        // Enable “Backup/restore” action iff all selections are installed or all the uninstalled apps have backups
-        backupRestoreMenu.setEnabled(nonZeroSelection && (areAllInstalled || areAllUninstalledHasBackup));
-        // Enable “Block/unblock trackers” action iff root is enabled and all selections are installed
-        blockUnblockTrackersMenu.setEnabled(nonZeroSelection && areAllInstalled);
-        // Rests are enabled by default
-        exportRulesMenu.setEnabled(nonZeroSelection);
-        addToProfileMenu.setEnabled(nonZeroSelection);
-        /* === Visible/Invisible === */
-        boolean privileged = Ops.isPrivileged();
-        enableDisableMenu.setVisible(privileged);
-        forceStopMenu.setVisible(privileged);
-        clearDataCacheMenu.setVisible(privileged);
-        preventBackgroundMenu.setVisible(privileged);
-        netPolicyMenu.setVisible(privileged);
-        blockUnblockTrackersMenu.setVisible(privileged);
-    }
-
-    @Override
     public void onRefresh() {
         showProgressIndicator(true);
-        if (mModel != null) mModel.loadApplicationItems();
+        if (viewModel != null) viewModel.loadApplicationItems();
         mSwipeRefresh.setRefreshing(false);
     }
 
@@ -534,24 +467,16 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         super.onStart();
 
         // Set filter
-        if (mModel != null && mSearchView != null && !TextUtils.isEmpty(mModel.getSearchQuery())) {
+        if (viewModel != null && mSearchView != null && !TextUtils.isEmpty(viewModel.getSearchQuery())) {
             mSearchView.setIconified(false);
-            mSearchView.setQuery(mModel.getSearchQuery(), false);
+            mSearchView.setQuery(viewModel.getSearchQuery(), false);
         }
         // Show/hide app usage menu
-        if (appUsageMenu != null) {
-            appUsageMenu.setVisible(FeatureController.isUsageAccessEnabled());
-        }
-        // Set sort by
-        if (mModel != null) {
-            if (!Ops.isPrivileged()) {
-                if (mModel.getSortBy() == MainListOptions.SORT_BY_BLOCKED_COMPONENTS) {
-                    mModel.setSortBy(MainListOptions.SORT_BY_APP_LABEL);
-                }
-            }
+        if (mAppUsageMenu != null) {
+            mAppUsageMenu.setVisible(FeatureController.isUsageAccessEnabled());
         }
         // Check for backup volume
-        if (!Prefs.BackupRestore.backupDirectoryExists(this)) {
+        if (!Prefs.BackupRestore.backupDirectoryExists()) {
             new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.backup_volume)
                     .setMessage(R.string.backup_volume_unavailable_warning)
@@ -567,7 +492,11 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     @Override
     protected void onResume() {
         super.onResume();
-        if (mModel != null) mModel.onResume();
+        if (viewModel != null) viewModel.onResume();
+        if (mAdapter != null && mBatchOpsHandler != null && mAdapter.isInSelectionMode()) {
+            mBatchOpsHandler.updateConstraints();
+            mBatchOpsHandler.onSelectionChange(0); // count is irrelevant
+        }
         registerReceiver(mBatchOpsBroadCastReceiver, new IntentFilter(BatchOpsService.ACTION_BATCH_OPS_COMPLETED));
     }
 
@@ -581,7 +510,6 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         if (!AppPref.getBoolean(AppPref.PrefKey.PREF_DISPLAY_CHANGELOG_BOOL)) {
             return;
         }
-        InternalCacheCleanerService.scheduleAlarm(getApplicationContext());
         if (FundingCampaignChecker.campaignRunning()) {
             new ScrollableDialogBuilder(this)
                     .setMessage(R.string.funding_campaign_dialog_message)
@@ -593,7 +521,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                     long lastVersion = AppPref.getLong(AppPref.PrefKey.PREF_DISPLAY_CHANGELOG_LAST_VERSION_LONG);
                     AppPref.set(AppPref.PrefKey.PREF_DISPLAY_CHANGELOG_BOOL, false);
                     AppPref.set(AppPref.PrefKey.PREF_DISPLAY_CHANGELOG_LAST_VERSION_LONG, (long) BuildConfig.VERSION_CODE);
-                    mModel.executor.submit(() -> {
+                    viewModel.executor.submit(() -> {
                         Changelog changelog;
                         try {
                             changelog = new ChangelogParser(getApplication(), R.raw.changelog, lastVersion).parse();
@@ -621,10 +549,10 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     }
 
     private void handleBatchOp(@BatchOpsManager.OpType int op, @Nullable Bundle args) {
-        if (mModel == null) return;
+        if (viewModel == null) return;
         showProgressIndicator(true);
         Intent intent = new Intent(this, BatchOpsService.class);
-        BatchOpsManager.Result input = new BatchOpsManager.Result(mModel.getSelectedPackagesWithUsers());
+        BatchOpsManager.Result input = new BatchOpsManager.Result(viewModel.getSelectedPackagesWithUsers());
         intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, input.getFailedPackages());
         intent.putIntegerArrayListExtra(BatchOpsService.EXTRA_OP_USERS, input.getAssociatedUserHandles());
         intent.putExtra(BatchOpsService.EXTRA_OP, op);
@@ -648,7 +576,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
 
     @Override
     public boolean onQueryTextChange(String searchQuery, @AdvancedSearchView.SearchType int type) {
-        if (mModel != null) mModel.setSearchQuery(searchQuery, type);
+        if (viewModel != null) viewModel.setSearchQuery(searchQuery, type);
         return true;
     }
 

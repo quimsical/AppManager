@@ -50,9 +50,9 @@ import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.db.entity.Backup;
 import io.github.muntashirakon.AppManager.details.AppDetailsActivity;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
-import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
@@ -66,7 +66,7 @@ import io.github.muntashirakon.widget.MultiSelectionView;
 
 public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecyclerAdapter.ViewHolder>
         implements SectionIndexer {
-    static final String sections = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final String sSections = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     private final MainActivity mActivity;
     private final PackageManager mPackageManager;
@@ -102,11 +102,11 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     @GuardedBy("mAdapterList")
     @UiThread
     void setDefaultList(List<ApplicationItem> list) {
-        if (mActivity.mModel == null) return;
+        if (mActivity.viewModel == null) return;
         synchronized (mAdapterList) {
             mAdapterList.clear();
             mAdapterList.addAll(list);
-            mSearchQuery = mActivity.mModel.getSearchQuery();
+            mSearchQuery = mActivity.viewModel.getSearchQuery();
             notifyDataSetChanged();
             notifySelectionChange();
         }
@@ -121,19 +121,19 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     @Override
     public void cancelSelection() {
         super.cancelSelection();
-        mActivity.mModel.cancelSelection();
+        mActivity.viewModel.cancelSelection();
     }
 
     @Override
     public int getSelectedItemCount() {
-        if (mActivity.mModel == null) return 0;
-        return mActivity.mModel.getSelectedPackages().size();
+        if (mActivity.viewModel == null) return 0;
+        return mActivity.viewModel.getSelectedPackages().size();
     }
 
     @Override
     protected int getTotalItemCount() {
-        if (mActivity.mModel == null) return 0;
-        return mActivity.mModel.getApplicationItemCount();
+        if (mActivity.viewModel == null) return 0;
+        return mActivity.viewModel.getApplicationItemCount();
     }
 
     @GuardedBy("mAdapterList")
@@ -148,7 +148,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     @Override
     protected void select(int position) {
         synchronized (mAdapterList) {
-            mAdapterList.set(position, mActivity.mModel.select(mAdapterList.get(position)));
+            mAdapterList.set(position, mActivity.viewModel.select(mAdapterList.get(position)));
         }
     }
 
@@ -156,7 +156,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     @Override
     protected void deselect(int position) {
         synchronized (mAdapterList) {
-            mAdapterList.set(position, mActivity.mModel.deselect(mAdapterList.get(position)));
+            mAdapterList.set(position, mActivity.viewModel.deselect(mAdapterList.get(position)));
         }
     }
 
@@ -212,7 +212,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             // 1) Turn selection mode on if this is the first item in the selection list
             // 2) Select between last selection position and this position (inclusive) if selection mode is on
             synchronized (mAdapterList) {
-                ApplicationItem lastSelectedItem = mActivity.mModel.getLastSelectedPackage();
+                ApplicationItem lastSelectedItem = mActivity.viewModel.getLastSelectedPackage();
                 int lastSelectedItemPosition = lastSelectedItem == null ? -1 : mAdapterList.indexOf(lastSelectedItem);
                 if (lastSelectedItemPosition >= 0) {
                     // Select from last selection to this selection
@@ -238,7 +238,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         // Set version name
         holder.version.setText(item.versionName);
         // Set date and (if available,) days between first install and last update
-        String lastUpdateDate = DateUtils.formatDate(item.lastUpdateTime);
+        String lastUpdateDate = DateUtils.formatDate(mActivity, item.lastUpdateTime);
         if (item.firstInstallTime == item.lastUpdateTime) {
             holder.date.setText(lastUpdateDate);
         } else {
@@ -417,7 +417,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             for (int i = 0; i < getItemCount(); i++) {
                 String item = mAdapterList.get(i).label;
                 if (item.length() > 0) {
-                    if (item.charAt(0) == sections.charAt(section))
+                    if (item.charAt(0) == sSections.charAt(section))
                         return i;
                 }
             }
@@ -432,9 +432,9 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
 
     @Override
     public Object[] getSections() {
-        String[] sectionsArr = new String[sections.length()];
-        for (int i = 0; i < sections.length(); i++)
-            sectionsArr[i] = String.valueOf(sections.charAt(i));
+        String[] sectionsArr = new String[sSections.length()];
+        for (int i = 0; i < sSections.length(); i++)
+            sectionsArr[i] = String.valueOf(sSections.charAt(i));
 
         return sectionsArr;
     }
@@ -463,7 +463,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             }
             // 2. If the app can be installed, offer it to install again.
             if (FeatureController.isInstallerEnabled()) {
-                if (ApplicationInfoCompat.isSystemApp(info) && Ops.isPrivileged()) {
+                if (ApplicationInfoCompat.isSystemApp(info) && SelfPermissions.canInstallExistingPackages()) {
                     // Install existing app instead of installing as an update
                     mActivity.startActivity(PackageInstallerActivity.getLaunchableInstance(mActivity, item.packageName));
                     return;

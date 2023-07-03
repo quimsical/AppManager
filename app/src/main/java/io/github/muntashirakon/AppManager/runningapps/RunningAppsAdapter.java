@@ -5,6 +5,7 @@ package io.github.muntashirakon.AppManager.runningapps;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.os.Process;
 import android.text.Spannable;
 import android.text.TextUtils;
 import android.text.format.Formatter;
@@ -33,11 +34,14 @@ import java.util.Collections;
 import java.util.List;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.logcat.LogViewerActivity;
 import io.github.muntashirakon.AppManager.logcat.struct.SearchCriteria;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.LangUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
@@ -64,7 +68,7 @@ public class RunningAppsAdapter extends MultiSelectionView.Adapter<MultiSelectio
     RunningAppsAdapter(@NonNull RunningAppsActivity activity) {
         super();
         mActivity = activity;
-        mModel = activity.mModel;
+        mModel = activity.model;
         mCardColor = ColorCodes.getListItemColor1(activity);
         mQueryStringHighlightColor = ColorCodes.getQueryStringHighlightColor(activity);
         mHighlightColor = ColorCodes.getListItemSelectionColor(activity);
@@ -212,11 +216,12 @@ public class RunningAppsAdapter extends MultiSelectionView.Adapter<MultiSelectio
         // Set more
         holder.more.setOnClickListener(v -> {
             PopupMenu popupMenu = new PopupMenu(mActivity, holder.more);
+            popupMenu.setForceShowIcon(true);
             popupMenu.inflate(R.menu.activity_running_apps_popup_actions);
             Menu menu = popupMenu.getMenu();
             // Set kill
             MenuItem killItem = menu.findItem(R.id.action_kill);
-            if ((processItem.uid >= 10000 || mActivity.enableKillForSystem) && !Ops.isAdb()) {
+            if ((processItem.uid >= Process.FIRST_APPLICATION_UID || Prefs.RunningApps.enableKillForSystemApps()) && Ops.isRoot()) {
                 killItem.setVisible(true).setOnMenuItemClickListener(item -> {
                     mModel.killProcess(processItem);
                     return true;
@@ -243,14 +248,22 @@ public class RunningAppsAdapter extends MultiSelectionView.Adapter<MultiSelectio
                     return true;
                 });
             } else scanVtIem.setVisible(false);
-            // Set others
+            // Set force-stop
             MenuItem forceStopItem = menu.findItem(R.id.action_force_stop);
+            if (applicationInfo != null) {
+                forceStopItem.setOnMenuItemClickListener(item -> {
+                            mModel.forceStop(applicationInfo);
+                            return true;
+                        })
+                        .setEnabled(SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.FORCE_STOP_PACKAGES));
+            } else forceStopItem.setEnabled(false);
             MenuItem bgItem = menu.findItem(R.id.action_disable_background);
             if (applicationInfo != null) {
-                forceStopItem.setVisible(true).setOnMenuItemClickListener(item -> {
-                    mModel.forceStop(applicationInfo);
-                    return true;
-                });
+                forceStopItem.setOnMenuItemClickListener(item -> {
+                            mModel.forceStop(applicationInfo);
+                            return true;
+                        })
+                        .setVisible(SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.FORCE_STOP_PACKAGES));
                 if (mModel.canRunInBackground(applicationInfo)) {
                     bgItem.setVisible(true).setOnMenuItemClickListener(item -> {
                         mModel.preventBackgroundRun(applicationInfo);

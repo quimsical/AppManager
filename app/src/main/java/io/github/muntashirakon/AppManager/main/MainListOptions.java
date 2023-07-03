@@ -28,7 +28,7 @@ import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
-import io.github.muntashirakon.widget.AnyFilterArrayAdapter;
+import io.github.muntashirakon.adapters.AnyFilterArrayAdapter;
 
 public class MainListOptions extends ListOptions {
     public static final String TAG = MainListOptions.class.getSimpleName();
@@ -115,8 +115,8 @@ public class MainListOptions extends ListOptions {
     public static final int FILTER_APPS_WITH_SSAID = 1 << 13;
     public static final int FILTER_STOPPED_APPS = 1 << 14;
 
-    private final List<String> profileNames = new ArrayList<>();
-    private final TextWatcher profileInputWatcher = new TextWatcher() {
+    private final List<String> mProfileNames = new ArrayList<>();
+    private final TextWatcher mProfileInputWatcher = new TextWatcher() {
         @Override
         public void beforeTextChanged(CharSequence s, int start, int count, int after) {
         }
@@ -128,35 +128,35 @@ public class MainListOptions extends ListOptions {
         @Override
         public void afterTextChanged(Editable s) {
             MainActivity activity = (MainActivity) requireActivity();
-            if (activity.mModel == null) {
+            if (activity.viewModel == null) {
                 return;
             }
             if (s != null) {
                 String profileName = s.toString().trim();
-                if (profileNames.contains(profileName)) {
-                    activity.mModel.setFilterProfileName(profileName);
+                if (mProfileNames.contains(profileName)) {
+                    activity.viewModel.setFilterProfileName(profileName);
                     return;
                 }
             }
-            activity.mModel.setFilterProfileName(null);
+            activity.viewModel.setFilterProfileName(null);
         }
     };
-    private Future<?> profileSuggestionsResult;
+    private Future<?> mProfileSuggestionsResult;
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         MainActivity activity = (MainActivity) requireActivity();
-        profileNameInput.addTextChangedListener(profileInputWatcher);
-        profileSuggestionsResult = ThreadUtils.postOnBackgroundThread(() -> {
-            profileNames.clear();
-            profileNames.addAll(ProfileManager.getProfileNames());
+        profileNameInput.addTextChangedListener(mProfileInputWatcher);
+        mProfileSuggestionsResult = ThreadUtils.postOnBackgroundThread(() -> {
+            mProfileNames.clear();
+            mProfileNames.addAll(ProfileManager.getProfileNames());
             if (isDetached() || ThreadUtils.isInterrupted()) return;
             activity.runOnUiThread(() -> {
                 profileNameInput.setAdapter(new AnyFilterArrayAdapter<>(activity,
-                        io.github.muntashirakon.ui.R.layout.item_checked_text_view, profileNames));
-                if (activity.mModel != null) {
-                    profileNameInput.setText(activity.mModel.getFilterProfileName());
+                        io.github.muntashirakon.ui.R.layout.auto_complete_dropdown_item_small, mProfileNames));
+                if (activity.viewModel != null) {
+                    profileNameInput.setText(activity.viewModel.getFilterProfileName());
                 }
             });
         });
@@ -172,8 +172,8 @@ public class MainListOptions extends ListOptions {
                 ++i;
             }
             List<Integer> selections;
-            if (activity.mModel != null) {
-                int[] selectedUsers = activity.mModel.getSelectedUsers();
+            if (activity.viewModel != null) {
+                int[] selectedUsers = activity.viewModel.getSelectedUsers();
                 if (selectedUsers != null) {
                     selections = new ArrayList<>();
                     for (int userId : selectedUsers) {
@@ -188,12 +188,12 @@ public class MainListOptions extends ListOptions {
                     .showSelectAll(true)
                     .hideSearchBar(true)
                     .setPositiveButton(R.string.filter, (dialog, which, selectedItems) -> {
-                        if (activity.mModel != null) {
+                        if (activity.viewModel != null) {
                             if (selectedItems.size() == userInfoList.size()) {
                                 // All users
-                                activity.mModel.setSelectedUsers(null);
+                                activity.viewModel.setSelectedUsers(null);
                             } else {
-                                activity.mModel.setSelectedUsers(ArrayUtils.convertToIntArray(selectedItems));
+                                activity.viewModel.setSelectedUsers(ArrayUtils.convertToIntArray(selectedItems));
                             }
                         }
                     })
@@ -203,8 +203,8 @@ public class MainListOptions extends ListOptions {
 
     @Override
     public void onDestroy() {
-        if (profileSuggestionsResult != null) {
-            profileSuggestionsResult.cancel(true);
+        if (mProfileSuggestionsResult != null) {
+            mProfileSuggestionsResult.cancel(true);
         }
         super.onDestroy();
     }

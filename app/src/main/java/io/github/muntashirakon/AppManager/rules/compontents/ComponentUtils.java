@@ -5,6 +5,7 @@ package io.github.muntashirakon.AppManager.rules.compontents;
 import android.annotation.UserIdInt;
 import android.app.AppOpsManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.os.RemoteException;
 import android.util.Xml;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.StaticDataset;
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
@@ -35,7 +37,6 @@ import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.rules.struct.PermissionRule;
 import io.github.muntashirakon.AppManager.rules.struct.RuleEntry;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
-import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
@@ -72,22 +73,11 @@ public final class ComponentUtils {
         return trackers;
     }
 
-    @NonNull
-    public static HashMap<String, RuleType> getTrackerComponentsForPackageInfo(PackageInfo packageInfo) {
-        HashMap<String, RuleType> trackers = new HashMap<>();
-        HashMap<String, RuleType> components = PackageUtils.collectComponentClassNames(packageInfo);
-        for (String componentName : components.keySet()) {
-            if (isTracker(componentName))
-                trackers.put(componentName, components.get(componentName));
-        }
-        return trackers;
-    }
-
     public static void blockTrackingComponents(@NonNull UserPackagePair pair) {
         HashMap<String, RuleType> components = ComponentUtils.getTrackerComponentsForPackage(pair.getPackageName(), pair.getUserHandle());
         try (ComponentsBlocker cb = ComponentsBlocker.getMutableInstance(pair.getPackageName(), pair.getUserHandle())) {
             for (String componentName : components.keySet()) {
-                cb.addComponent(componentName, components.get(componentName));
+                cb.addComponent(componentName, Objects.requireNonNull(components.get(componentName)));
             }
             cb.applyRules(true);
         }
@@ -137,7 +127,7 @@ public final class ComponentUtils {
         HashMap<String, RuleType> components = PackageUtils.getFilteredComponents(pair.getPackageName(), pair.getUserHandle(), signatures);
         try (ComponentsBlocker cb = ComponentsBlocker.getMutableInstance(pair.getPackageName(), pair.getUserHandle())) {
             for (String componentName : components.keySet()) {
-                cb.addComponent(componentName, components.get(componentName));
+                cb.addComponent(componentName, Objects.requireNonNull(components.get(componentName)));
             }
             cb.applyRules(true);
         }
@@ -161,9 +151,9 @@ public final class ComponentUtils {
     }
 
     @NonNull
-    public static List<String> getAllPackagesWithRules() {
+    public static List<String> getAllPackagesWithRules(@NonNull Context context) {
         List<String> packages = new ArrayList<>();
-        Path confDir = RulesStorageManager.getConfDir();
+        Path confDir = RulesStorageManager.getConfDir(context);
         Path[] paths = confDir.listFiles((dir, name) -> name.endsWith(".tsv"));
         for (Path path : paths) {
             packages.add(Paths.trimPathExtension(path.getUri().getLastPathSegment()));
@@ -181,7 +171,7 @@ public final class ComponentUtils {
             }
             cb.applyRules(true);
             // Reset configured app ops
-            AppOpsManagerCompat appOpsManager = new AppOpsManagerCompat(ContextUtils.getContext());
+            AppOpsManagerCompat appOpsManager = new AppOpsManagerCompat();
             try {
                 appOpsManager.resetAllModes(userHandle, packageName);
                 for (AppOpRule entry : cb.getAll(AppOpRule.class)) {

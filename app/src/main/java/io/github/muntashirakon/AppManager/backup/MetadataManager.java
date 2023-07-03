@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Locale;
 
 import aosp.libcore.util.HexEncoding;
-import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.ApkFile;
@@ -40,12 +39,14 @@ import io.github.muntashirakon.AppManager.misc.VMRuntime;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
 import io.github.muntashirakon.AppManager.utils.JSONUtils;
 import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
 import io.github.muntashirakon.AppManager.utils.LangUtils;
 import io.github.muntashirakon.AppManager.utils.TarUtils;
+import io.github.muntashirakon.compat.ObjectsCompat;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
 import io.github.muntashirakon.util.LocalizedString;
@@ -160,7 +161,7 @@ public final class MetadataManager {
             CharSequence titleText = shortName == null ? context.getText(R.string.base_backup) : shortName;
 
             StringBuilder subtitleText = new StringBuilder()
-                    .append(DateUtils.formatDateTime(backupTime))
+                    .append(DateUtils.formatDateTime(context, backupTime))
                     .append(", ")
                     .append(flags.toLocalisedString(context))
                     .append(", ")
@@ -179,7 +180,7 @@ public final class MetadataManager {
             }
             subtitleText.append(", ")
                     .append(context.getString(R.string.size)).append(LangUtils.getSeparatorString()).append(Formatter
-                    .formatFileSize(context, getBackupSize()));
+                            .formatFileSize(context, getBackupSize()));
 
             if (isFrozen()) {
                 subtitleText.append(", ").append(context.getText(R.string.frozen));
@@ -215,7 +216,7 @@ public final class MetadataManager {
     private final Context mContext;
 
     private MetadataManager() {
-        mContext = AppManager.getContext();
+        mContext = ContextUtils.getContext();
     }
 
     public Metadata getMetadata() {
@@ -366,14 +367,8 @@ public final class MetadataManager {
             }
         }
         mMetadata.backupTime = 0;
-        try {
-            mMetadata.installer = PackageManagerCompat.getInstallerPackageName(packageInfo.packageName, userHandle);
-        } catch (Throwable e) {
-            e.printStackTrace();
-        }
-        if (mMetadata.installer == null) {
-            mMetadata.installer = BuildConfig.APPLICATION_ID;
-        }
+        mMetadata.installer = ObjectsCompat.requireNonNullElse(PackageManagerCompat.getInstallerPackageName(
+                packageInfo.packageName, userHandle), BuildConfig.APPLICATION_ID);
         return mMetadata;
     }
 

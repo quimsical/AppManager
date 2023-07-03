@@ -27,6 +27,7 @@ import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 import android.os.Build;
@@ -41,11 +42,14 @@ import android.util.Pair;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresPermission;
 import androidx.annotation.WorkerThread;
 import androidx.core.content.pm.PackageInfoCompat;
 
 import com.android.apksig.ApkVerifier;
 import com.android.apksig.apk.ApkFormatException;
+
+import org.jetbrains.annotations.Contract;
 
 import java.io.File;
 import java.io.IOException;
@@ -60,6 +64,7 @@ import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -71,7 +76,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import io.github.muntashirakon.AppManager.AppManager;
+import aosp.libcore.util.HexEncoding;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.signing.Signer;
 import io.github.muntashirakon.AppManager.apk.signing.SignerInfo;
@@ -107,7 +112,7 @@ public final class PackageUtils {
         ArrayList<UserPackagePair> userPackagePairList = new ArrayList<>();
         int currentUser = UserHandleHidden.myUserId();
         for (ApplicationItem item : applicationItems) {
-            if (item.userHandles != null) {
+            if (item.userHandles.length > 0) {
                 for (int userHandle : item.userHandles)
                     userPackagePairList.add(new UserPackagePair(item.packageName, userHandle));
             } else {
@@ -244,21 +249,40 @@ public final class PackageUtils {
 
     @NonNull
     public static List<PackageInfo> getAllPackages(int flags) {
-        List<PackageInfo> applicationInfoList = new ArrayList<>();
+        return getAllPackages(flags, false);
+    }
+
+    @NonNull
+    public static List<PackageInfo> getAllPackages(int flags, boolean currentUserOnly) {
+        if (currentUserOnly) {
+            return ExUtils.requireNonNullElse(() -> PackageManagerCompat.getInstalledPackages(flags,
+                    UserHandleHidden.myUserId()), Collections.emptyList());
+        }
+        List<PackageInfo> packageInfoList = new ArrayList<>();
         for (int userId : Users.getUsersIds()) {
             try {
-                applicationInfoList.addAll(PackageManagerCompat.getInstalledPackages(flags, userId));
+                packageInfoList.addAll(PackageManagerCompat.getInstalledPackages(flags, userId));
                 if (ThreadUtils.isInterrupted()) {
                     break;
                 }
             } catch (RemoteException ignore) {
             }
         }
-        return applicationInfoList;
+        return packageInfoList;
     }
+
 
     @NonNull
     public static List<ApplicationInfo> getAllApplications(int flags) {
+        return getAllApplications(flags, false);
+    }
+
+    @NonNull
+    public static List<ApplicationInfo> getAllApplications(int flags, boolean currentUserOnly) {
+        if (currentUserOnly) {
+            return ExUtils.requireNonNullElse(() -> PackageManagerCompat.getInstalledApplications(flags,
+                    UserHandleHidden.myUserId()), Collections.emptyList());
+        }
         List<ApplicationInfo> applicationInfoList = new ArrayList<>();
         for (int userId : Users.getUsersIds()) {
             try {
@@ -273,6 +297,7 @@ public final class PackageUtils {
     }
 
     @WorkerThread
+    @RequiresPermission("android.permission.PACKAGE_USAGE_STATS")
     @Nullable
     public static PackageSizeInfo getPackageSizeInfo(@NonNull Context context, @NonNull String packageName,
                                                      @UserIdInt int userHandle, @Nullable UUID storageUuid) {
@@ -304,7 +329,7 @@ public final class PackageUtils {
             } catch (RemoteException | InterruptedException | SecurityException e) {
                 Log.e(TAG, e);
             }
-        } else if (PermissionUtils.hasUsageStatsPermission(context)) {
+        } else {
             try {
                 IStorageStatsManager storageStatsManager = IStorageStatsManager.Stub.asInterface(ProxyBinder
                         .getService(Context.STORAGE_STATS_SERVICE));
@@ -341,10 +366,6 @@ public final class PackageUtils {
         // Add activities
         if (packageInfo.activities != null) {
             for (ActivityInfo activityInfo : packageInfo.activities) {
-                if (activityInfo.targetActivity != null) {
-                    // We need real class name exclusively
-                    componentClasses.put(activityInfo.targetActivity, RuleType.ACTIVITY);
-                }
                 componentClasses.put(activityInfo.name, RuleType.ACTIVITY);
             }
         }
@@ -381,7 +402,7 @@ public final class PackageUtils {
     @NonNull
     public static Collection<Integer> getFilteredAppOps(String packageName, @UserIdInt int userHandle, @NonNull int[] appOps, int mode) {
         List<Integer> filteredAppOps = new ArrayList<>();
-        AppOpsManagerCompat appOpsManager = new AppOpsManagerCompat(ContextUtils.getContext());
+        AppOpsManagerCompat appOpsManager = new AppOpsManagerCompat();
         int uid = PackageUtils.getAppUid(new UserPackagePair(packageName, userHandle));
         for (int appOp : appOps) {
             try {
@@ -396,36 +417,46 @@ public final class PackageUtils {
     }
 
     @NonNull
-    public static HashMap<String, RuleType> getUserDisabledComponentsForPackage(String packageName, @UserIdInt int userHandle) {
-        HashMap<String, RuleType> componentClasses = collectComponentClassNames(packageName, userHandle);
+    public static HashMap<String, RuleType> getUserDisabledComponentsForPackage(String packageName, @UserIdInt int userId) {
+        HashMap<String, RuleType> componentClasses = collectComponentClassNames(packageName, userId);
         HashMap<String, RuleType> disabledComponents = new HashMap<>();
-        PackageManager pm = AppManager.getContext().getPackageManager();
         for (String componentName : componentClasses.keySet()) {
-            if (isComponentDisabledByUser(pm, packageName, componentName))
-                disabledComponents.put(componentName, componentClasses.get(componentName));
+            try {
+                if (isComponentDisabledByUser(packageName, componentName, userId)) {
+                    disabledComponents.put(componentName, componentClasses.get(componentName));
+                }
+            } catch (NameNotFoundException ignore) {
+                // Component unavailable
+            }
         }
         disabledComponents.putAll(ComponentUtils.getIFWRulesForPackage(packageName));
         return disabledComponents;
     }
 
     @SuppressLint("SwitchIntDef")
-    public static boolean isComponentDisabledByUser(@NonNull PackageManager pm, @NonNull String packageName, @NonNull String componentClassName) {
-        ComponentName componentName = new ComponentName(packageName, componentClassName);
-        switch (pm.getComponentEnabledSetting(componentName)) {
-            case PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER:
-                return true;
-            case PackageManager.COMPONENT_ENABLED_STATE_DISABLED:
-            case PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED:
-            case PackageManager.COMPONENT_ENABLED_STATE_ENABLED:
-            case PackageManager.COMPONENT_ENABLED_STATE_DEFAULT:
-            default:
-                return false;
+    public static boolean isComponentDisabledByUser(@NonNull String packageName, @NonNull String componentClassName,
+                                                    @UserIdInt int userId)
+            throws SecurityException, NameNotFoundException {
+        try {
+            ComponentName componentName = new ComponentName(packageName, componentClassName);
+            switch (PackageManagerCompat.getComponentEnabledSetting(componentName, userId)) {
+                case PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER:
+                    return true;
+                case PackageManager.COMPONENT_ENABLED_STATE_DISABLED:
+                case PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED:
+                case PackageManager.COMPONENT_ENABLED_STATE_ENABLED:
+                case PackageManager.COMPONENT_ENABLED_STATE_DEFAULT:
+                default:
+                    return false;
+            }
+        } catch (IllegalArgumentException e) {
+            throw (NameNotFoundException) new NameNotFoundException(e.getMessage()).initCause(e);
         }
     }
 
     @Nullable
     public static String[] getPermissionsForPackage(String packageName, @UserIdInt int userId)
-            throws PackageManager.NameNotFoundException, RemoteException {
+            throws NameNotFoundException, RemoteException {
         PackageInfo info = PackageManagerCompat.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS
                 | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
         return info.requestedPermissions;
@@ -467,7 +498,7 @@ public final class PackageUtils {
             @SuppressLint("WrongConstant")
             ApplicationInfo applicationInfo = pm.getApplicationInfo(packageName, MATCH_UNINSTALLED_PACKAGES);
             return pm.getApplicationLabel(applicationInfo).toString();
-        } catch (PackageManager.NameNotFoundException ignore) {
+        } catch (NameNotFoundException ignore) {
         }
         return packageName;
     }
@@ -521,7 +552,9 @@ public final class PackageUtils {
         return sourceDir;
     }
 
-    public static String getHiddenCodePathOrDefault(String packageName, String defaultPath) {
+    @Nullable
+    @Contract("_,!null -> !null")
+    public static String getHiddenCodePathOrDefault(@NonNull String packageName, @Nullable String defaultPath) {
         Runner.Result result = Runner.runCommand(RunnerUtils.CMD_PM + " dump " + packageName + " | grep codePath");
         if (result.isSuccessful()) {
             List<String> paths = result.getOutputAsList();
@@ -532,7 +565,7 @@ public final class PackageUtils {
                 if (start != -1) return codePath.substring(start + 1);
             }
         }
-        return new File(defaultPath).getParent();
+        return defaultPath != null ? new File(defaultPath).getParent() : null;
     }
 
     @NonNull
@@ -731,7 +764,7 @@ public final class PackageUtils {
         builder.append(getStyledKeyValue(ctx, R.string.validity, ctx.getText(validity), separator))
                 .append("\n")
                 .append(getPrimaryText(ctx, ctx.getString(R.string.serial_no) + separator))
-                .append(getMonospacedText(Utils.bytesToHex(certificate.getSerialNumber().toByteArray())))
+                .append(getMonospacedText(HexEncoding.encodeToString(certificate.getSerialNumber().toByteArray(), false)))
                 .append("\n");
         // Checksums
         builder.append(getTitleText(ctx, ctx.getString(R.string.checksums))).append("\n");
@@ -749,7 +782,7 @@ public final class PackageUtils {
                 .append(getStyledKeyValue(ctx, "OID", certificate.getSigAlgOID(), separator))
                 .append("\n")
                 .append(getPrimaryText(ctx, ctx.getString(R.string.app_signing_signature) + separator))
-                .append(getMonospacedText(Utils.bytesToHex(certificate.getSignature()))).append("\n");
+                .append(getMonospacedText(HexEncoding.encodeToString(certificate.getSignature(), false))).append("\n");
         // Public key used by Google: https://github.com/google/conscrypt
         // 1. X509PublicKey (PublicKey)
         // 2. OpenSSLRSAPublicKey (RSAPublicKey)
@@ -766,7 +799,7 @@ public final class PackageUtils {
                     .append(getStyledKeyValue(ctx, R.string.rsa_exponent, rsaPublicKey.getPublicExponent().toString(), separator))
                     .append("\n")
                     .append(getPrimaryText(ctx, ctx.getString(R.string.rsa_modulus) + separator))
-                    .append(getMonospacedText(Utils.bytesToHex(rsaPublicKey.getModulus().toByteArray())));
+                    .append(getMonospacedText(HexEncoding.encodeToString(rsaPublicKey.getModulus().toByteArray(), false)));
         } else if (publicKey instanceof ECPublicKey) {
             ECPublicKey ecPublicKey = (ECPublicKey) publicKey;
             builder.append("\n")
@@ -782,7 +815,7 @@ public final class PackageUtils {
                 String oidName = OidMap.getName(oid);
                 builder.append("\n- ")
                         .append(getPrimaryText(ctx, (oidName != null ? oidName : oid) + separator))
-                        .append(getMonospacedText(Utils.bytesToHex(certificate.getExtensionValue(oid))));
+                        .append(getMonospacedText(HexEncoding.encodeToString(certificate.getExtensionValue(oid), false)));
             }
         }
         Set<String> nonCritSet = certificate.getNonCriticalExtensionOIDs();
@@ -792,7 +825,7 @@ public final class PackageUtils {
                 String oidName = OidMap.getName(oid);
                 builder.append("\n- ")
                         .append(getPrimaryText(ctx, (oidName != null ? oidName : oid) + separator))
-                        .append(getMonospacedText(Utils.bytesToHex(certificate.getExtensionValue(oid))));
+                        .append(getMonospacedText(HexEncoding.encodeToString(certificate.getExtensionValue(oid), false)));
             }
         }
         return builder;
@@ -849,6 +882,9 @@ public final class PackageUtils {
     }
 
     public static void ensurePackageStagingDirectoryPrivileged() throws ErrnoException {
+        if (!Paths.get("/data/local").canWrite()) {
+            return;
+        }
         Path psd = Paths.get(PACKAGE_STAGING_DIRECTORY);
         if (!psd.isDirectory()) {
             // Recreate directory

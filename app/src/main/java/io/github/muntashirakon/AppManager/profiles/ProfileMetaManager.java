@@ -27,13 +27,12 @@ import java.util.List;
 import java.util.Objects;
 
 import aosp.libcore.util.EmptyArray;
-import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.backup.BackupFlags;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.JSONUtils;
-import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
 import io.github.muntashirakon.util.LocalizedString;
@@ -131,7 +130,7 @@ public class ProfileMetaManager implements LocalizedString {
 
     @NonNull
     public static Path getProfilesDir() {
-        Context context = AppManager.getContext();
+        Context context = ContextUtils.getContext();
         return Objects.requireNonNull(Paths.build(context.getFilesDir(), "profiles"));
     }
 
@@ -203,7 +202,7 @@ public class ProfileMetaManager implements LocalizedString {
     @Contract("null -> null")
     @Nullable
     public static Profile readProfile(@Nullable String profileStr) throws JSONException {
-        if (TextUtilsCompat.isEmpty(profileStr)) {
+        if (TextUtils.isEmpty(profileStr)) {
             return null;
         }
         JSONObject profileObj = new JSONObject(profileStr);

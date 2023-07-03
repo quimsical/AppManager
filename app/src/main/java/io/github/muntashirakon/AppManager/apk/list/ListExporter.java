@@ -7,7 +7,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.os.RemoteException;
 import android.os.UserHandleHidden;
 import android.text.TextUtils;
 import android.util.Xml;
@@ -59,9 +58,9 @@ public final class ListExporter {
             item.setSignatureSha256(TextUtils.join(",", signatureSha256));
             item.setFirstInstallTime(packageInfo.firstInstallTime);
             item.setLastUpdateTime(packageInfo.lastUpdateTime);
-            try {
-                String installerPackageName = PackageManagerCompat.getInstallerPackageName(
-                        packageInfo.packageName, UserHandleHidden.getUserId(applicationInfo.uid));
+            String installerPackageName = PackageManagerCompat.getInstallerPackageName(packageInfo.packageName,
+                    UserHandleHidden.getUserId(applicationInfo.uid));
+            if (installerPackageName != null) {
                 item.setInstallerPackageName(installerPackageName);
                 String installerPackageLabel;
                 try {
@@ -72,21 +71,19 @@ public final class ListExporter {
                 } catch (PackageManager.NameNotFoundException e) {
                     e.printStackTrace();
                 }
-            } catch (RemoteException e) {
-                e.printStackTrace();
             }
             appListItems.add(item);
         }
         if (exportType == EXPORT_TYPE_XML) {
             return exportXml(appListItems);
         } else if (exportType == EXPORT_TYPE_MARKDOWN) {
-            return exportMarkdown(appListItems);
+            return exportMarkdown(context, appListItems);
         }
         throw new IllegalArgumentException("Invalid export type: " + exportType);
     }
 
     @NonNull
-    public static String exportXml(@NonNull List<AppListItem> appListItems) throws IOException {
+    private static String exportXml(@NonNull List<AppListItem> appListItems) throws IOException {
         XmlSerializer xmlSerializer = Xml.newSerializer();
         StringWriter stringWriter = new StringWriter();
         xmlSerializer.setOutput(stringWriter);
@@ -122,7 +119,7 @@ public final class ListExporter {
     }
 
     @NonNull
-    public static String exportMarkdown(@NonNull List<AppListItem> appListItems) {
+    private static String exportMarkdown(@NonNull Context context, @NonNull List<AppListItem> appListItems) {
         StringBuilder sb = new StringBuilder("# Package Info\n\n");
         for (AppListItem appListItem : appListItems) {
             sb.append("## ").append(appListItem.getPackageLabel()).append("\n\n")
@@ -133,8 +130,8 @@ public final class ListExporter {
                 sb.append("**Min SDK:** ").append(appListItem.getMinSdk()).append(", ");
             }
             sb.append("**Target SDK:** ").append(appListItem.getTargetSdk()).append("\n")
-                    .append("**Date installed:** ").append(DateUtils.formatDateTime(appListItem.getFirstInstallTime()))
-                    .append(", **Date updated:** ").append(DateUtils.formatDateTime(appListItem.getLastUpdateTime()))
+                    .append("**Date installed:** ").append(DateUtils.formatDateTime(context, appListItem.getFirstInstallTime()))
+                    .append(", **Date updated:** ").append(DateUtils.formatDateTime(context, appListItem.getLastUpdateTime()))
                     .append("\n");
             if (appListItem.getInstallerPackageName() != null) {
                 sb.append("**Installer:** ");

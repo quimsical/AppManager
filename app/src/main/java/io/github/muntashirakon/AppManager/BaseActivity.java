@@ -28,11 +28,12 @@ import java.util.Objects;
 import io.github.muntashirakon.AppManager.crypto.ks.KeyStoreActivity;
 import io.github.muntashirakon.AppManager.crypto.ks.KeyStoreManager;
 import io.github.muntashirakon.AppManager.logs.Log;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
+import io.github.muntashirakon.AppManager.self.filecache.InternalCacheCleanerService;
 import io.github.muntashirakon.AppManager.self.life.BuildExpiryChecker;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.settings.SecurityAndOpsViewModel;
-import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 
 public abstract class BaseActivity extends AppCompatActivity {
@@ -53,7 +54,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     private AlertDialog mAlertDialog;
     @Nullable
     private SecurityAndOpsViewModel mViewModel;
-    private boolean displayLoader = true;
+    private boolean mDisplayLoader = true;
 
     private final ActivityResultLauncher<Intent> mKeyStoreActivity = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -101,26 +102,26 @@ public abstract class BaseActivity extends AppCompatActivity {
             switch (status) {
                 case Ops.STATUS_AUTO_CONNECT_WIRELESS_DEBUGGING:
                     Log.d(TAG, "Try auto-connecting to wireless debugging.");
-                    displayLoader = false;
+                    mDisplayLoader = false;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         mViewModel.autoConnectAdb(Ops.STATUS_WIRELESS_DEBUGGING_CHOOSER_REQUIRED);
                         return;
                     } // fall-through
                 case Ops.STATUS_WIRELESS_DEBUGGING_CHOOSER_REQUIRED:
                     Log.d(TAG, "Display wireless debugging chooser (pair or connect)");
-                    displayLoader = false;
+                    mDisplayLoader = false;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Ops.connectWirelessDebugging(this, mViewModel);
                         return;
                     } // fall-through
                 case Ops.STATUS_ADB_CONNECT_REQUIRED:
                     Log.d(TAG, "Display connect dialog.");
-                    displayLoader = false;
+                    mDisplayLoader = false;
                     Ops.connectAdbInput(this, mViewModel);
                     return;
                 case Ops.STATUS_ADB_PAIRING_REQUIRED:
                     Log.d(TAG, "Display pairing dialog.");
-                    displayLoader = false;
+                    mDisplayLoader = false;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Ops.pairAdbInput(this, mViewModel);
                         return;
@@ -135,6 +136,7 @@ public abstract class BaseActivity extends AppCompatActivity {
                     Ops.setAuthenticated(true);
                     onAuthenticated(savedInstanceState);
                     initPermissionChecks();
+                    InternalCacheCleanerService.scheduleAlarm(getApplicationContext());
             }
         });
         if (!mViewModel.isAuthenticating()) {
@@ -164,7 +166,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         if (mViewModel != null && mViewModel.isAuthenticating() && mAlertDialog != null) {
-            if (displayLoader) {
+            if (mDisplayLoader) {
                 mAlertDialog.show();
             } else {
                 mAlertDialog.hide();
@@ -240,7 +242,7 @@ public abstract class BaseActivity extends AppCompatActivity {
 
     private void initPermissionChecks() {
         for (String permission : REQUIRED_PERMISSIONS) {
-            if (!PermissionUtils.hasSelfPermission(permission)) {
+            if (!SelfPermissions.checkSelfPermission(permission)) {
                 mPermissionCheckActivity.launch(REQUIRED_PERMISSIONS);
                 return;
             }

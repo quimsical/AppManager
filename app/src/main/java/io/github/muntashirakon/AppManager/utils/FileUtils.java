@@ -10,7 +10,7 @@ import static android.system.OsConstants.O_TRUNC;
 import static android.system.OsConstants.O_WRONLY;
 
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
+import android.net.Uri;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
@@ -24,7 +24,6 @@ import androidx.annotation.WorkerThread;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -33,7 +32,6 @@ import java.nio.channels.FileChannel;
 import java.util.Objects;
 import java.util.zip.ZipEntry;
 
-import io.github.muntashirakon.AppManager.AppManager;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
 import io.github.muntashirakon.io.FileSystemManager;
@@ -52,18 +50,6 @@ public final class FileUtils {
             is.read(headerBytes);
             header = new BigInteger(headerBytes).intValue();
         }
-        return header == 0x504B0304 || header == 0x504B0506 || header == 0x504B0708;
-    }
-
-    @AnyThread
-    public static boolean isZip(@NonNull InputStream is) throws IOException {
-        if (!is.markSupported()) throw new IOException("InputStream must support mark.");
-        int header;
-        byte[] headerBytes = new byte[4];
-        is.mark(4);
-        is.read(headerBytes);
-        is.reset();
-        header = new BigInteger(headerBytes).intValue();
         return header == 0x504B0304 || header == 0x504B0506 || header == 0x504B0708;
     }
 
@@ -105,6 +91,16 @@ public final class FileUtils {
             return null;
         }
         return fileName;
+    }
+
+    @NonNull
+    public static ParcelFileDescriptor getFdFromUri(@NonNull Context context, @NonNull Uri uri, String mode)
+            throws FileNotFoundException {
+        ParcelFileDescriptor fd = context.getContentResolver().openFileDescriptor(uri, mode);
+        if (fd == null) {
+            throw new FileNotFoundException("Uri inaccessible or empty.");
+        }
+        return fd;
     }
 
     @AnyThread
@@ -153,16 +149,11 @@ public final class FileUtils {
     }
 
     @WorkerThread
-    public static void copyFromAsset(@NonNull Context context, String fileName, File destFile) {
-        try (AssetFileDescriptor openFd = context.getAssets().openFd(fileName)) {
-            try (InputStream open = openFd.createInputStream();
-                 FileOutputStream fos = new FileOutputStream(destFile)) {
-                IoUtils.copy(open, fos, -1, null);
-                fos.flush();
-                fos.getFD().sync();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
+    public static void copyFromAsset(@NonNull Context context, @NonNull String fileName, @NonNull Path dest)
+            throws IOException {
+        try (InputStream is = context.getAssets().open(fileName);
+             OutputStream os = dest.openOutputStream()) {
+            IoUtils.copy(is, os, -1, null);
         }
     }
 
@@ -176,7 +167,7 @@ public final class FileUtils {
     @AnyThread
     @NonNull
     public static File getCachePath() {
-        Context context = AppManager.getContext();
+        Context context = ContextUtils.getContext();
         try {
             return getExternalCachePath(context);
         } catch (IOException e) {
@@ -191,7 +182,7 @@ public final class FileUtils {
         if (extDirs == null) {
             throw new FileNotFoundException("Shared storage unavailable.");
         }
-        for (File extDir: extDirs) {
+        for (File extDir : extDirs) {
             // The priority is from top to bottom of the list as per Context#getExternalDir()
             if (extDir == null) {
                 // Other external directory might exist
@@ -220,7 +211,7 @@ public final class FileUtils {
         }
     }
 
-    public static boolean canRead(@NonNull File file) {
+    public static boolean canReadUnprivileged(@NonNull File file) {
         if (file.canRead()) {
             try (FileChannel ignored = FileSystemManager.getLocal().openChannel(file, FileSystemManager.MODE_READ_ONLY)) {
                 return true;
@@ -232,7 +223,7 @@ public final class FileUtils {
     }
 
     public static String translateModePosixToString(int mode) {
-        String res = "";
+        String res;
         if ((mode & O_ACCMODE) == O_RDWR) {
             res = "rw";
         } else if ((mode & O_ACCMODE) == O_WRONLY) {

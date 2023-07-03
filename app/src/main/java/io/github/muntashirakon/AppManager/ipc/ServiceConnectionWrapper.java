@@ -8,10 +8,12 @@ import android.content.ServiceConnection;
 import android.os.IBinder;
 import android.os.RemoteException;
 
+import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -31,34 +33,33 @@ class ServiceConnectionWrapper {
     private class ServiceConnectionImpl implements ServiceConnection {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            Log.d(TAG, "service onServiceConnected");
+            Log.d(TAG, "service onServiceConnected: " + name);
             mIBinder = service;
             onResponseReceived();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            Log.d(TAG, "service onServiceDisconnected");
+            Log.d(TAG, "service onServiceDisconnected: " + name);
             mIBinder = null;
             onResponseReceived();
         }
 
         @Override
         public void onBindingDied(ComponentName name) {
-            Log.d(TAG, "service onBindingDied");
+            Log.d(TAG, "service onBindingDied: " + name);
             mIBinder = null;
             onResponseReceived();
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
-            Log.d(TAG, "service onNullBinding");
+            Log.d(TAG, "service onNullBinding: " + name);
             mIBinder = null;
             onResponseReceived();
         }
 
         private void onResponseReceived() {
-            Log.d(TAG, "service onResponseReceived");
             if (mServiceBoundWatcher != null) {
                 // Should never be null
                 mServiceBoundWatcher.countDown();
@@ -82,23 +83,24 @@ class ServiceConnectionWrapper {
 
     @NonNull
     public IBinder getService() throws RemoteException {
-        if (mIBinder == null || !mIBinder.pingBinder()) {
+        if (!isBinderActive()) {
             throw new RemoteException("Binder not running.");
         }
-        return mIBinder;
+        return Objects.requireNonNull(mIBinder);
     }
 
     @NonNull
     @NoOps(used = true)
     public IBinder bindService() throws RemoteException {
         synchronized (mServiceConnection) {
-            if (mIBinder == null && Ops.isPrivileged()) {
+            if (!isBinderActive() && Ops.isPrivileged()) {
                 startDaemon();
             }
             return getService();
         }
     }
 
+    @MainThread
     public void unbindService() {
         synchronized (mServiceConnection) {
             RootService.unbind(mServiceConnection);
@@ -107,16 +109,20 @@ class ServiceConnectionWrapper {
 
     @WorkerThread
     private void startDaemon() {
-        if (mIBinder == null) {
-            if (mServiceBoundWatcher == null || mServiceBoundWatcher.getCount() == 0) {
-                mServiceBoundWatcher = new CountDownLatch(1);
-                Log.d(TAG, "Launching service...");
-                Intent intent = new Intent();
-                intent.setComponent(mComponentName);
-                synchronized (mServiceConnection) {
-                    ThreadUtils.postOnMainThread(() -> RootService.bind(intent, mServiceConnection));
-                }
+        synchronized (mServiceConnection) {
+            if (isBinderActive()) {
+                return;
             }
+            mServiceBoundWatcher = new CountDownLatch(1);
+            Log.d(TAG, "Launching service...");
+            Intent intent = new Intent();
+            intent.setComponent(mComponentName);
+            ThreadUtils.postOnMainThread(() -> {
+                if (mIBinder != null) {
+                    RootService.stop(intent);
+                }
+                RootService.bind(intent, mServiceConnection);
+            });
             // Wait for service to be bound
             try {
                 mServiceBoundWatcher.await(45, TimeUnit.SECONDS);
@@ -132,5 +138,9 @@ class ServiceConnectionWrapper {
         intent.setComponent(mComponentName);
         ThreadUtils.postOnMainThread(() -> RootService.stop(intent));
         mIBinder = null;
+    }
+
+    private boolean isBinderActive() {
+        return mIBinder != null && mIBinder.pingBinder();
     }
 }

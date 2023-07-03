@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemProperties;
 import android.text.Editable;
+import android.text.TextUtils;
 import android.view.View;
 import android.widget.AutoCompleteTextView;
 
@@ -26,8 +27,8 @@ import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsService;
 import io.github.muntashirakon.AppManager.settings.Ops;
-import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
-import io.github.muntashirakon.widget.AnyFilterArrayAdapter;
+import io.github.muntashirakon.AppManager.users.Users;
+import io.github.muntashirakon.adapters.AnyFilterArrayAdapter;
 
 public class DexOptimizationDialog extends DialogFragment {
     public static final String TAG = DexOptimizationDialog.class.getSimpleName();
@@ -35,7 +36,7 @@ public class DexOptimizationDialog extends DialogFragment {
     private static final String ARG_PACKAGES = "pkg";
 
     @NonNull
-    public static DexOptimizationDialog getInstance(String[] packages) {
+    public static DexOptimizationDialog getInstance(@Nullable String[] packages) {
         DexOptimizationDialog dialog = new DexOptimizationDialog();
         Bundle args = new Bundle();
         args.putStringArray(ARG_PACKAGES, packages);
@@ -65,13 +66,15 @@ public class DexOptimizationDialog extends DialogFragment {
         add("everything-profile");
     }};
 
-    public final DexOptimizationOptions options = new DexOptimizationOptions();
+    private final DexOptimizationOptions mOptions = new DexOptimizationOptions();
 
     @NonNull
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-        options.packages = requireArguments().getStringArray(ARG_PACKAGES);
-        options.checkProfiles = SystemProperties.getBoolean("dalvik.vm.usejitprofiles", false);
+        mOptions.packages = requireArguments().getStringArray(ARG_PACKAGES);
+        mOptions.checkProfiles = SystemProperties.getBoolean("dalvik.vm.usejitprofiles", false);
+        int uid = Users.getSelfOrRemoteUid();
+        boolean isRootOrSystem = uid == Ops.SYSTEM_UID || uid == Ops.ROOT_UID;
         // Inflate view
         View view = View.inflate(requireContext(), R.layout.dialog_dexopt, null);
         AutoCompleteTextView autoCompleteTextView = view.findViewById(R.id.compiler_filter);
@@ -80,23 +83,25 @@ public class DexOptimizationDialog extends DialogFragment {
         MaterialCheckBox checkProfilesCheck = view.findViewById(R.id.check_profiles);
         MaterialCheckBox forceCompilationCheck = view.findViewById(R.id.force_compilation);
         MaterialCheckBox forceDexOptCheck = view.findViewById(R.id.force_dexopt);
-        checkProfilesCheck.setChecked(options.checkProfiles);
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        checkProfilesCheck.setChecked(mOptions.checkProfiles);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             compileLayoutsCheck.setVisibility(View.GONE);
         }
-        if (!Ops.isRoot()) {
+        if (!isRootOrSystem) {
+            // clearProfileData and forceDexOpt can only be run as root/system
+            clearProfileDataCheck.setVisibility(View.GONE);
             forceDexOptCheck.setVisibility(View.GONE);
         }
 
         // Set listeners
-        autoCompleteTextView.setAdapter(new AnyFilterArrayAdapter<>(requireContext(), io.github.muntashirakon.ui.R.layout.item_checked_text_view,
+        autoCompleteTextView.setAdapter(new AnyFilterArrayAdapter<>(requireContext(), io.github.muntashirakon.ui.R.layout.auto_complete_dropdown_item,
                 COMPILER_FILTERS));
-        compileLayoutsCheck.setOnCheckedChangeListener((buttonView, isChecked) -> options.compileLayouts = isChecked);
-        clearProfileDataCheck.setOnCheckedChangeListener((buttonView, isChecked) -> options.clearProfileData = isChecked);
-        checkProfilesCheck.setOnCheckedChangeListener((buttonView, isChecked) -> options.checkProfiles = isChecked);
-        forceCompilationCheck.setOnCheckedChangeListener((buttonView, isChecked) -> options.forceCompilation = isChecked);
-        forceDexOptCheck.setOnCheckedChangeListener((buttonView, isChecked) -> options.forceDexOpt = isChecked);
-        if (Ops.isRoot()) {
+        compileLayoutsCheck.setOnCheckedChangeListener((buttonView, isChecked) -> mOptions.compileLayouts = isChecked);
+        clearProfileDataCheck.setOnCheckedChangeListener((buttonView, isChecked) -> mOptions.clearProfileData = isChecked);
+        checkProfilesCheck.setOnCheckedChangeListener((buttonView, isChecked) -> mOptions.checkProfiles = isChecked);
+        forceCompilationCheck.setOnCheckedChangeListener((buttonView, isChecked) -> mOptions.forceCompilation = isChecked);
+        forceDexOptCheck.setOnCheckedChangeListener((buttonView, isChecked) -> mOptions.forceDexOpt = isChecked);
+        if (isRootOrSystem) {
             forceDexOptCheck.setChecked(true);
         }
 
@@ -105,7 +110,7 @@ public class DexOptimizationDialog extends DialogFragment {
                 .setView(view)
                 .setPositiveButton(R.string.action_run, (dialog, which) -> {
                     Editable compilerFilterRaw = autoCompleteTextView.getText();
-                    if (TextUtilsCompat.isEmpty(compilerFilterRaw)) {
+                    if (TextUtils.isEmpty(compilerFilterRaw)) {
                         return;
                     }
                     String compilerFiler = compilerFilterRaw.toString().trim();
@@ -113,14 +118,14 @@ public class DexOptimizationDialog extends DialogFragment {
                         // Invalid compiler filter
                         return;
                     }
-                    options.compilerFiler = compilerFiler;
+                    mOptions.compilerFiler = compilerFiler;
                     launchOp();
                 })
                 .setNegativeButton(R.string.cancel, null)
                 .setNeutralButton(R.string.reset_to_default, (dialog, which) -> {
-                    options.compilerFiler = SystemProperties.get("pm.dexopt.install", "speed-profile");
-                    options.forceCompilation = true;
-                    options.clearProfileData = true;
+                    mOptions.compilerFiler = SystemProperties.get("pm.dexopt.install", "speed-profile");
+                    mOptions.forceCompilation = true;
+                    mOptions.clearProfileData = true;
                     launchOp();
                 })
                 .create();
@@ -128,7 +133,7 @@ public class DexOptimizationDialog extends DialogFragment {
 
     private void launchOp() {
         Bundle args = new Bundle();
-        args.putParcelable(BatchOpsManager.ARG_OPTIONS, options);
+        args.putParcelable(BatchOpsManager.ARG_OPTIONS, mOptions);
         Intent intent = new Intent(requireContext(), BatchOpsService.class);
         intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, null);
         intent.putExtra(BatchOpsService.EXTRA_OP, BatchOpsManager.OP_DEXOPT);

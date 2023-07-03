@@ -13,7 +13,6 @@ import android.app.Application;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.format.Formatter;
@@ -22,11 +21,8 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ImageView;
-import android.widget.Spinner;
-import android.widget.SpinnerAdapter;
 import android.widget.TextView;
 
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -59,6 +55,7 @@ import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.logs.Log;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.usage.UsageUtils.IntervalType;
@@ -66,8 +63,8 @@ import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.BetterActivityResult;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
-import io.github.muntashirakon.AppManager.utils.PermissionUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
+import io.github.muntashirakon.widget.MaterialSpinner;
 import io.github.muntashirakon.widget.RecyclerView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
@@ -102,12 +99,16 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
     private LinearProgressIndicator mProgressIndicator;
     private SwipeRefreshLayout mSwipeRefresh;
     private AppUsageAdapter mAppUsageAdapter;
-    private final BetterActivityResult<String, Boolean> requestPerm = BetterActivityResult
+    private final BetterActivityResult<String, Boolean> mRequestPerm = BetterActivityResult
             .registerForActivityResult(this, new ActivityResultContracts.RequestPermission());
 
     @SuppressLint("WrongConstant")
     @Override
     protected void onAuthenticated(Bundle savedInstanceState) {
+        if (!FeatureController.isUsageAccessEnabled()) {
+            finish();
+            return;
+        }
         setContentView(R.layout.activity_app_usage);
         setSupportActionBar(findViewById(R.id.toolbar));
         mViewModel = new ViewModelProvider(this).get(AppUsageViewModel.class);
@@ -131,22 +132,15 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
         mSwipeRefresh.setOnRefreshListener(this);
         mSwipeRefresh.setOnChildScrollUpCallback((parent, child) -> recyclerView.canScrollVertically(-1));
 
-        Spinner intervalSpinner = findViewById(R.id.spinner_interval);
+        MaterialSpinner intervalSpinner = findViewById(R.id.spinner_interval);
         // Make spinner the first item to focus on
         intervalSpinner.requestFocus();
-        SpinnerAdapter intervalSpinnerAdapter = ArrayAdapter.createFromResource(this,
-                R.array.usage_interval_dropdown_list, io.github.muntashirakon.ui.R.layout.item_checked_text_view);
+        ArrayAdapter<CharSequence> intervalSpinnerAdapter = ArrayAdapter.createFromResource(this,
+                R.array.usage_interval_dropdown_list, io.github.muntashirakon.ui.R.layout.auto_complete_dropdown_item_small);
         intervalSpinner.setAdapter(intervalSpinnerAdapter);
-        intervalSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                mViewModel.setCurrentInterval(position);
-                getAppUsage();
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
+        intervalSpinner.setOnItemClickListener((parent, view, position, id) -> {
+            mViewModel.setCurrentInterval(position);
+            getAppUsage();
         });
         mViewModel.getPackageUsageInfoList().observe(this, packageUsageInfoList -> {
             mAppUsageAdapter.setDefaultList(packageUsageInfoList);
@@ -168,12 +162,12 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
 
     private void checkPermissions() {
         // Check permission
-        if (!PermissionUtils.hasUsageStatsPermission(this)) promptForUsageStatsPermission();
-        else getAppUsage();
-        // Grant optional READ_PHONE_STATE permission
-        if (!PermissionUtils.hasSelfPermission(Manifest.permission.READ_PHONE_STATE) &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            requestPerm.launch(Manifest.permission.READ_PHONE_STATE, granted -> {
+        if (!SelfPermissions.checkUsageStatsPermission()) {
+            promptForUsageStatsPermission();
+        } else getAppUsage();
+        if (AppUsageStatsManager.requireReadPhoneStatePermission()) {
+            // Grant READ_PHONE_STATE permission
+            mRequestPerm.launch(Manifest.permission.READ_PHONE_STATE, granted -> {
                 if (granted) recreate();
             });
         }
@@ -314,7 +308,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
         }
 
         public void setCurrentInterval(@IntervalType int currentInterval) {
-            this.mCurrentInterval = currentInterval;
+            mCurrentInterval = currentInterval;
         }
 
         @IntervalType
@@ -333,8 +327,8 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
         public void loadPackageUsageInfo(PackageUsageInfo usageInfo) {
             mExecutor.submit(() -> {
                 try {
-                    PackageUsageInfo packageUsageInfo = AppUsageStatsManager.getInstance(getApplication())
-                            .getUsageStatsForPackage(usageInfo.packageName, mCurrentInterval, usageInfo.userId);
+                    PackageUsageInfo packageUsageInfo = AppUsageStatsManager.getInstance().getUsageStatsForPackage(
+                            usageInfo.packageName, mCurrentInterval, usageInfo.userId);
                     packageUsageInfo.copyOthers(usageInfo);
                     mPackageUsageInfoLiveData.postValue(packageUsageInfo);
                 } catch (Exception e) {
@@ -350,7 +344,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
                 List<PackageUsageInfo> packageUsageInfoList = new ArrayList<>();
                 for (int userId : userIds) {
                     try {
-                        packageUsageInfoList.addAll(AppUsageStatsManager.getInstance(getApplication())
+                        packageUsageInfoList.addAll(AppUsageStatsManager.getInstance()
                                 .getUsageStats(mCurrentInterval, userId));
                     } catch (Exception e) {
                         Log.e("AppUsage", e);
@@ -420,7 +414,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
         }
 
         public void setSortBy(int sortBy) {
-            this.mSortBy = sortBy;
+            mSortBy = sortBy;
         }
 
         private void sortPackageUsageInfoList() {
@@ -514,7 +508,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
             AppUsageStatsManager.DataUsage mobileData = usageInfo.mobileData;
             if (mobileData != null && (mobileData.first != 0 || mobileData.second != 0)) {
                 Drawable phoneIcon = ContextCompat.getDrawable(mActivity, R.drawable.ic_phone_android);
-                String dataUsage = String.format("  \u2191 %1$s \u2193 %2$s",
+                String dataUsage = String.format("  ↑ %1$s ↓ %2$s",
                         Formatter.formatFileSize(mActivity, mobileData.first),
                         Formatter.formatFileSize(mActivity, mobileData.second));
                 holder.mobileDataUsage.setText(UIUtils.setImageSpan(dataUsage, phoneIcon, holder.mobileDataUsage));
@@ -522,7 +516,7 @@ public class AppUsageActivity extends BaseActivity implements SwipeRefreshLayout
             AppUsageStatsManager.DataUsage wifiData = usageInfo.wifiData;
             if (wifiData != null && (wifiData.first != 0 || wifiData.second != 0)) {
                 Drawable wifiIcon = ContextCompat.getDrawable(mActivity, R.drawable.ic_wifi);
-                String dataUsage = String.format("  \u2191 %1$s \u2193 %2$s",
+                String dataUsage = String.format("  ↑ %1$s ↓ %2$s",
                         Formatter.formatFileSize(mActivity, wifiData.first),
                         Formatter.formatFileSize(mActivity, wifiData.second));
                 holder.wifiDataUsage.setText(UIUtils.setImageSpan(dataUsage, wifiIcon, holder.wifiDataUsage));

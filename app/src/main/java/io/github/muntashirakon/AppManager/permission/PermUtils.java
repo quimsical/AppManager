@@ -2,6 +2,14 @@
 
 package io.github.muntashirakon.AppManager.permission;
 
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_AUTO_REVOKED;
+import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_ONE_TIME;
+import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_REVIEW_REQUIRED;
+import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_REVOKED_COMPAT;
+import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_USER_FIXED;
+import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_USER_SET;
+
 import android.annotation.UserIdInt;
 import android.app.AppOpsManager;
 import android.content.pm.ApplicationInfo;
@@ -12,23 +20,17 @@ import android.os.UserHandleHidden;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresPermission;
 import androidx.annotation.WorkerThread;
 
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
+import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.PermissionCompat;
 import io.github.muntashirakon.AppManager.logs.Log;
-import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.utils.BroadcastUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
-
-import static android.content.pm.PackageManager.PERMISSION_GRANTED;
-import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_AUTO_REVOKED;
-import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_ONE_TIME;
-import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_REVIEW_REQUIRED;
-import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_REVOKED_COMPAT;
-import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_USER_FIXED;
-import static io.github.muntashirakon.AppManager.compat.PermissionCompat.FLAG_PERMISSION_USER_SET;
 
 public class PermUtils {
     private static final String KILL_REASON_APP_OP_CHANGE = "Permission related app op changed";
@@ -41,6 +43,11 @@ public class PermUtils {
      * @param setByTheUser   If the user has made the decision. This does not unset the flag
      * @param fixedByTheUser If the user requested that she/he does not want to be asked again
      */
+    @RequiresPermission(allOf = {
+            "android.permission.MANAGE_APP_OPS_MODES",
+            ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS,
+            ManifestCompat.permission.REVOKE_RUNTIME_PERMISSIONS,
+    })
     @WorkerThread
     public static void grantPermission(@NonNull PackageInfo packageInfo,
                                        @NonNull Permission permission,
@@ -123,7 +130,7 @@ public class PermUtils {
 
         persistChanges(packageInfo.applicationInfo, permission, appOpsManager, false, null);
 
-        if (killApp) {
+        if (killApp && SelfPermissions.canKillUid()) {
             ActivityManagerCompat.killUid(packageInfo.applicationInfo.uid, KILL_REASON_APP_OP_CHANGE);
         }
     }
@@ -135,6 +142,11 @@ public class PermUtils {
      *
      * @param fixedByTheUser If the user requested that she/he does not want to be asked again
      */
+    @RequiresPermission(allOf = {
+            "android.permission.MANAGE_APP_OPS_MODES",
+            ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS,
+            ManifestCompat.permission.REVOKE_RUNTIME_PERMISSIONS,
+    })
     @WorkerThread
     public static void revokePermission(@NonNull PackageInfo packageInfo,
                                         @NonNull Permission permission,
@@ -200,11 +212,16 @@ public class PermUtils {
 
         persistChanges(packageInfo.applicationInfo, permission, appOpsManager, false, null);
 
-        if (killApp) {
+        if (killApp && SelfPermissions.canKillUid()) {
             ActivityManagerCompat.killUid(packageInfo.applicationInfo.uid, KILL_REASON_APP_OP_CHANGE);
         }
     }
 
+    @RequiresPermission(allOf = {
+            "android.permission.MANAGE_APP_OPS_MODES",
+            ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS,
+            ManifestCompat.permission.REVOKE_RUNTIME_PERMISSIONS,
+    })
     @WorkerThread
     private static void persistChanges(@NonNull ApplicationInfo applicationInfo,
                                        @NonNull Permission permission,
@@ -256,7 +273,7 @@ public class PermUtils {
             }
         }
 
-        if (mayKillBecauseOfAppOpsChange && shouldKillApp) {
+        if (mayKillBecauseOfAppOpsChange && shouldKillApp && SelfPermissions.canKillUid()) {
             ActivityManagerCompat.killUid(uid, KILL_REASON_APP_OP_CHANGE);
         }
         if (userId != UserHandleHidden.myUserId()) {
@@ -264,6 +281,11 @@ public class PermUtils {
         }
     }
 
+    @RequiresPermission(anyOf = {
+            ManifestCompat.permission.GET_RUNTIME_PERMISSIONS,
+            ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS,
+            ManifestCompat.permission.REVOKE_RUNTIME_PERMISSIONS,
+    })
     private static void updateFlags(@NonNull ApplicationInfo applicationInfo, @NonNull Permission permission,
                                     @UserIdInt int userId) throws RemoteException {
         int flags = (permission.isUserSet() ? FLAG_PERMISSION_USER_SET : 0)
@@ -289,11 +311,13 @@ public class PermUtils {
                 flags, checkAdjustPolicy, userId);
     }
 
+    @RequiresPermission("android.permission.MANAGE_APP_OPS_MODES")
     public static boolean allowAppOp(AppOpsManagerCompat appOpsManager, int appOp, String packageName, int uid)
             throws RemoteException {
         return setAppOpMode(appOpsManager, appOp, packageName, uid, AppOpsManager.MODE_ALLOWED);
     }
 
+    @RequiresPermission("android.permission.MANAGE_APP_OPS_MODES")
     public static boolean disallowAppOp(AppOpsManagerCompat appOpsManager, int appOp, String packageName, int uid)
             throws RemoteException {
         return setAppOpMode(appOpsManager, appOp, packageName, uid, AppOpsManager.MODE_IGNORED);
@@ -304,6 +328,7 @@ public class PermUtils {
      *
      * @return {@code true} iff app-op was changed
      */
+    @RequiresPermission("android.permission.MANAGE_APP_OPS_MODES")
     public static boolean setAppOpMode(@NonNull AppOpsManagerCompat appOpsManager,
                                        int appOp,
                                        String packageName,
@@ -328,6 +353,6 @@ public class PermUtils {
 
     public static boolean isModifiable(@NonNull Permission permission) {
         // Non-readonly permissions or permissions with app ops are modifiable
-        return Ops.isPrivileged() && (!permission.isReadOnly() || permission.affectsAppOp());
+        return SelfPermissions.canModifyPermissions() && (!permission.isReadOnly() || permission.affectsAppOp());
     }
 }
