@@ -40,20 +40,26 @@ import com.google.android.material.transition.MaterialSharedAxis;
 import java.lang.reflect.Field;
 import java.util.Locale;
 
-import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 import io.github.muntashirakon.ui.R;
 import io.github.muntashirakon.util.UiUtils;
 
 @SuppressLint("RestrictedApi")
 public class MultiSelectionView extends MaterialCardView implements OnApplyWindowInsetsListener {
     public interface OnSelectionChangeListener {
+        /**
+         * Called when the number of selections has changed or an update is required internally or via
+         * {@link #updateCounter(boolean)}.
+         *
+         * @param selectionCount Present selection count
+         * @return {@code true} if it's necessary to update the visibility of menu items, or {@code false} otherwise.
+         */
         @UiThread
-        void onSelectionChange(int selectionCount);
+        boolean onSelectionChange(int selectionCount);
     }
 
-    private final SelectionActionsView mSelectionActionsView;
+    private final MultiSelectionActionsView mSelectionActionsView;
     private final View mDivider;
-    private final MaxHeightScrollView mSelectionActionsContainer;
     private final View mCancelSelectionView;
     private final CheckBox mSelectAllView;
     private final TextView mSelectionCounter;
@@ -95,14 +101,13 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         // Inflate layout
         LayoutInflater.from(context).inflate(R.layout.view_selection_panel, this, true);
         mSelectionActionsView = findViewById(R.id.selection_actions);
-        mSelectionActionsContainer = findViewById(R.id.selection_actions_container);
         mCancelSelectionView = findViewById(R.id.action_cancel);
         mSelectAllView = findViewById(R.id.action_select_all);
         mSelectionCounter = findViewById(R.id.selection_counter);
         mDivider = findViewById(R.id.divider);
 
         // Set heights
-        mMaxHeight = UiUtils.dpToPx(context, 48 + 1 + 116);
+        mMaxHeight = UiUtils.dpToPx(context, 36 + 1 + 75); // This is a pessimistic approximation, not a real height
         mTitleHeight = UiUtils.dpToPx(context, 48);
         mCurrentHeight = mMaxHeight;
 
@@ -130,7 +135,7 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         @Px
         int smallSize = getResources().getDimensionPixelSize(R.dimen.padding_small);
         setPreventCornerOverlap(false);
-        setCardElevation(UiUtils.dpToPx(context, 4));
+        setCardElevation(UiUtils.dpToPx(context, 8));
 
         mHorizontalMargin = smallSize;
         mBottomMargin = getResources().getDimensionPixelSize(R.dimen.padding_very_small);
@@ -138,8 +143,6 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         if (attributes.hasValue(R.styleable.MultiSelectionView_menu)) {
             mSelectionActionsView.inflateMenu(attributes.getResourceId(R.styleable.MultiSelectionView_menu, 0));
         }
-
-        mSelectionActionsView.setItemActiveIndicatorEnabled(false);
 
         attributes.recycle();
 
@@ -340,7 +343,7 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         }
     }
 
-    public void setOnItemSelectedListener(ReflowMenuViewWrapper.OnItemSelectedListener listener) {
+    public void setOnItemSelectedListener(MultiSelectionActionsView.OnItemSelectedListener listener) {
         mSelectionActionsView.setOnItemSelectedListener(listener);
     }
 
@@ -358,8 +361,8 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         int selectionCount = mAdapter.getSelectedItemCount();
         if (selectionCount <= 0 && hideOnEmpty) {
             if (getVisibility() != GONE) hide();
-            if (mSelectionChangeListener != null) {
-                mSelectionChangeListener.onSelectionChange(0);
+            if (mSelectionChangeListener != null && mSelectionChangeListener.onSelectionChange(0)) {
+                mSelectionActionsView.updateMenuView();
             }
             return;
         }
@@ -368,8 +371,8 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         }
         mSelectionCounter.setText(String.format(Locale.getDefault(), "%d/%d", selectionCount, mAdapter.getTotalItemCount()));
         mSelectAllView.setChecked(mAdapter.areAllSelected(), false);
-        if (mSelectionChangeListener != null) {
-            mSelectionChangeListener.onSelectionChange(selectionCount);
+        if (mSelectionChangeListener != null && mSelectionChangeListener.onSelectionChange(selectionCount)) {
+            mSelectionActionsView.updateMenuView();
         }
         if (!mAdapter.isInSelectionMode()) {
             // Special check to avoid displaying the selection panel on resizing the view
@@ -387,14 +390,14 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
 
     private void minimize() {
         mCurrentHeight = mTitleHeight;
-        mSelectionActionsContainer.setVisibility(GONE);
+        mSelectionActionsView.setVisibility(GONE);
         mDivider.setVisibility(GONE);
         requestLayout();
     }
 
     private void maximize() {
         mCurrentHeight = mMaxHeight;
-        mSelectionActionsContainer.setVisibility(VISIBLE);
+        mSelectionActionsView.setVisibility(VISIBLE);
         mDivider.setVisibility(VISIBLE);
         requestLayout();
     }

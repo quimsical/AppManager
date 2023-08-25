@@ -6,6 +6,7 @@ import static io.github.muntashirakon.AppManager.fm.FmTasks.FmTask.TYPE_CUT;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getSecondaryText;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getSmallerText;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -13,6 +14,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.format.Formatter;
@@ -22,18 +24,22 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.appcompat.widget.SearchView;
 import androidx.collection.ArrayMap;
 import androidx.core.content.ContextCompat;
 import androidx.core.os.BundleCompat;
+import androidx.core.provider.DocumentsContractCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -57,6 +63,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.settings.Prefs;
+import io.github.muntashirakon.AppManager.settings.SettingsActivity;
 import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
 import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.StorageUtils;
@@ -67,7 +75,7 @@ import io.github.muntashirakon.dialog.SearchableItemsDialogBuilder;
 import io.github.muntashirakon.dialog.TextInputDialogBuilder;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
-import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 import io.github.muntashirakon.util.UiUtils;
 import io.github.muntashirakon.widget.FloatingActionButtonGroup;
 import io.github.muntashirakon.widget.MultiSelectionView;
@@ -75,7 +83,7 @@ import io.github.muntashirakon.widget.RecyclerView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
 public class FmFragment extends Fragment implements SearchView.OnQueryTextListener, SwipeRefreshLayout.OnRefreshListener,
-        SpeedDialView.OnActionSelectedListener, ReflowMenuViewWrapper.OnItemSelectedListener {
+        SpeedDialView.OnActionSelectedListener, MultiSelectionActionsView.OnItemSelectedListener {
     public static final String TAG = FmFragment.class.getSimpleName();
 
     public static final String ARG_URI = "uri";
@@ -83,7 +91,8 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     public static final String ARG_POSITION = "pos";
 
     @NonNull
-    public static FmFragment getNewInstance(@NonNull FmActivity.Options options, @Nullable Uri initUri) {
+    public static FmFragment getNewInstance(@NonNull FmActivity.Options options, @Nullable Uri initUri,
+                                            @Nullable Integer position) {
         if (!options.isVfs && initUri != null) {
             throw new IllegalArgumentException("initUri can only be set when the file system is virtual.");
         }
@@ -91,6 +100,9 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         Bundle args = new Bundle();
         args.putParcelable(ARG_OPTIONS, options);
         args.putParcelable(ARG_URI, initUri);
+        if (position != null) {
+            args.putInt(ARG_POSITION, position);
+        }
         fragment.setArguments(args);
         return fragment;
     }
@@ -98,6 +110,10 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     private FmViewModel mModel;
     @Nullable
     private RecyclerView mRecyclerView;
+    private LinearLayoutCompat mEmptyView;
+    private ImageView mEmptyViewIcon;
+    private TextView mEmptyViewTitle;
+    private TextView mEmptyViewDetails;
     @Nullable
     private FmAdapter mAdapter;
     @Nullable
@@ -155,6 +171,9 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         }
         if (options == null) {
             options = Objects.requireNonNull(BundleCompat.getParcelable(requireArguments(), ARG_OPTIONS, FmActivity.Options.class));
+            if (requireArguments().containsKey(ARG_POSITION)) {
+                scrollPosition.set(requireArguments().getInt(ARG_POSITION, RecyclerView.NO_POSITION));
+            }
         }
         mActivity = (FmActivity) requireActivity();
         // Set title and subtitle
@@ -178,15 +197,16 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         pathListView.setAdapter(mPathListAdapter);
         MaterialButton pathEditButton = view.findViewById(R.id.uri_edit);
         pathEditButton.setOnClickListener(v -> {
-            String path = FmUtils.getDisplayablePath(mModel.getCurrentUri());
+            Uri currentUri = mModel.getCurrentUri();
+            String path = currentUri != null ? FmUtils.getDisplayablePath(currentUri) : null;
             new TextInputDialogBuilder(mActivity, null)
                     .setTitle(R.string.go_to_path)
                     .setInputText(path)
                     .setPositiveButton(R.string.go, (dialog, which, inputText, isChecked) -> {
-                        if (!TextUtils.isEmpty(inputText)) {
-                            String p = inputText.toString();
-                            mModel.loadFiles(p.startsWith(File.separator) ? Uri.fromFile(new File(p)) : Uri.parse(p));
+                        if (TextUtils.isEmpty(inputText)) {
+                            return;
                         }
+                        goToRawPath(inputText.toString().trim());
                     })
                     .setNegativeButton(R.string.close, null)
                     .show();
@@ -195,6 +215,10 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         fabGroup.inflate(R.menu.fragment_fm_speed_dial);
         fabGroup.setOnActionSelectedListener(this);
         UiUtils.applyWindowInsetsAsMargin(view.findViewById(R.id.fab_holder));
+        mEmptyView = view.findViewById(android.R.id.empty);
+        mEmptyViewIcon = view.findViewById(R.id.icon);
+        mEmptyViewTitle = view.findViewById(R.id.title);
+        mEmptyViewDetails = view.findViewById(R.id.message);
         mRecyclerView = view.findViewById(R.id.list_item);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(mActivity));
         mAdapter = new FmAdapter(mModel, mActivity);
@@ -232,6 +256,10 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         mMultiSelectionView.setOnSelectionChangeListener(batchOpsHandler);
         // Set observer
         mModel.getLastUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
+            // force disable empty view
+            if (mEmptyView.isShown()) {
+                mEmptyView.setVisibility(View.GONE);
+            }
             if (uri1 == null) {
                 return;
             }
@@ -251,6 +279,15 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                 mSwipeRefresh.setRefreshing(false);
             }
             mAdapter.setFmList(fmItems);
+            if (fmItems.isEmpty()) {
+                handleEmptyView(R.drawable.ic_file, getString(R.string.empty_folder), null);
+            }
+        });
+        mModel.getFmErrorLiveData().observe(getViewLifecycleOwner(), throwable -> {
+            if (mSwipeRefresh != null) {
+                mSwipeRefresh.setRefreshing(false);
+            }
+            handleEmptyView(io.github.muntashirakon.ui.R.drawable.ic_caution, throwable.getMessage(), throwable);
         });
         mModel.getUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
             FmActivity.Options options1 = mModel.getOptions();
@@ -336,6 +373,17 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         mModel.getSharableItemsLiveData().observe(getViewLifecycleOwner(), sharableItems ->
                 mActivity.startActivity(sharableItems.toSharableIntent()));
         mModel.setOptions(options, uri);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (mModel != null && mRecyclerView != null) {
+            View v = mRecyclerView.getChildAt(0);
+            if (v != null) {
+                Prefs.FileManager.setLastOpenedPath(mModel.getOptions(), mModel.getCurrentUri(), mRecyclerView.getChildAdapterPosition(v));
+            }
+        }
     }
 
     @Override
@@ -432,7 +480,14 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
             return true;
         } else if (id == R.id.action_new_window) {
             Intent intent = new Intent(mActivity, FmActivity.class);
+            if (!mModel.getOptions().isVfs) {
+                intent.setDataAndType(mModel.getCurrentUri(), DocumentsContract.Document.MIME_TYPE_DIR);
+            }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            startActivity(intent);
+            return true;
+        } else if (id == R.id.action_settings) {
+            Intent intent = SettingsActivity.getIntent(requireContext(), "files_prefs");
             startActivity(intent);
             return true;
         }
@@ -517,6 +572,87 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     @Override
     public void onRefresh() {
         if (mModel != null) mModel.reload();
+    }
+
+    private void goToRawPath(@NonNull String p) {
+        Uri uncheckedUri = Uri.parse(p);
+        if (uncheckedUri.getScheme() != null) {
+            // Valid path
+            mModel.loadFiles(uncheckedUri);
+            return;
+        }
+        // Bad Uri, consider it to be a file://
+        if (p.startsWith(File.separator)) {
+            // absolute file
+            mModel.loadFiles(uncheckedUri.buildUpon().scheme(ContentResolver.SCHEME_FILE).build());
+            return;
+        }
+        // relative path
+        String goodPath = Paths.sanitize(p, false);
+        if (goodPath == null) {
+            // No relative path means current path which is already loaded
+            return;
+        }
+        Uri currentUri = mModel.getCurrentUri();
+        if (DocumentsContractCompat.isDocumentUri(requireContext(), currentUri)) {
+            List<String> pathSegments = currentUri.getPathSegments();
+            if (pathSegments.size() == 4) {
+                // For a tree URI, the 3rd index is the path
+                String lastPathSegment = pathSegments.get(3) + File.separator + p;
+                Uri.Builder b = new Uri.Builder()
+                        .scheme(currentUri.getScheme())
+                        .authority(currentUri.getAuthority())
+                        .appendPath(pathSegments.get(0))
+                        .appendPath(pathSegments.get(1))
+                        .appendPath(pathSegments.get(2))
+                        .appendPath(lastPathSegment);
+                mModel.loadFiles(b.build());
+            }
+            // Other document Uris don't support navigation nor do they support folders/trees
+            return;
+        }
+        // For others, simply append path segments at the end
+        @SuppressWarnings("SuspiciousRegexArgument") // We aren't on Windows
+        String[] segments = p.split(File.separator);
+        Uri.Builder b = currentUri.buildUpon();
+        for (String segment : segments) {
+            b.appendPath(segment);
+        }
+        mModel.loadFiles(b.build());
+    }
+
+    private void handleEmptyView(@DrawableRes int icon, @Nullable CharSequence title, @Nullable Throwable th) {
+        if (!mEmptyView.isShown()) {
+            mEmptyView.setVisibility(View.VISIBLE);
+        }
+        mEmptyViewIcon.setImageResource(icon);
+        mEmptyViewTitle.setText(title);
+        if (th == null) {
+            mEmptyViewDetails.setVisibility(View.GONE);
+            return;
+        }
+        // Only log the first three lines
+        StackTraceElement[] arr = th.getStackTrace();
+        StringBuilder report = new StringBuilder(th + "\n");
+        int i = 0;
+        for (StackTraceElement traceElement : arr) {
+            if (i == 3) break;
+            report.append("    at ").append(traceElement.toString()).append("\n");
+            ++i;
+        }
+        Throwable cause = th;
+        while ((cause = cause.getCause()) != null) {
+            report.append(" Caused by: ").append(cause).append("\n");
+            arr = cause.getStackTrace();
+            i = 0;
+            for (StackTraceElement stackTraceElement : arr) {
+                if (i == 3) break;
+                report.append("   at ").append(stackTraceElement.toString()).append("\n");
+                ++i;
+            }
+        }
+        mEmptyViewDetails.setVisibility(View.VISIBLE);
+        mEmptyViewDetails.setText(report);
     }
 
     private void createNewFolder(String name) {
@@ -873,7 +1009,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         }
 
         @Override
-        public void onSelectionChange(int selectionCount) {
+        public boolean onSelectionChange(int selectionCount) {
             boolean nonZeroSelection = selectionCount > 0;
             boolean canRead = mFolderShortInfo != null && mFolderShortInfo.canRead;
             boolean canWrite = mFolderShortInfo != null && mFolderShortInfo.canWrite;
@@ -883,6 +1019,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
             mCutMenu.setEnabled(nonZeroSelection && canWrite);
             mCopyMenu.setEnabled(nonZeroSelection && canRead);
             mCopyPathsMenu.setEnabled(nonZeroSelection);
+            return false;
         }
     }
 }

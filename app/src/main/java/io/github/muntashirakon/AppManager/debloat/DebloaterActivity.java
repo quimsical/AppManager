@@ -7,8 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
-import android.text.SpannableStringBuilder;
-import android.text.TextUtils;
 import android.view.Menu;
 import android.view.MenuItem;
 
@@ -22,30 +20,20 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsService;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
-import io.github.muntashirakon.AppManager.profiles.AppsProfileActivity;
-import io.github.muntashirakon.AppManager.profiles.ProfileManager;
-import io.github.muntashirakon.AppManager.profiles.ProfileMetaManager;
+import io.github.muntashirakon.AppManager.profiles.AddToProfileDialogFragment;
 import io.github.muntashirakon.AppManager.utils.StoragePermission;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
-import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
-import io.github.muntashirakon.dialog.TextInputDialogBuilder;
-import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 import io.github.muntashirakon.widget.MultiSelectionView;
 import io.github.muntashirakon.widget.RecyclerView;
 
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getSecondaryText;
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getSmallerText;
-
 public class DebloaterActivity extends BaseActivity implements MultiSelectionView.OnSelectionChangeListener,
-        ReflowMenuViewWrapper.OnItemSelectedListener, AdvancedSearchView.OnQueryTextListener {
+        MultiSelectionActionsView.OnItemSelectedListener, AdvancedSearchView.OnQueryTextListener {
     DebloaterViewModel viewModel;
 
     private LinearProgressIndicator mProgressIndicator;
@@ -86,7 +74,7 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
         mMultiSelectionView.setOnItemSelectedListener(this);
         mMultiSelectionView.setOnSelectionChangeListener(this);
 
-        viewModel.getDebloatObjectLiveData().observe(this, debloatObjects -> {
+        viewModel.getDebloatObjectListLiveData().observe(this, debloatObjects -> {
             mProgressIndicator.hide();
             adapter.setAdapterList(debloatObjects);
         });
@@ -126,8 +114,9 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
     }
 
     @Override
-    public void onSelectionChange(int selectionCount) {
+    public boolean onSelectionChange(int selectionCount) {
         // TODO: 7/8/22
+        return false;
     }
 
     @Override
@@ -159,43 +148,10 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
                     .setNeutralButton(R.string.unblock, (dialog, which) ->
                             handleBatchOp(BatchOpsManager.OP_UNBLOCK_TRACKERS))
                     .show();
-        } else if (id == R.id.action_new_profile) {
-            new TextInputDialogBuilder(this, R.string.input_profile_name)
-                    .setTitle(R.string.new_profile)
-                    .setHelperText(R.string.input_profile_name_description)
-                    .setNegativeButton(R.string.cancel, null)
-                    .setPositiveButton(R.string.go, (dialog, which, profName, isChecked) -> {
-                        if (!TextUtils.isEmpty(profName)) {
-                            //noinspection ConstantConditions
-                            startActivity(AppsProfileActivity.getNewProfileIntent(this, profName.toString(),
-                                    viewModel.getSelectedPackages().keySet().toArray(new String[0])));
-                            mMultiSelectionView.cancel();
-                        }
-                    })
-                    .show();
         } else if (id == R.id.action_add_to_profile) {
-            List<ProfileMetaManager> profiles = ProfileManager.getProfileMetadata();
-            List<CharSequence> profileNames = new ArrayList<>(profiles.size());
-            for (ProfileMetaManager profileMetaManager : profiles) {
-                profileNames.add(new SpannableStringBuilder(profileMetaManager.getProfileName()).append("\n")
-                        .append(getSecondaryText(this, getSmallerText(profileMetaManager.toLocalizedString(this)))));
-            }
-            new SearchableMultiChoiceDialogBuilder<>(this, profiles, profileNames)
-                    .setTitle(R.string.add_to_profile)
-                    .setNegativeButton(R.string.cancel, null)
-                    .setPositiveButton(R.string.add, (dialog, which, selectedItems) -> {
-                        for (ProfileMetaManager metaManager : selectedItems) {
-                            try {
-                                metaManager.appendPackages(viewModel.getSelectedPackages().keySet());
-                                mMultiSelectionView.cancel();
-                                metaManager.writeProfile();
-                            } catch (Throwable e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        UIUtils.displayShortToast(R.string.done);
-                    })
-                    .show();
+            AddToProfileDialogFragment dialog = AddToProfileDialogFragment.getInstance(viewModel.getSelectedPackages()
+                    .keySet().toArray(new String[0]));
+            dialog.show(getSupportFragmentManager(), AddToProfileDialogFragment.TAG);
         } else return false;
         return true;
     }

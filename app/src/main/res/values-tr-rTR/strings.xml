@@ -111,8 +111,6 @@
     <string name="third_party">Üçüncü Parti Kütüphaneler ve Simgeler</string>
     <string name="license">Lisans</string>
     <string name="icon_picker">Simge Seçici</string>
-    <string name="error_invalid_icon_format">Geçersiz Simge Biçimi</string>
-    <string name="error_invalid_icon_resource">Geçersiz Simge Kaynağı</string>
     <string name="class_name">Sınıf Adı</string>
     <string name="package_name">Paket Adı</string>
     <string name="shortcut_name">Kısayol Adı</string>
@@ -560,7 +558,6 @@
 \nOrijinal logo: <a href="https://github.com/Atrate">Atrate</a>. </string>
     <string name="credits">Teşekkürler</string>
     <string name="paths_and_directories">Yollar ve Dizinler</string>
-    <string name="edit_shortcut">Kısayolu Düzenle</string>
     <string name="create_shortcut">Kısayol Oluştur</string>
     <string name="sort_by_target_sdk">Hedef SDK</string>
     <string name="only_install">Yalnızca Kur</string>
@@ -619,7 +616,6 @@
     <string name="pref_encryption_msg">Yedeklemeler için şifreleme.</string>
     <string name="encryption">Şifreleme</string>
     <string name="select_user">Kullanıcı seç</string>
-    <string name="pref_show_users_in_installer_msg">Harici bir uygulamayı kurmadan önce seçilecek bir kullanıcı listesi görüntüle. Root veya ADB gerektirir.</string>
     <string name="pref_show_users_in_installer">Kurucuda kullanıcıları göster</string>
     <string name="failed_to_duplicate_profile">Profil kopyalanamadı</string>
     <string name="send_selected">Seçileni gönder</string>

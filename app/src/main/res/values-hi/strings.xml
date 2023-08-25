@@ -240,12 +240,9 @@
     <string name="third_party">थर्ड पार्टी लाइब्रेरी और आइकन्स</string>
     <string name="license">लाइसेंस</string>
     <string name="icon_picker">आइकन पिकर</string>
-    <string name="error_invalid_icon_format">अमान्य आइकन प्रारूप</string>
-    <string name="error_invalid_icon_resource">अमान्य आइकन संसाधन</string>
     <string name="class_name">क्लास का नाम</string>
     <string name="package_name">पैकेज का नाम</string>
     <string name="shortcut_name">शॉर्टकट का नाम</string>
-    <string name="edit_shortcut">शॉर्टकट संपादित करें</string>
     <string name="create_shortcut">शॉर्टकट बनाएं</string>
     <string name="starting_activity">एक्टिविटी शुरू: <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="error_verbose_pin_shortcut">वर्तमान लांचर PinShortcut का समर्थन नहीं करता है। शॉर्टकट बनाने में असमर्थ।</string>
@@ -697,7 +694,6 @@
     <string name="pref_encryption_msg">बैकअप के लिए एन्क्रिप्शन।</string>
     <string name="encryption">एन्क्रिप्शन</string>
     <string name="select_user">यूज़र चुनें</string>
-    <string name="pref_show_users_in_installer_msg">बाहरी ऐप इंस्टॉल करने से पहले चुनने के लिए यूज़र्स की एक सूची प्रदर्शित करें। रूट या एडीबी की आवश्यकता है।</string>
     <string name="pref_show_users_in_installer">इंस्टॉलर में यूज़र्स को दिखाएं</string>
     <string name="failed_to_duplicate_profile">प्रोफाइल डुप्लीकेट नहीं कर सका</string>
     <string name="duplicate">डुप्लीकेट</string>

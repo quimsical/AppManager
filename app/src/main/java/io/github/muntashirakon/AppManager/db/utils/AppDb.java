@@ -9,7 +9,6 @@ import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MAT
 import android.annotation.UserIdInt;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -263,7 +262,7 @@ public class AppDb {
                             | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES
                             | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
                 } catch (Exception e) {
-                    Log.e(TAG, "Could not retrieve package info list for user " + userId, e);
+                    Log.e(TAG, "Could not retrieve package info list for user %d", e, userId);
                     continue;
                 }
 
@@ -379,8 +378,7 @@ public class AppDb {
             }
         }
         for (App app : modifiedApps) {
-            boolean isSystemApp = (app.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-            if (!app.isInstalled && !isSystemApp) {
+            if (!app.isInstalled && !app.isSystemApp()) {
                 continue;
             }
             int userId = app.userId;

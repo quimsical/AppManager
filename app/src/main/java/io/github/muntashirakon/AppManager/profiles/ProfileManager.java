@@ -22,6 +22,7 @@ import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.progress.ProgressHandler;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.users.Users;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.io.Path;
 
 public class ProfileManager {
@@ -46,6 +47,10 @@ public class ProfileManager {
         String[] profilesFiles = profilesPath.listFileNames((dir, name) -> name.endsWith(ProfileMetaManager.PROFILE_EXT));
         HashMap<String, CharSequence> profiles = new HashMap<>(profilesFiles.length);
         for (String profile : profilesFiles) {
+            if (ThreadUtils.isInterrupted()) {
+                // Thread interrupted, return as is
+                return profiles;
+            }
             int index = profile.indexOf(ProfileMetaManager.PROFILE_EXT);
             profile = profile.substring(0, index);
             ProfileMetaManager metaManager = new ProfileMetaManager(profile);
@@ -123,7 +128,7 @@ public class ProfileManager {
                     result = batchOpsManager.performOp(BatchOpsManager.OP_UNBLOCK_COMPONENTS, userPackagePairs, progressHandler);
             }
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped components.");
         // Apply app ops blocking
@@ -143,7 +148,7 @@ public class ProfileManager {
             batchOpsManager.setArgs(args);
             result = batchOpsManager.performOp(BatchOpsManager.OP_SET_APP_OPS, userPackagePairs, progressHandler);
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped app ops.");
         // Apply permissions
@@ -162,7 +167,7 @@ public class ProfileManager {
                     result = batchOpsManager.performOp(BatchOpsManager.OP_GRANT_PERMISSIONS, userPackagePairs, progressHandler);
             }
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped permissions.");
         // Backup rules
@@ -183,7 +188,7 @@ public class ProfileManager {
                     result = batchOpsManager.performOp(BatchOpsManager.OP_UNFREEZE, userPackagePairs, progressHandler);
             }
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped disable/enable.");
         // Force-stop
@@ -191,7 +196,7 @@ public class ProfileManager {
             log("====> Started force-stop.");
             result = batchOpsManager.performOp(BatchOpsManager.OP_FORCE_STOP, userPackagePairs, progressHandler);
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped force stop.");
         // Clear cache
@@ -199,7 +204,7 @@ public class ProfileManager {
             log("====> Started clear cache.");
             result = batchOpsManager.performOp(BatchOpsManager.OP_CLEAR_CACHE, userPackagePairs, progressHandler);
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped clear cache.");
         // Clear data
@@ -207,7 +212,7 @@ public class ProfileManager {
             log("====> Started clear data.");
             result = batchOpsManager.performOp(BatchOpsManager.OP_CLEAR_DATA, userPackagePairs, progressHandler);
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped clear data.");
         // Block trackers
@@ -222,7 +227,7 @@ public class ProfileManager {
                     result = batchOpsManager.performOp(BatchOpsManager.OP_UNBLOCK_TRACKERS, userPackagePairs, progressHandler);
             }
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped block trackers.");
         // Backup apk
@@ -230,7 +235,7 @@ public class ProfileManager {
             log("====> Started backup apk.");
             result = batchOpsManager.performOp(BatchOpsManager.OP_BACKUP_APK, userPackagePairs, progressHandler);
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped backup apk.");
         // Backup/restore data
@@ -263,7 +268,7 @@ public class ProfileManager {
                     result = new BatchOpsManager.Result(userPackagePairs);
             }
             if (!result.isSuccessful()) {
-                Log.d(TAG, "Failed packages: " + result);
+                Log.d(TAG, "Failed packages: %s", result);
             }
         } else Log.d(TAG, "Skipped backup/restore.");
         log("====> Execution completed.");

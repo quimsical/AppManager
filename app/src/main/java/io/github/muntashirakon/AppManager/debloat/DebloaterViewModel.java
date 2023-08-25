@@ -2,13 +2,7 @@
 
 package io.github.muntashirakon.AppManager.debloat;
 
-import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
-
 import android.app.Application;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.os.RemoteException;
 import android.os.UserHandleHidden;
 import android.text.TextUtils;
 
@@ -19,8 +13,6 @@ import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
-import com.google.gson.Gson;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -30,15 +22,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
-import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
-import io.github.muntashirakon.AppManager.db.entity.App;
-import io.github.muntashirakon.AppManager.db.utils.AppDb;
+import io.github.muntashirakon.AppManager.StaticDataset;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
-import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
 
 public class DebloaterViewModel extends AndroidViewModel {
@@ -47,12 +36,12 @@ public class DebloaterViewModel extends AndroidViewModel {
     private String mQueryString = null;
     @AdvancedSearchView.SearchType
     private int mQueryType;
-    private DebloatObject[] mDebloatObjects;
+    @NonNull
+    private final List<DebloatObject> mDebloatObjects = new ArrayList<>();
 
     private final Map<String, int[]> mSelectedPackages = new HashMap<>();
-    private final MutableLiveData<List<DebloatObject>> mDebloatObjectLiveData = new MutableLiveData<>();
+    private final MutableLiveData<List<DebloatObject>> mDebloatObjectListLiveData = new MutableLiveData<>();
     private final ExecutorService mExecutor = MultithreadedExecutor.getNewInstance();
-    private final Gson mGson = new Gson();
 
     public DebloaterViewModel(@NonNull Application application) {
         super(application);
@@ -81,12 +70,12 @@ public class DebloaterViewModel extends AndroidViewModel {
         loadPackages();
     }
 
-    public LiveData<List<DebloatObject>> getDebloatObjectLiveData() {
-        return mDebloatObjectLiveData;
+    public LiveData<List<DebloatObject>> getDebloatObjectListLiveData() {
+        return mDebloatObjectListLiveData;
     }
 
     public int getTotalItemCount() {
-        return mDebloatObjects != null ? mDebloatObjects.length : 0;
+        return mDebloatObjects.size();
     }
 
     public int getSelectedItemCount() {
@@ -141,26 +130,26 @@ public class DebloaterViewModel extends AndroidViewModel {
             if (mFilterFlags != DebloaterListOptions.FILTER_NO_FILTER) {
                 for (DebloatObject debloatObject : mDebloatObjects) {
                     // List
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_AOSP) == 0 && debloatObject.type.equals("Aosp")) {
+                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_AOSP) == 0 && debloatObject.type.equals("aosp")) {
                         continue;
                     }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_OEM) == 0 && debloatObject.type.equals("Oem")) {
+                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_CARRIER) == 0 && debloatObject.type.equals("carrier")) {
                         continue;
                     }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_CARRIER) == 0 && debloatObject.type.equals("Carrier")) {
+                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_GOOGLE) == 0 && debloatObject.type.equals("google")) {
                         continue;
                     }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_GOOGLE) == 0 && debloatObject.type.equals("Google")) {
+                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_MISC) == 0 && debloatObject.type.equals("misc")) {
                         continue;
                     }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_MISC) == 0 && debloatObject.type.equals("Misc")) {
+                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_OEM) == 0 && debloatObject.type.equals("oem")) {
                         continue;
                     }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_PENDING) == 0 && debloatObject.type.equals("Pending")) {
+                    if ((mFilterFlags & DebloaterListOptions.FILTER_LIST_PENDING) == 0 && debloatObject.type.equals("pending")) {
                         continue;
                     }
                     // Removal
-                    int removalType = debloatObject.getmRemoval();
+                    int removalType = debloatObject.getRemoval();
                     if ((mFilterFlags & DebloaterListOptions.FILTER_REMOVAL_SAFE) == 0 && removalType == DebloatObject.REMOVAL_SAFE) {
                         continue;
                     }
@@ -168,9 +157,6 @@ public class DebloaterViewModel extends AndroidViewModel {
                         continue;
                     }
                     if ((mFilterFlags & DebloaterListOptions.FILTER_REMOVAL_CAUTION) == 0 && removalType == DebloatObject.REMOVAL_CAUTION) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_REMOVAL_UNSAFE) == 0 && removalType == DebloatObject.REMOVAL_UNSAFE) {
                         continue;
                     }
                     // Filter others
@@ -190,7 +176,7 @@ public class DebloaterViewModel extends AndroidViewModel {
                 }
             }
             if (TextUtils.isEmpty(mQueryString)) {
-                mDebloatObjectLiveData.postValue(debloatObjects);
+                mDebloatObjectListLiveData.postValue(debloatObjects);
                 return;
             }
             // Apply searching
@@ -204,47 +190,15 @@ public class DebloaterViewModel extends AndroidViewModel {
                         }
                     },
                     mQueryType);
-            mDebloatObjectLiveData.postValue(newList);
+            mDebloatObjectListLiveData.postValue(newList);
         });
     }
 
     @WorkerThread
     private void loadDebloatObjects() {
-        if (mDebloatObjects != null) {
+        if (!mDebloatObjects.isEmpty()) {
             return;
         }
-        String jsonContent = FileUtils.getContentFromAssets(getApplication(), "debloat.json");
-        mDebloatObjects = mGson.fromJson(jsonContent, DebloatObject[].class);
-        PackageManager pm = getApplication().getPackageManager();
-        // Fetch package info for all users
-        AppDb appDb = new AppDb();
-        for (DebloatObject debloatObject : mDebloatObjects) {
-            List<App> apps = appDb.getAllApplications(debloatObject.packageName);
-            for (App app : apps) {
-                if (!app.isInstalled) {
-                    continue;
-                }
-                debloatObject.setInstalled(true);
-                debloatObject.addUser(app.userId);
-                debloatObject.setSystemApp((app.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
-                if (debloatObject.getPackageInfo() == null) {
-                    try {
-                        PackageInfo pi = PackageManagerCompat.getPackageInfo(debloatObject.packageName,
-                                MATCH_UNINSTALLED_PACKAGES
-                                        | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, app.userId);
-                        ApplicationInfo ai = pi.applicationInfo;
-                        if ((ai.flags & ApplicationInfo.FLAG_INSTALLED) != 0) {
-                            // Reset installed
-                            debloatObject.setInstalled(true);
-                        }
-                        // Reset system app
-                        debloatObject.setSystemApp((ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
-                        debloatObject.setPackageInfo(pi);
-                        debloatObject.setLabel(ai.loadLabel(pm));
-                    } catch (RemoteException | PackageManager.NameNotFoundException ignore) {
-                    }
-                }
-            }
-        }
+        mDebloatObjects.addAll(StaticDataset.getDebloatObjectsWithInstalledInfo(getApplication()));
     }
 }

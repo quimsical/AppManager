@@ -80,12 +80,9 @@
     <string name="error_verbose_pin_shortcut">Der aktuelle Launcher unterstützt PinShortcut nicht. Konnte Verknüpfung nicht erstellen.</string>
     <string name="starting_activity">Starte Aktivität: <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="create_shortcut">Verknüpfung erstellen</string>
-    <string name="edit_shortcut">Verknüpfung bearbeiten</string>
     <string name="shortcut_name">Name der Verknüpfung</string>
     <string name="package_name">Paketname</string>
     <string name="class_name">Klassenname</string>
-    <string name="error_invalid_icon_resource">Ungültige Icon-Ressource</string>
-    <string name="error_invalid_icon_format">Ungültiges Icon-Format</string>
     <string name="icon_picker">Icon-Auswahl</string>
     <string name="license">Lizenz</string>
     <string name="third_party">Drittanbieter-Lizenzen und -Icons</string>
@@ -356,7 +353,7 @@
     <string name="filter">Filter</string>
     <string name="filter_user_apps">Benutzer-Anwendungen</string>
     <string name="filter_system_apps">System-Anwendungen</string>
-    <string name="filter_apps_with_rules">Anwendungen mit Regeln</string>
+    <string name="filter_apps_with_rules">Mit Regeln</string>
     <string name="select_all">Alle auswählen</string>
     <string name="installed_version">Installierte Version</string>
     <string name="trackers">Verfolger</string>
@@ -621,7 +618,6 @@
     <string name="pref_encryption_msg">Verschlüsselung für Backups.</string>
     <string name="encryption">Verschlüsselung</string>
     <string name="select_user">Benutzer auswählen</string>
-    <string name="pref_show_users_in_installer_msg">Anzeigen einer Liste der Benutzer, die vor der Installation einer externen Anwendung ausgewählt werden müssen. Erfordert root oder ADB.</string>
     <string name="pref_show_users_in_installer">Benutzer im Installationsprogramm anzeigen</string>
     <string name="failed_to_duplicate_profile">Konnte Profil nicht duplizieren</string>
     <string name="enabled">Aktiviert</string>
@@ -1291,4 +1287,7 @@
     </plurals>
     <string name="app_info_tag_open_links">Links öffnen</string>
     <string name="title_domains_supported_by_the_app">Unterstützte Domänen</string>
+    <string name="block_unblock_components_description">Alle Komponenten, die durch die angegebenen Signaturen identifiziert werden, blockieren oder freigeben</string>
+    <string name="unblock_components_dots">Komponenten freigeben…</string>
+    <string name="block_unblock_components_dots">Komponenten blockieren/freigeben…</string>
 </resources>

@@ -171,7 +171,7 @@ public abstract class VirtualFileSystem {
             }
             vfsIds.add(vfsId);
         }
-        Log.d(TAG, String.format(Locale.ROOT, "Mounted %d at %s", vfsId, mountPoint));
+        Log.d(TAG, "Mounted %d at %s", vfsId, mountPoint);
         return vfsId;
     }
 
@@ -197,7 +197,7 @@ public abstract class VirtualFileSystem {
             }
         }
         fs.unmount();
-        Log.d(TAG, String.format(Locale.ROOT, "%d unmounted at %s", vfsId, mountPoint));
+        Log.d(TAG, "%d unmounted at %s", vfsId, mountPoint);
     }
 
     public static void alterMountPoint(Uri oldMountPoint, Uri newMountPoint) {
@@ -224,8 +224,7 @@ public abstract class VirtualFileSystem {
             newFsIds.add(fs.getFsId());
         }
         fs.mMountPoint = newMountPoint;
-        Log.d(TAG, String.format(Locale.ROOT, "Mount point of %d altered from %s to %s", fs.getFsId(),
-                oldMountPoint, newMountPoint));
+        Log.d(TAG, "Mount point of %d altered from %s to %s", fs.getFsId(), oldMountPoint, newMountPoint);
     }
 
     public static boolean isMountPoint(@NonNull Uri uri) {
@@ -868,7 +867,7 @@ public abstract class VirtualFileSystem {
             moveChildren(node, sourceBase, destBase);
             // Move this node
             String source = node.getFullPath();
-            String dest = new File(destBase, Paths.getRelativePath(sourceBase, source, File.separator)).getAbsolutePath();
+            String dest = new File(destBase, Paths.relativePath(sourceBase, source)).getAbsolutePath();
             Action action = new Action(ACTION_MOVE, node);
             action.setSourcePath(source);
             addAction(dest, action);
@@ -1227,7 +1226,7 @@ public abstract class VirtualFileSystem {
         @Nullable
         private static <T> Node<T> getLastNode(@NonNull Node<T> baseNode, @Nullable String dirtyPath) {
             if (dirtyPath == null) return baseNode;
-            String path = Paths.getSanitizedPath(dirtyPath, true);
+            String path = Paths.sanitize(dirtyPath, true);
             if (path == null) {
                 return baseNode;
             }

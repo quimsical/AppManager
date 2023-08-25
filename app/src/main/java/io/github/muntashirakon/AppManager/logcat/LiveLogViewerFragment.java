@@ -24,11 +24,11 @@ import io.github.muntashirakon.AppManager.logcat.struct.LogLine;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
-import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 
 // Copyright 2022 Muntashir Al-Islam
 public class LiveLogViewerFragment extends AbsLogViewerFragment implements LogViewerViewModel.LogLinesAvailableInterface,
-        ReflowMenuViewWrapper.OnItemSelectedListener, LogViewerActivity.SearchingInterface, Filter.FilterListener {
+        MultiSelectionActionsView.OnItemSelectedListener, LogViewerActivity.SearchingInterface, Filter.FilterListener {
     public static final String TAG = LiveLogViewerFragment.class.getSimpleName();
 
     private int mLogCounter = 0;
@@ -41,6 +41,7 @@ public class LiveLogViewerFragment extends AbsLogViewerFragment implements LogVi
             } else if (selectionCount == 0) {
                 mViewModel.resumeLogcat();
             }
+            return false;
         });
         mViewModel.startLogcat(new WeakReference<>(this));
     }
@@ -124,7 +125,7 @@ public class LiveLogViewerFragment extends AbsLogViewerFragment implements LogVi
         if (mLogCounter % UPDATE_CHECK_INTERVAL == 0 && mLogListAdapter.getRealSize() > maxNumLogLines) {
             int numItemsToRemove = mLogListAdapter.getRealSize() - maxNumLogLines;
             mLogListAdapter.removeFirst(numItemsToRemove);
-            Log.d(TAG, "Truncating " + numItemsToRemove + " lines from log list to avoid out of memory errors");
+            Log.d(TAG, "Truncating %d lines from log list to avoid out of memory errors", numItemsToRemove);
         }
 
         if (mAutoscrollToBottom) {

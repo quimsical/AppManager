@@ -7,6 +7,7 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 
 import androidx.annotation.DrawableRes;
@@ -16,6 +17,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.PendingIntentCompat;
 
 import org.jetbrains.annotations.Contract;
 
@@ -23,9 +25,14 @@ import java.util.ArrayList;
 import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
 
 public class NotificationProgressHandler extends QueuedProgressHandler {
+    private static final String TAG_PROGRESS = null;
+    private static final String TAG_QUEUE = "queue";
+    private static final String TAG_ALERT = "alert";
+
     @NonNull
     private final Context mContext;
     @NonNull
@@ -41,12 +48,11 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
     @Nullable
     private final NotificationManagerCompat mQueueNotificationManager;
     private final int mProgressNotificationId;
-    private final int mQueueNotificationId;
 
     @Nullable
     private NotificationInfo mLastProgressNotification = null;
-    private int mLastMax = MAX_INDETERMINATE;
-    private float mLastProgress = 0;
+    private volatile int mLastMax = MAX_INDETERMINATE;
+    private volatile float mLastProgress = 0;
     private boolean mAttachedToService;
 
     public NotificationProgressHandler(@NonNull Context context,
@@ -60,8 +66,7 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
         mProgressNotificationManager = getNotificationManager(context, mProgressNotificationManagerInfo);
         mCompletionNotificationManager = getNotificationManager(context, mCompletionNotificationManagerInfo);
         mQueueNotificationManager = getNotificationManager(context, mQueueNotificationManagerInfo);
-        mProgressNotificationId = NotificationUtils.getNotificationId(mProgressNotificationManagerInfo.channelId);
-        mQueueNotificationId = mQueueNotificationManagerInfo != null ? NotificationUtils.getNotificationId(mQueueNotificationManagerInfo.channelId) : -1;
+        mProgressNotificationId = NotificationUtils.nextNotificationId(TAG_PROGRESS);
     }
 
     @Override
@@ -72,8 +77,9 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
         NotificationInfo info = (NotificationInfo) message;
         Notification notification = info
                 .getBuilder(mContext, mQueueNotificationManagerInfo)
+                .setLocalOnly(true)
                 .build();
-        notify(mContext, mQueueNotificationManager, mQueueNotificationId, notification);
+        notify(mContext, mQueueNotificationManager, TAG_QUEUE, NotificationUtils.nextNotificationId(TAG_QUEUE), notification);
     }
 
     @Override
@@ -83,6 +89,7 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
             mAttachedToService = true;
             Notification notification = mLastProgressNotification
                     .getBuilder(mContext, mProgressNotificationManagerInfo)
+                    .setLocalOnly(true)
                     .setOngoing(true)
                     .setOnlyAlertOnce(true)
                     .setProgress(0, 0, false)
@@ -111,6 +118,7 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
         int newCurrent = max < 0 ? 0 : (int) current;
         NotificationCompat.Builder builder = mLastProgressNotification
                 .getBuilder(mContext, mProgressNotificationManagerInfo)
+                .setLocalOnly(true)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setProgress(newMax, newCurrent, indeterminate);
@@ -123,13 +131,13 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
                 builder.setContentText(mContext.getString(R.string.operation_running));
             }
         }
-        notify(mContext, mProgressNotificationManager, mProgressNotificationId, builder.build());
+        notify(mContext, mProgressNotificationManager, TAG_PROGRESS, mProgressNotificationId, builder.build());
     }
 
     @Override
     public void onResult(@Nullable Object message) {
         if (!mAttachedToService) {
-            mProgressNotificationManager.cancel(mProgressNotificationId);
+            mProgressNotificationManager.cancel(TAG_PROGRESS, mProgressNotificationId);
         } else {
             onProgressUpdate(MAX_FINISHED, 0, null); // Trick to remove progressbar
         }
@@ -140,15 +148,14 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
         Notification notification = info
                 .getBuilder(mContext, mCompletionNotificationManagerInfo)
                 .build();
-        int notificationId = NotificationUtils.getNotificationId(mCompletionNotificationManagerInfo.channelId);
-        notify(mContext, mCompletionNotificationManager, notificationId, notification);
+        notify(mContext, mCompletionNotificationManager, TAG_ALERT, NotificationUtils.nextNotificationId(TAG_ALERT), notification);
     }
 
     @Override
     public void onDetach(@Nullable Service service) {
         if (service != null) {
             mAttachedToService = false;
-            mProgressNotificationManager.cancel(mProgressNotificationId);
+            mProgressNotificationManager.cancel(TAG_PROGRESS, mProgressNotificationId);
         }
     }
 
@@ -175,12 +182,21 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
         return mLastProgressNotification;
     }
 
+    @Override
+    public void postUpdate(int max, float current, @Nullable Object message) {
+        // Update values immediately to avoid issues
+        mLastMax = max;
+        mLastProgress = current;
+        super.postUpdate(max, current, message);
+    }
+
     private static void notify(@NonNull Context context,
                                @NonNull NotificationManagerCompat notificationManager,
+                               @Nullable String notificationTag,
                                int notificationId,
                                @NonNull Notification notification) {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            notificationManager.notify(notificationId, notification);
+            notificationManager.notify(notificationTag, notificationId, notification);
         }
     }
 
@@ -320,7 +336,13 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
 
         @NonNull
         NotificationCompat.Builder getBuilder(@NonNull Context context, @NonNull NotificationManagerInfo info) {
+            PendingIntent contentIntent;
+            if (autoCancel && defaultAction == null) {
+                // Auto-cancel requires a content Intent
+                contentIntent = PendingIntentCompat.getActivity(context, 0, new Intent(), 0, false);
+            } else contentIntent = defaultAction;
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, info.channelId)
+                    .setLocalOnly(!Prefs.Misc.sendNotificationsToConnectedDevices())
                     .setPriority(NotificationUtils.importanceToPriority(info.importance))
                     .setDefaults(Notification.DEFAULT_ALL)
                     .setSmallIcon(icon, level)
@@ -328,7 +350,7 @@ public class NotificationProgressHandler extends QueuedProgressHandler {
                     .setTicker(statusBarText)
                     .setContentTitle(title)
                     .setContentText(body)
-                    .setContentIntent(defaultAction)
+                    .setContentIntent(contentIntent)
                     .setAutoCancel(autoCancel)
                     .setGroup(groupId)
                     .setStyle(style);

@@ -37,6 +37,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -189,7 +190,7 @@ public class OABConverter extends Converter {
                     mCrypto.close();
                 }
                 for (Path file : mDecryptedFiles) {
-                    Log.d(TAG, "Deleting " + file);
+                    Log.d(TAG, "Deleting %s", file);
                     file.delete();
                 }
                 if (backupSuccess) {
@@ -377,7 +378,7 @@ public class OABConverter extends Converter {
                                 IoUtils.copy(zis, fos, -1, null);
                             }
                         }
-                        String fileName = zipEntry.getName().replaceFirst(mPackageName + "/", "");
+                        String fileName = zipEntry.getName().replaceFirst(Pattern.quote(mPackageName + "/"), "");
                         if (fileName.equals("")) continue;
                         // New tar entry
                         TarArchiveEntry tarArchiveEntry = new TarArchiveEntry(fileName);

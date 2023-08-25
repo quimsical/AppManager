@@ -25,6 +25,7 @@ import androidx.lifecycle.MutableLiveData;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -32,8 +33,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.ZipFile;
 
-import io.github.muntashirakon.AppManager.apk.ApkFile;
+import io.github.muntashirakon.AppManager.StaticDataset;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerService;
 import io.github.muntashirakon.AppManager.backup.BackupUtils;
@@ -45,12 +47,14 @@ import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.db.entity.Backup;
+import io.github.muntashirakon.AppManager.debloat.DebloatObject;
 import io.github.muntashirakon.AppManager.details.AppDetailsViewModel;
 import io.github.muntashirakon.AppManager.magisk.MagiskDenyList;
 import io.github.muntashirakon.AppManager.magisk.MagiskHide;
 import io.github.muntashirakon.AppManager.magisk.MagiskProcess;
 import io.github.muntashirakon.AppManager.magisk.MagiskUtils;
 import io.github.muntashirakon.AppManager.misc.OsEnvironment;
+import io.github.muntashirakon.AppManager.misc.XposedModuleInfo;
 import io.github.muntashirakon.AppManager.rules.RuleType;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
@@ -187,6 +191,21 @@ public class AppInfoViewModel extends AndroidViewModel {
                 }
             }
             tagCloud.isMagiskDenyListEnabled = !isExternalApk && magiskDenyListEnabled;
+            List<DebloatObject> debloatObjects = StaticDataset.getDebloatObjects();
+            for (DebloatObject debloatObject : debloatObjects) {
+                if (packageName.equals(debloatObject.packageName)) {
+                    tagCloud.isBloatware = true;
+                    break;
+                }
+            }
+            try (ZipFile zipFile = new ZipFile(applicationInfo.publicSourceDir)) {
+                Boolean isXposedModule = XposedModuleInfo.isXposedModule(applicationInfo, zipFile);
+                if (!Boolean.FALSE.equals(isXposedModule)) {
+                    tagCloud.xposedModuleInfo = new XposedModuleInfo(applicationInfo, isXposedModule == null ? null : zipFile);
+                }
+            } catch (Throwable th) {
+                th.printStackTrace();
+            }
             tagCloud.canWriteAndExecute = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                     && applicationInfo.targetSdkVersion < Build.VERSION_CODES.Q;
             tagCloud.hasKeyStoreItems = KeyStoreUtils.hasKeyStore(applicationInfo.uid);
@@ -194,7 +213,7 @@ public class AppInfoViewModel extends AndroidViewModel {
             tagCloud.usesPlayAppSigning = PackageUtils.usesPlayAppSigning(applicationInfo);
             tagCloud.backups = BackupUtils.getBackupMetadataFromDbNoLockValidate(packageName);
             if (!isExternalApk) {
-                tagCloud.isBatteryOptimized = ExUtils.requireNonNullElse(() -> DeviceIdleManagerCompat.isBatteryOptimizedApp(packageName), true);
+                tagCloud.isBatteryOptimized = DeviceIdleManagerCompat.isBatteryOptimizedApp(packageName);
             } else {
                 tagCloud.isBatteryOptimized = true;
             }
@@ -263,14 +282,9 @@ public class AppInfoViewModel extends AndroidViewModel {
         boolean isExternalApk = mMainModel.isExternalApk();
         AppInfo appInfo = new AppInfo();
         try {
-            // Set source dir
             if (!isExternalApk) {
+                // Set source dir
                 appInfo.sourceDir = new File(applicationInfo.publicSourceDir).getParent();
-            }
-            // Set split entries
-            ApkFile apkFile = ApkFile.getInstance(mMainModel.getApkFileKey());
-            int countSplits = apkFile.getEntries().size() - 1;
-            if (!isExternalApk) {
                 // Set data dirs
                 appInfo.dataDir = applicationInfo.dataDir;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -292,7 +306,7 @@ public class AppInfoViewModel extends AndroidViewModel {
                 }
                 boolean hasUsageAccess = FeatureController.isUsageAccessEnabled() && SelfPermissions.checkUsageStatsPermission();
                 if (hasUsageAccess) {
-                // Net statistics
+                    // Net statistics
                     appInfo.dataUsage = AppUsageStatsManager.getDataUsageForPackage(getApplication(),
                             applicationInfo.uid, UsageUtils.USAGE_LAST_BOOT);
                     // Set sizes
@@ -383,6 +397,9 @@ public class AppInfoViewModel extends AndroidViewModel {
         public boolean isAppSuspended;
         public boolean isMagiskHideEnabled;
         public boolean isMagiskDenyListEnabled;
+        public boolean isBloatware;
+        @Nullable
+        public XposedModuleInfo xposedModuleInfo;
         public boolean canWriteAndExecute;
         public boolean hasKeyStoreItems;
         public boolean hasMasterKeyInKeyStore;
@@ -406,7 +423,7 @@ public class AppInfoViewModel extends AndroidViewModel {
         public String dataDir;
         @Nullable
         public String dataDeDir;
-        public List<String> extDataDirs;
+        public List<String> extDataDirs = Collections.emptyList();
         @Nullable
         public String jniDir;
         // Data usage

@@ -8,23 +8,30 @@ import android.os.RemoteException;
 import android.os.UserHandleHidden;
 import android.system.ErrnoException;
 import android.system.OsConstants;
+import android.text.TextUtils;
 
 import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+
+import org.jetbrains.annotations.Contract;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Stack;
 import java.util.regex.Pattern;
 
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.io.fs.VirtualFileSystem;
 
+@SuppressWarnings("SuspiciousRegexArgument") // Not Windows, Android is Linux
 public final class Paths {
     public static final String TAG = Paths.class.getSimpleName();
 
@@ -74,6 +81,15 @@ public final class Paths {
     @NonNull
     public static Path get(@NonNull Uri pathUri) {
         return new Path(ContextUtils.getContext(), pathUri);
+    }
+
+    @NonNull
+    public static Path getStrict(@NonNull Uri pathUri) throws FileNotFoundException {
+        try {
+            return new Path(ContextUtils.getContext(), pathUri);
+        } catch (IllegalArgumentException e) {
+            throw (FileNotFoundException) (new FileNotFoundException(e.getMessage())).initCause(e);
+        }
     }
 
     @NonNull
@@ -143,30 +159,73 @@ public final class Paths {
         return path;
     }
 
+    /**
+     * Same as path normalization except that it does not attempt to follow {@code ..}.
+     *
+     * @param path     Path to sanitize
+     * @param omitRoot Whether to omit root when {@code path} is not {@code /}
+     * @return Sanitized path on success, {@code null} when the final result is empty.
+     */
+    @Contract("null, _ -> null")
     @Nullable
-    public static String getSanitizedPath(@NonNull String name, boolean omitRoot) {
-        // Replace multiple separators with a single separator
-        //noinspection RegExpRedundantEscape,RegExpSimplifiable
-        name = name.replaceAll("[\\/\\\\]+", File.separator);
-        if (name.equals(File.separator)) {
-            // Name is a separator AKA root
-            return File.separator;
+    public static String sanitize(@Nullable String path, boolean omitRoot) {
+        if (path == null) {
+            return null;
         }
-        // Name isn't a root but could still be ../ or ./, we only consider ./ because we cannot allow it
-        if (name.startsWith("./")) {
-            // Omit ./
-            name = name.substring(2);
+        if (path.length() == 0) {
+            return null;
         }
-        // Omit last separator if present, this also means ../ will become ..
-        if (name.endsWith(File.separator)) {
-            name = name.substring(0, name.length() - 1);
+        boolean isAbsolute = path.startsWith(File.separator);
+        String[] parts = path.split(File.separator);
+        List<String> newParts = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            if (part.isEmpty() || part.equals(".")) continue;
+            newParts.add(part);
         }
-        // Omit root if requested
-        if (omitRoot && name.startsWith(File.separator)) {
-            name = name.substring(1);
+        path = TextUtils.join(File.separator, newParts);
+        if (isAbsolute) {
+            if (path.isEmpty()) {
+                return File.separator;
+            }
+            if (!omitRoot) {
+                return File.separator + path;
+            }
         }
-        // At this point, name could contain nothing at all
-        return name.isEmpty() ? null : name;
+        return path.isEmpty() ? null : path;
+    }
+
+    /**
+     * Normalize the given path. It resolves {@code ..} to find the ultimate path which may or may not be the real path
+     * since it does not check for symbolic links.
+     *
+     * @param path Path to normalize
+     * @return Normalized path on success, {@code null} when the final result is empty.
+     */
+    @Contract("null -> null")
+    @Nullable
+    public static String normalize(@Nullable String path) {
+        if (path == null) {
+            return null;
+        }
+        if (path.length() == 0) {
+            return null;
+        }
+        boolean isAbsolute = path.startsWith(File.separator);
+        String[] parts = path.split(File.separator);
+        Stack<String> newParts = new Stack<>();
+        for (String part : parts) {
+            if (part.isEmpty() || part.equals(".")) continue;
+            if (!part.equals("..") || (!isAbsolute && newParts.isEmpty()) || (!newParts.isEmpty() && "..".equals(newParts.peek()))) {
+                newParts.push(part);
+            } else if (!newParts.isEmpty()) {
+                newParts.pop();
+            }
+        }
+        path = TextUtils.join(File.separator, newParts);
+        if (isAbsolute) {
+            return File.separator + path;
+        }
+        return path.isEmpty() ? null : path;
     }
 
     /**
@@ -180,79 +239,43 @@ public final class Paths {
     @AnyThread
     @NonNull
     public static String getLastPathSegment(@NonNull String path) {
-        if (path.isEmpty()) return "";
-        int lastIndexOfSeparator;
-        int lastIndexOfPath;
-        for (; ; ) {
-            lastIndexOfSeparator = path.lastIndexOf(File.separator);
-            if (lastIndexOfSeparator == -1) {
-                // There are no `/` in the string, so return as is.
-                return path;
-            }
-            lastIndexOfPath = path.length() - 1;
-            if (lastIndexOfSeparator == lastIndexOfPath) {
-                // `/` is the last character.
-                // Therefore, trim it and find the last path again.
-                path = path.substring(0, lastIndexOfPath);
-                continue;
-            }
-            // No more `/` at the end
-            break;
+        path = sanitize(path, false);
+        // path has no trailing / or .
+        if (path == null || path.equals(File.separator)) {
+            return "";
+        }
+        int separatorIndex = path.lastIndexOf(File.separator);
+        if (separatorIndex == -1) {
+            // There are no `/` in the string, so return as is.
+            return path;
         }
         // There are path components, so return the last one.
-        return path.substring(lastIndexOfSeparator + 1);
+        String lastPart = path.substring(separatorIndex + 1);
+        if (lastPart.equals("..")) {
+            // Invalid part
+            return "";
+        }
+        return lastPart;
     }
 
     @NonNull
     public static String removeLastPathSegment(@NonNull String path) {
-        if (path.isEmpty()) return "";
-        int lastIndexOfSeparator;
-        int lastIndexOfPath;
-        for (; ; ) {
-            lastIndexOfSeparator = path.lastIndexOf(File.separator);
-            if (lastIndexOfSeparator == -1) {
-                // There are no `/` in the string, so return as is
-                return "";
-            }
-            if (lastIndexOfSeparator == 0 && path.length() == 1) {
-                // Only `/` exists
-                return File.separator;
-            }
-            lastIndexOfPath = path.length() - 1;
-            if (lastIndexOfSeparator == lastIndexOfPath) {
-                // `/` is the last character.
-                // Therefore, trim it and find the last path again.
-                path = path.substring(0, lastIndexOfPath);
-                continue;
-            }
-            // No more `/` at the end
-            break;
-        }
-        // Remove the last segment
-        path = path.substring(0, lastIndexOfSeparator);
         if (path.isEmpty()) {
-            return File.separator;
+            return "";
         }
-        // Remove `/` from the end
-        for (; ; ) {
-            lastIndexOfSeparator = path.lastIndexOf(File.separator);
-            if (lastIndexOfSeparator == -1) {
-                // There are no `/` in the string, so return as is
-                return path;
-            }
-            if (lastIndexOfSeparator == 0 && path.length() == 1) {
-                // Only `/` exists
-                return File.separator;
-            }
-            lastIndexOfPath = path.length() - 1;
-            if (lastIndexOfSeparator == lastIndexOfPath) {
-                // `/` is the last character.
-                // Therefore, trim it and find the last path again.
-                path = path.substring(0, lastIndexOfPath);
-                continue;
-            }
-            // No more `/` at the end
-            break;
+        boolean isAbsolute = path.startsWith(File.separator);
+        String[] parts = path.split(File.separator);
+        Stack<String> newParts = new Stack<>();
+        for (String part : parts) {
+            if (part.isEmpty() || part.equals(".")) continue;
+            newParts.push(part);
+        }
+        if (!newParts.isEmpty() && !newParts.peek().equals("..")) {
+            newParts.pop();
+        }
+        path = TextUtils.join(File.separator, newParts);
+        if (isAbsolute) {
+            return File.separator + path;
         }
         return path;
     }
@@ -262,36 +285,52 @@ public final class Paths {
         if (lastPathSegment.isEmpty()) {
             return path;
         }
-        boolean pathEndsWithSeparator = path.endsWith(File.separator);
-        if (lastPathSegment.startsWith(File.separator)) {
-            if (lastPathSegment.length() == 1) {
-                // There's only a path separator, return path as is
-                return path;
-            }
-            if (!pathEndsWithSeparator) {
-                // Path didn't end with a separator but lastPathSegment did
-                return path + lastPathSegment;
-            } else {
-                // Need to remove separator from at least one of the arguments
-                lastPathSegment = lastPathSegment.substring(1);
-            }
+        String[] parts = lastPathSegment.split(File.separator);
+        List<String> newParts = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            if (part.isEmpty() || part.equals(".")) continue;
+            newParts.add(part);
         }
-        // lastPathSegment does not have a separator
-        if (pathEndsWithSeparator) {
-            return path + lastPathSegment;
-        } else return path + File.separator + lastPathSegment;
+        String name = TextUtils.join(File.separator, newParts);
+        if (name.isEmpty()) {
+            return path;
+        }
+        if (path.endsWith(File.separator)) {
+            return path + name;
+        }
+        return path + File.separator + name;
     }
 
     @AnyThread
     @NonNull
     public static String trimPathExtension(@NonNull String path) {
-        String filename = getLastPathSegment(path);
-        int lastIndexOfDot = filename.lastIndexOf('.');
-        int lastIndexOfPath = filename.length() - 1;
-        if (lastIndexOfDot == 0 || lastIndexOfDot == -1 || lastIndexOfDot == lastIndexOfPath) {
-            return path;
+        if (path.isEmpty()) {
+            return "";
         }
-        return path.substring(0, path.lastIndexOf('.'));
+        boolean isAbsolute = path.startsWith(File.separator);
+        String[] parts = path.split(File.separator);
+        Stack<String> newParts = new Stack<>();
+        for (String part : parts) {
+            if (part.isEmpty() || part.equals(".")) continue;
+            newParts.push(part);
+        }
+        if (newParts.isEmpty()) {
+            return isAbsolute ? File.separator : "";
+        }
+        String lastPart = newParts.peek();
+        if (!lastPart.equals("..")) {
+            int lastIndexOfDot = lastPart.lastIndexOf('.');
+            int lastIndexOfPath = lastPart.length() - 1;
+            if (lastIndexOfDot != 0 && lastIndexOfDot != -1 && lastIndexOfDot != lastIndexOfPath) {
+                newParts.pop();
+                newParts.push(lastPart.substring(0, lastIndexOfDot));
+            }
+        }
+        path = TextUtils.join(File.separator, newParts);
+        if (isAbsolute) {
+            return File.separator + path;
+        }
+        return path;
     }
 
     @AnyThread
@@ -303,7 +342,7 @@ public final class Paths {
     @AnyThread
     @Nullable
     public static String getPathExtension(@NonNull String path, boolean forceLowercase) {
-        String str = Paths.getLastPathSegment(path);
+        String str = getLastPathSegment(path);
         int lastIndexOfDot = str.lastIndexOf('.');
         if (lastIndexOfDot == -1 || lastIndexOfDot == str.length() - 1) return null;
         String extension = str.substring(lastIndexOfDot + 1);
@@ -314,7 +353,7 @@ public final class Paths {
         return new Uri.Builder()
                 .scheme(uri.getScheme())
                 .authority(uri.getAuthority())
-                .path(getSanitizedPath(uri.getPath() + File.separator + lastPathSegment, false))
+                .path(sanitize(uri.getPath() + File.separator + lastPathSegment, false))
                 .build();
     }
 
@@ -324,7 +363,7 @@ public final class Paths {
         return new Uri.Builder()
                 .scheme(uri.getScheme())
                 .authority(uri.getAuthority())
-                .path(Paths.removeLastPathSegment(path))
+                .path(removeLastPathSegment(path))
                 .build();
     }
 
@@ -511,7 +550,7 @@ public final class Paths {
 
     public static boolean isUnderFilter(@NonNull Path file, @Nullable Path basePath, @Nullable Pattern[] filters) {
         if (filters == null) return true;
-        String fileStr = basePath == null ? file.getUri().getPath() : getRelativePath(file, basePath);
+        String fileStr = basePath == null ? file.getUri().getPath() : relativePath(file, basePath);
         for (Pattern filter : filters) {
             if (filter.matcher(fileStr).matches()) return true;
         }
@@ -520,7 +559,7 @@ public final class Paths {
 
     public static boolean willExclude(@NonNull Path file, @Nullable Path basePath, @Nullable Pattern[] exclude) {
         if (exclude == null) return false;
-        String fileStr = basePath == null ? file.getUri().getPath() : getRelativePath(file, basePath);
+        String fileStr = basePath == null ? file.getUri().getPath() : relativePath(file, basePath);
         for (Pattern excludeRegex : exclude) {
             if (excludeRegex.matcher(fileStr).matches()) return true;
         }
@@ -528,19 +567,20 @@ public final class Paths {
     }
 
     @NonNull
-    public static String getRelativePath(@NonNull Path file, @NonNull Path basePath) {
-        return getRelativePath(file, basePath, File.separator);
+    public static String relativePath(@NonNull Path file, @NonNull Path basePath) {
+        String baseDir = basePath.getUri().getPath() + (basePath.isDirectory() ? File.separator : "");
+        String targetPath = file.getUri().getPath() + (file.isDirectory() ? File.separator : "");
+        return relativePath(targetPath, baseDir);
     }
 
     @NonNull
-    public static String getRelativePath(@NonNull Path file, @NonNull Path basePath, @NonNull String separator) {
-        String baseDir = basePath.getUri().getPath() + (basePath.isDirectory() ? separator : "");
-        String targetPath = file.getUri().getPath() + (file.isDirectory() ? separator : "");
-        return getRelativePath(targetPath, baseDir, separator);
+    public static String relativePath(@NonNull String targetPath, @NonNull String baseDir) {
+        return relativePath(targetPath, baseDir, File.separator);
     }
 
+    @VisibleForTesting
     @NonNull
-    public static String getRelativePath(@NonNull String targetPath, @NonNull String baseDir, @NonNull String separator) {
+    public static String relativePath(@NonNull String targetPath, @NonNull String baseDir, @NonNull String separator) {
         String[] base = baseDir.split(Pattern.quote(separator));
         String[] target = targetPath.split(Pattern.quote(separator));
 

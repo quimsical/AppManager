@@ -21,10 +21,8 @@ import com.android.apksig.ApkVerifier;
 import com.android.apksig.apk.ApkFormatException;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -42,7 +40,9 @@ import io.github.muntashirakon.AppManager.scanner.vt.VirusTotal;
 import io.github.muntashirakon.AppManager.scanner.vt.VtFileReport;
 import io.github.muntashirakon.AppManager.scanner.vt.VtFileScanMeta;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
+import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
+import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
 import io.github.muntashirakon.io.IoUtils;
@@ -82,6 +82,7 @@ public class ScannerViewModel extends AndroidViewModel implements VirusTotal.Ful
     private final MutableLiveData<VtFileScanMeta> mVtFileScanMetaLiveData = new MutableLiveData<>();
     // Null = Failed, NonNull = Result generated
     private final MutableLiveData<VtFileReport> mVtFileReportLiveData = new MutableLiveData<>();
+    private final MutableLiveData<String> mPithusReportLiveData = new MutableLiveData<>();
 
     public ScannerViewModel(@NonNull Application application) {
         super(application);
@@ -115,7 +116,7 @@ public class ScannerViewModel extends AndroidViewModel implements VirusTotal.Ful
             }
         });
         // Generate APK checksums
-        mExecutor.submit(this::generateApkChecksumsAndScanInVirusTotal);
+        mExecutor.submit(this::generateApkChecksumsAndFetchScanReports);
         // Verify APK
         mExecutor.submit(this::loadApkVerifierResult);
         // Load package info
@@ -165,6 +166,10 @@ public class ScannerViewModel extends AndroidViewModel implements VirusTotal.Ful
 
     public LiveData<VtFileScanMeta> vtFileScanMetaLiveData() {
         return mVtFileScanMetaLiveData;
+    }
+
+    public LiveData<String> getPithusReportLiveData() {
+        return mPithusReportLiveData;
     }
 
     public List<String> getTrackerClasses() {
@@ -227,18 +232,26 @@ public class ScannerViewModel extends AndroidViewModel implements VirusTotal.Ful
     }
 
     @WorkerThread
-    private void generateApkChecksumsAndScanInVirusTotal() {
+    private void generateApkChecksumsAndFetchScanReports() {
         waitForFile();
-        Pair<String, String>[] digests = DigestUtils.getDigests(Paths.getUnprivileged(mApkFile));
-        mApkChecksumsLiveData.postValue(digests);
-        if (mVt == null) return;
-        String md5 = digests[0].second;
-        try (InputStream is = new FileInputStream(mApkFile)) {
-            mVt.fetchReportsOrScan(mApkFile.getName(), mApkFile.length(), is, md5, this);
+        String pithusReportUrl = null;
+        try {
+            Path file = Paths.getUnprivileged(mApkFile);
+            Pair<String, String>[] digests = DigestUtils.getDigests(file);
+            mApkChecksumsLiveData.postValue(digests);
+            if (FeatureController.isInternetEnabled()) {
+                String md5 = digests[0].second;
+                String sha256 = digests[2].second;
+                pithusReportUrl = ExUtils.exceptionAsNull(() -> Pithus.resolveReport(sha256));
+                if (mVt == null) return;
+                mVt.fetchReportsOrScan(file, md5, this);
+            }
         } catch (IOException e) {
             e.printStackTrace();
+            mApkChecksumsLiveData.postValue(null);
             mVtFileReportLiveData.postValue(null);
         }
+        mPithusReportLiveData.postValue(pithusReportUrl);
     }
 
     private void loadApkVerifierResult() {

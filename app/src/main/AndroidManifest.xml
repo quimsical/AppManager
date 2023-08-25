@@ -189,7 +189,7 @@
         <activity
             android:name=".editor.CodeEditorActivity"
             android:label="@string/title_code_editor"
-            android:configChanges="orientation|keyboardHidden|screenSize|uiMode"
+            android:configChanges="keyboard|keyboardHidden|locale|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:taskAffinity=".editor.CodeEditorActivity"
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
@@ -533,7 +533,7 @@
             android:excludeFromRecents="true"
             android:exported="true"
             android:label="@string/install"
-            android:launchMode="singleTop"
+            android:launchMode="singleInstance"
             android:taskAffinity=""
             android:theme="@style/AppTheme.TransparentBackground">
             <intent-filter>
@@ -880,7 +880,15 @@
             android:exported="false" />
         <activity
             android:name=".apk.behavior.FreezeUnfreezeActivity"
-            android:taskAffinity=""
+            android:taskAffinity=".apk.behavior.FreezeUnfreezeActivity"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/AppTheme.TransparentBackground" />
+        <activity
+            android:name=".profiles.ProfileApplierActivity"
+            android:taskAffinity=".profiles.ProfileApplierActivity"
             android:launchMode="singleInstance"
             android:noHistory="true"
             android:excludeFromRecents="true"
@@ -950,7 +958,48 @@
             android:name=".fm.FmActivity"
             android:exported="true"
             android:label="@string/files"
-            android:taskAffinity=".fm.FmActivity" />
+            android:icon="@mipmap/ic_launcher_fm"
+            android:roundIcon="@mipmap/ic_launcher_fm_round"
+            android:taskAffinity=".fm.FmActivity">
+            <intent-filter android:label="@string/browse_files">
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="org.openintents.action.VIEW_DIRECTORY" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:mimeType="inode/directory" />
+                <data android:mimeType="resource/folder" />
+                <data android:mimeType="vnd.android.document/directory" />
+                <data android:mimeType="vnd.android.cursor.dir/*" />
+                <data android:mimeType="x-directory/normal" />
+                <data
+                    android:scheme=""
+                    tools:ignore="AppLinkUrlError" />
+                <data android:scheme="file" />
+                <data android:scheme="folder" />
+                <data android:scheme="directory" />
+                <data android:scheme="content" />
+            </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name=".fm.FilesActivity"
+            android:targetActivity=".fm.FmActivity"
+            android:label="@string/files"
+            android:icon="@mipmap/ic_launcher_fm"
+            android:roundIcon="@mipmap/ic_launcher_fm_round"
+            android:enabled="false"
+            android:exported="true"
+            android:taskAffinity=".fm.FmActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name=".fm.OpenWithActivity"
             android:label="@string/file_open_with"
@@ -958,7 +1007,7 @@
             android:theme="@style/AppTheme.TransparentBackground" />
         <activity
             android:name=".viewer.audio.AudioPlayerActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/title_audio_player"
             android:excludeFromRecents="true"
             android:theme="@style/AppTheme.TransparentBackground"
@@ -993,6 +1042,17 @@
                 <data android:mimeType="vnd.android.cursor.dir/audio" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".DummyActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:enabled="true"
+            android:allowTaskReparenting="true"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:alwaysRetainTaskState="false"
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:finishOnTaskLaunch="true" />
 
         <service
             android:name=".apk.installer.PackageInstallerService"
@@ -1023,6 +1083,9 @@
         </service>
         <service
             android:name=".self.filecache.InternalCacheCleanerService"
+            android:exported="false" />
+        <service
+            android:name=".session.SessionMonitoringService"
             android:exported="false" />
 
         <receiver

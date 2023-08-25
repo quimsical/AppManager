@@ -19,6 +19,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
 import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
@@ -64,6 +65,7 @@ import io.github.rosemoe.sora.event.SelectionChangeEvent;
 import io.github.rosemoe.sora.lang.EmptyLanguage;
 import io.github.rosemoe.sora.lang.Language;
 import io.github.rosemoe.sora.langs.textmate.TextMateColorScheme;
+import io.github.rosemoe.sora.text.Content;
 import io.github.rosemoe.sora.text.Cursor;
 import io.github.rosemoe.sora.text.LineSeparator;
 import io.github.rosemoe.sora.widget.CodeEditor;
@@ -224,7 +226,7 @@ public class CodeEditorFragment extends Fragment {
                     if (uri == null) return;
                     int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION
                             | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                    saveFile(mEditor.getText().toString(), uri);
+                    saveFile(mEditor.getText(), uri);
                     if (takeFlags != 0) {
                         // Make this URI the current URI
                         mOptions = new Options.Builder(mOptions)
@@ -255,7 +257,7 @@ public class CodeEditorFragment extends Fragment {
                             requireActivity().onBackPressed();
                         })
                         .setNeutralButton(R.string.save_and_exit, (dialog, which) -> {
-                            saveFile(mEditor.getText().toString());
+                            saveFile(mEditor.getText());
                             setEnabled(false);
                             requireActivity().onBackPressed();
                         })
@@ -312,7 +314,8 @@ public class CodeEditorFragment extends Fragment {
                 new String[]{"⇥", "{", "}", "(", ")", ",", ".", ";", "\"", "?", "+", "-", "*", "/"},
                 new String[]{"\t", "{", "}", "(", ")", ",", ".", ";", "\"", "?", "+", "-", "*", "/"});
         mSymbolInputView.setTextColor(MaterialColors.getColor(mSymbolInputView, com.google.android.material.R.attr.colorOnSurface));
-        mSymbolInputView.setBackgroundColor(SurfaceColors.SURFACE_2.getColor(requireContext()));
+        mSymbolInputView.setBackground(null);
+        ((HorizontalScrollView) mSymbolInputView.getParent()).setBackgroundColor(SurfaceColors.SURFACE_2.getColor(requireContext()));
         mSymbolInputView.bindEditor(mEditor);
         if (mOptions.readOnly) {
             mSymbolInputView.setVisibility(View.GONE);
@@ -575,7 +578,7 @@ public class CodeEditorFragment extends Fragment {
             if (!mViewModel.isBackedByAFile()) {
                 launchIntentSaver();
             } else if (mViewModel.canWrite()) {
-                saveFile(mEditor.getText().toString());
+                saveFile(mEditor.getText());
             } else {
                 new MaterialAlertDialogBuilder(requireContext())
                         .setTitle(R.string.read_only_file)
@@ -599,7 +602,7 @@ public class CodeEditorFragment extends Fragment {
             }
             return true;
         } else if (id == R.id.action_java_smali_toggle) {
-            mViewModel.generateJava(mEditor.getText().toString());
+            mViewModel.generateJava(mEditor.getText());
         } else if (id == R.id.action_search) {
             if (mSearchWidget != null) {
                 // FIXME: 21/4/23 Ideally, search widget should have cross button to close it.
@@ -683,11 +686,11 @@ public class CodeEditorFragment extends Fragment {
         mSearchResultCount.setText(getResources().getQuantityString(R.plurals.search_results, count, count));
     }
 
-    private void saveFile(String content) {
+    private void saveFile(Content content) {
         saveFile(content, null);
     }
 
-    private void saveFile(String content, @Nullable Uri uri) {
+    private void saveFile(Content content, @Nullable Uri uri) {
         if (mViewModel == null) return;
         mViewModel.saveFile(content, uri == null ? null : Paths.get(uri));
     }

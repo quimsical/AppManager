@@ -13,7 +13,6 @@ import static io.github.muntashirakon.AppManager.utils.UIUtils.displayShortToast
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getBitmapFromDrawable;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getColoredText;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getDimmedBitmap;
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getSecondaryText;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getSmallerText;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.getStyledKeyValue;
 import static io.github.muntashirakon.AppManager.utils.Utils.openAsFolderInFM;
@@ -93,7 +92,7 @@ import io.github.muntashirakon.AppManager.accessibility.AccessibilityMultiplexer
 import io.github.muntashirakon.AppManager.accessibility.NoRootAccessibilityService;
 import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.ApkUtils;
-import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizationDialog;
+import io.github.muntashirakon.AppManager.apk.behavior.DexOptDialog;
 import io.github.muntashirakon.AppManager.apk.behavior.FreezeUnfreezeShortcutInfo;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerActivity;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat;
@@ -108,6 +107,7 @@ import io.github.muntashirakon.AppManager.compat.DomainVerificationManagerCompat
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
+import io.github.muntashirakon.AppManager.debloat.BloatwareDetailsDialog;
 import io.github.muntashirakon.AppManager.details.AppDetailsActivity;
 import io.github.muntashirakon.AppManager.details.AppDetailsFragment;
 import io.github.muntashirakon.AppManager.details.AppDetailsViewModel;
@@ -122,8 +122,7 @@ import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.magisk.MagiskDenyList;
 import io.github.muntashirakon.AppManager.magisk.MagiskHide;
 import io.github.muntashirakon.AppManager.magisk.MagiskProcess;
-import io.github.muntashirakon.AppManager.profiles.ProfileManager;
-import io.github.muntashirakon.AppManager.profiles.ProfileMetaManager;
+import io.github.muntashirakon.AppManager.profiles.AddToProfileDialogFragment;
 import io.github.muntashirakon.AppManager.rules.RulesTypeSelectionDialogFragment;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
 import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
@@ -138,6 +137,7 @@ import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
 import io.github.muntashirakon.AppManager.ssaid.ChangeSsaidDialog;
 import io.github.muntashirakon.AppManager.types.PackageSizeInfo;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
+import io.github.muntashirakon.AppManager.uri.GrantUriUtils;
 import io.github.muntashirakon.AppManager.usage.AppUsageStatsManager;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
@@ -434,20 +434,18 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         .setTitle(R.string.battery_optimization)
                         .setMessage(R.string.choose_what_to_do)
                         .setPositiveButton(R.string.enable, (dialog, which) -> {
-                            try {
-                                DeviceIdleManagerCompat.enableBatteryOptimization(mPackageName);
+                            if (DeviceIdleManagerCompat.enableBatteryOptimization(mPackageName)) {
                                 UIUtils.displayShortToast(R.string.done);
                                 refreshDetails();
-                            } catch (RemoteException e) {
+                            } else {
                                 UIUtils.displayShortToast(R.string.failed);
                             }
                         })
                         .setNegativeButton(R.string.disable, (dialog, which) -> {
-                            try {
-                                DeviceIdleManagerCompat.disableBatteryOptimization(mPackageName);
+                            if (DeviceIdleManagerCompat.disableBatteryOptimization(mPackageName)) {
                                 UIUtils.displayShortToast(R.string.done);
                                 refreshDetails();
-                            } catch (RemoteException e) {
+                            } else {
                                 UIUtils.displayShortToast(R.string.failed);
                             }
                         })
@@ -509,10 +507,10 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             });
         } else if (itemId == R.id.action_install) {
             List<UserInfo> users = Users.getUsers();
-            String[] userNames = new String[users.size()];
+            CharSequence[] userNames = new String[users.size()];
             int i = 0;
             for (UserInfo info : users) {
-                userNames[i++] = info.name == null ? String.valueOf(info.id) : info.name;
+                userNames[i++] = info.toLocalizedString(requireContext());
             }
             new SearchableItemsDialogBuilder<>(mActivity, userNames)
                     .setTitle(R.string.select_user)
@@ -523,31 +521,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     .setNegativeButton(R.string.cancel, null)
                     .show();
         } else if (itemId == R.id.action_add_to_profile) {
-            List<ProfileMetaManager> profiles = ProfileManager.getProfileMetadata();
-            List<CharSequence> profileNames = new ArrayList<>(profiles.size());
-            for (ProfileMetaManager profileMetaManager : profiles) {
-                profileNames.add(new SpannableStringBuilder(profileMetaManager.getProfileName()).append("\n")
-                        .append(getSecondaryText(mActivity, getSmallerText(profileMetaManager.toLocalizedString(mActivity)))));
-            }
-            new SearchableMultiChoiceDialogBuilder<>(mActivity, profiles, profileNames)
-                    .setTitle(R.string.add_to_profile)
-                    .setNegativeButton(R.string.cancel, null)
-                    .setPositiveButton(R.string.add, (dialog, which, selectedItems) -> {
-                        for (ProfileMetaManager metaManager : selectedItems) {
-                            try {
-                                metaManager.appendPackages(Collections.singletonList(mPackageName));
-                                metaManager.writeProfile();
-                            } catch (Throwable e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    })
-                    .show();
+            AddToProfileDialogFragment dialog = AddToProfileDialogFragment.getInstance(new String[]{mPackageName});
+            dialog.show(getChildFragmentManager(), AddToProfileDialogFragment.TAG);
         } else if (itemId == R.id.action_optimize) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
                     && (SelfPermissions.isSystemOrRootOrShell() || BuildConfig.APPLICATION_ID.equals(mInstallerPackageName))) {
-                DexOptimizationDialog dialog = DexOptimizationDialog.getInstance(new String[]{mPackageName});
-                dialog.show(getChildFragmentManager(), DexOptimizationDialog.TAG);
+                DexOptDialog dialog = DexOptDialog.getInstance(new String[]{mPackageName});
+                dialog.show(getChildFragmentManager(), DexOptDialog.TAG);
             } else UIUtils.displayShortToast(R.string.only_works_in_root_or_adb_mode);
         } else return super.onOptionsItemSelected(item);
         return true;
@@ -600,16 +580,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     }
 
     private void install() {
-        if (mMainModel == null) return;
-        int apkFileKey = mMainModel.getApkFileKey();
+        ApkFile.ApkSource apkSource = mMainModel != null ? mMainModel.getApkSource() : null;
+        if (apkSource == null) return;
         try {
-            // Reserve ApkFile in case the activity is destroyed
-            ApkFile.getInAdvance(apkFileKey);
-            startActivity(PackageInstallerActivity.getLaunchableInstance(requireContext(), apkFileKey));
+            startActivity(PackageInstallerActivity.getLaunchableInstance(requireContext(), apkSource));
         } catch (Exception e) {
-            // Error occurred, so the APK file wasn't used by the installer.
-            // Close the APK file to remove one instance.
-            ApkFile.getInstance(apkFileKey).close();
+            e.printStackTrace();
+            UIUtils.displayLongToast("Error: " + e.getMessage());
         }
     }
 
@@ -685,18 +662,20 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         if (tagCloud.splitCount > 0) {
             addChip(getResources().getQuantityString(R.plurals.no_of_splits, tagCloud.splitCount,
                     tagCloud.splitCount)).setOnClickListener(v -> {
-                try (ApkFile apkFile = ApkFile.getInstance(mMainModel.getApkFileKey())) {
-                    // Display a list of apks
-                    List<ApkFile.Entry> apkEntries = apkFile.getEntries();
-                    CharSequence[] entryNames = new CharSequence[tagCloud.splitCount];
-                    for (int i = 0; i < tagCloud.splitCount; ++i) {
-                        entryNames[i] = apkEntries.get(i + 1).toLocalizedString(mActivity);
-                    }
-                    new SearchableItemsDialogBuilder<>(mActivity, entryNames)
-                            .setTitle(R.string.splits)
-                            .setNegativeButton(R.string.close, null)
-                            .show();
+                ApkFile apkFile = mMainModel.getApkFile();
+                if (apkFile == null) {
+                    return;
                 }
+                // Display a list of apks
+                List<ApkFile.Entry> apkEntries = apkFile.getEntries();
+                CharSequence[] entryNames = new CharSequence[tagCloud.splitCount];
+                for (int i = 0; i < tagCloud.splitCount; ++i) {
+                    entryNames[i] = apkEntries.get(i + 1).toLocalizedString(mActivity);
+                }
+                new SearchableItemsDialogBuilder<>(mActivity, entryNames)
+                        .setTitle(R.string.splits)
+                        .setNegativeButton(R.string.close, null)
+                        .show();
             });
         }
         if (tagCloud.isDebuggable) {
@@ -827,6 +806,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                     .setNegativeButton(R.string.close, null)
                                     .show());
         }
+        if (tagCloud.isBloatware) {
+            addChip("Bloatware", ColorCodes.getBloatwareIndicatorColor(mActivity))
+                    .setOnClickListener(v -> {
+                        BloatwareDetailsDialog dialog = BloatwareDetailsDialog.getInstance(mPackageName);
+                        dialog.show(getChildFragmentManager(), BloatwareDetailsDialog.TAG);
+                    });
+        }
         if (tagCloud.hasKeyStoreItems) {
             Chip chip;
             if (tagCloud.hasMasterKeyInKeyStore) {
@@ -856,11 +842,10 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         .setMessage(R.string.enable_battery_optimization)
                         .setNegativeButton(R.string.no, null)
                         .setPositiveButton(R.string.yes, (dialog, which) -> {
-                            try {
-                                DeviceIdleManagerCompat.enableBatteryOptimization(mPackageName);
+                            if (DeviceIdleManagerCompat.enableBatteryOptimization(mPackageName)) {
                                 UIUtils.displayShortToast(R.string.done);
                                 refreshDetails();
-                            } catch (RemoteException e) {
+                            } else {
                                 UIUtils.displayShortToast(R.string.failed);
                             }
                         })
@@ -890,10 +875,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             addChip(R.string.saf).setOnClickListener(v -> {
                 CharSequence[] uriGrants = new CharSequence[tagCloud.uriGrants.size()];
                 for (int i = 0; i < tagCloud.uriGrants.size(); ++i) {
-                    uriGrants[i] = tagCloud.uriGrants.get(i).uri.toString();
+                    uriGrants[i] = GrantUriUtils.toLocalisedString(mActivity, tagCloud.uriGrants.get(i).uri);
                 }
                 new SearchableItemsDialogBuilder<>(mActivity, uriGrants)
                         .setTitle(R.string.saf)
+                        .setTextSelectable(true)
+                        .setListBackgroundColorOdd(ColorCodes.getListItemColor0(mActivity))
+                        .setListBackgroundColorEven(ColorCodes.getListItemColor1(mActivity))
                         .setNegativeButton(R.string.close, null)
                         .show();
             });
@@ -906,6 +894,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                     .setMessage(R.string.uses_play_app_signing_description)
                                     .setNegativeButton(R.string.close, null)
                                     .show());
+        }
+        if (tagCloud.xposedModuleInfo != null) {
+            addChip("Xposed").setOnClickListener(v -> new ScrollableDialogBuilder(mActivity)
+                    .setTitle(R.string.xposed_module_info)
+                    .setMessage(tagCloud.xposedModuleInfo.toLocalizedString(mActivity))
+                    .setNegativeButton(R.string.close, null)
+                    .show());
         }
         if (tagCloud.staticSharedLibraryNames != null) {
             addChip(R.string.static_shared_library).setOnClickListener(v -> new SearchableMultiChoiceDialogBuilder<>(mActivity, tagCloud.staticSharedLibraryNames, tagCloud.staticSharedLibraryNames)
@@ -1229,12 +1224,9 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     // Needs update
                     addToHorizontalLayout(R.string.whats_new, io.github.muntashirakon.ui.R.drawable.ic_information)
                             .setOnClickListener(v -> {
-                                Bundle args = new Bundle();
-                                args.putParcelable(WhatsNewDialogFragment.ARG_NEW_PKG_INFO, mPackageInfo);
-                                args.putParcelable(WhatsNewDialogFragment.ARG_OLD_PKG_INFO, mInstalledPackageInfo);
-                                WhatsNewDialogFragment dialogFragment = new WhatsNewDialogFragment();
-                                dialogFragment.setArguments(args);
-                                dialogFragment.show(mActivity.getSupportFragmentManager(), WhatsNewDialogFragment.TAG);
+                                WhatsNewDialogFragment dialogFragment = WhatsNewDialogFragment
+                                        .getInstance(mPackageInfo, mInstalledPackageInfo);
+                                dialogFragment.show(getChildFragmentManager(), WhatsNewDialogFragment.TAG);
                             });
                     addToHorizontalLayout(R.string.update, R.drawable.ic_get_app).setOnClickListener(v -> install());
                 } else if (installedVersionCode == thisVersionCode) {
@@ -1356,34 +1348,33 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     @UiThread
     private void startActivityForSplit(Intent intent) {
         if (mMainModel == null) return;
-        try (ApkFile apkFile = ApkFile.getInstance(mMainModel.getApkFileKey())) {
-            if (apkFile.isSplit()) {
-                // Display a list of apks
-                List<ApkFile.Entry> apkEntries = apkFile.getEntries();
-                CharSequence[] entryNames = new CharSequence[apkEntries.size()];
-                for (int i = 0; i < apkEntries.size(); ++i) {
-                    entryNames[i] = apkEntries.get(i).toShortLocalizedString(requireActivity());
-                }
-                new SearchableItemsDialogBuilder<>(mActivity, entryNames)
-                        .setTitle(R.string.select_apk)
-                        .setOnItemClickListener((dialog, which, item) -> mExecutor.submit(() -> {
-                            try {
-                                File file = apkEntries.get(which).getRealCachedFile();
-                                intent.setDataAndType(Uri.fromFile(file), MimeTypeMap.getSingleton()
-                                        .getMimeTypeFromExtension("apk"));
-                                ThreadUtils.postOnMainThread(() -> startActivity(intent));
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }))
-                        .setNegativeButton(R.string.cancel, null)
-                        .show();
-            } else {
-                // Open directly
-                File file = new File(mApplicationInfo.publicSourceDir);
-                intent.setDataAndType(Uri.fromFile(file), MimeTypeMap.getSingleton().getMimeTypeFromExtension("apk"));
-                startActivity(intent);
+        ApkFile apkFile = mMainModel.getApkFile();
+        if (apkFile != null && apkFile.isSplit()) {
+            // Display a list of apks
+            List<ApkFile.Entry> apkEntries = apkFile.getEntries();
+            CharSequence[] entryNames = new CharSequence[apkEntries.size()];
+            for (int i = 0; i < apkEntries.size(); ++i) {
+                entryNames[i] = apkEntries.get(i).toShortLocalizedString(requireActivity());
             }
+            new SearchableItemsDialogBuilder<>(mActivity, entryNames)
+                    .setTitle(R.string.select_apk)
+                    .setOnItemClickListener((dialog, which, item) -> mExecutor.submit(() -> {
+                        try {
+                            File file = apkEntries.get(which).getFile(false);
+                            intent.setDataAndType(Uri.fromFile(file), MimeTypeMap.getSingleton()
+                                    .getMimeTypeFromExtension("apk"));
+                            ThreadUtils.postOnMainThread(() -> startActivity(intent));
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }))
+                    .setNegativeButton(R.string.cancel, null)
+                    .show();
+        } else {
+            // Open directly
+            File file = new File(mApplicationInfo.publicSourceDir);
+            intent.setDataAndType(Uri.fromFile(file), MimeTypeMap.getSingleton().getMimeTypeFromExtension("apk"));
+            startActivity(intent);
         }
     }
 

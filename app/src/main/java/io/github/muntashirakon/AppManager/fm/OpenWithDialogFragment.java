@@ -147,7 +147,7 @@ public class OpenWithDialogFragment extends DialogFragment {
         mAdapter.setIntent(getIntent(mPath, mCustomType));
         mDialogView = View.inflate(requireActivity(), R.layout.dialog_open_with, null);
         mSearchView = mDialogView.findViewById(io.github.muntashirakon.ui.R.id.action_search);
-        mSearchView.setOnQueryTextListener(new androidx.appcompat.widget.SearchView.OnQueryTextListener() {
+        mSearchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
             public boolean onQueryTextSubmit(String query) {
                 return false;
@@ -224,9 +224,7 @@ public class OpenWithDialogFragment extends DialogFragment {
             mViewModel.getMatchingActivitiesLiveData().observe(getViewLifecycleOwner(), matchingActivities -> {
                 mAdapter.setDefaultList(matchingActivities);
                 // Don't display search bar if items are less than 6
-                if (matchingActivities.size() < 6) {
-                    mSearchView.setVisibility(View.GONE);
-                }
+                mSearchView.setVisibility(matchingActivities.size() < 6 ? View.GONE : View.VISIBLE);
             });
             mViewModel.getPathContentInfoLiveData().observe(getViewLifecycleOwner(), pathContentInfo -> {
                 if (mAdapter != null) {

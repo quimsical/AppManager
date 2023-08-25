@@ -16,7 +16,9 @@ import androidx.core.os.ParcelCompat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
+import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.intercept.IntentCompat;
 
 public class ApkQueueItem implements Parcelable {
@@ -34,65 +36,41 @@ public class ApkQueueItem implements Parcelable {
         }
         String mimeType = intent.getType();
         for (Uri uri : uris) {
-            apkQueueItems.add(new ApkQueueItem(uri, mimeType));
+            apkQueueItems.add(new ApkQueueItem(new ApkFile.ApkSource(uri, mimeType)));
         }
         return apkQueueItems;
     }
 
     @Nullable
-    private Uri mUri;
-    @Nullable
     private String mPackageName;
     @Nullable
     private String mAppLabel;
-    @Nullable
-    private String mMimeType;
     private boolean mInstallExisting;
-    private int mApkFileKey = -1;
-    private int mUserId;
-
-    ApkQueueItem(@NonNull Uri uri, @Nullable String mimeType) {
-        mUri = uri;
-        mMimeType = mimeType;
-    }
+    @Nullable
+    private ApkFile.ApkSource mApkSource;
+    @Nullable
+    private InstallerOptions mInstallerOptions;
+    @Nullable
+    private ArrayList<String> mSelectedSplits;
 
     ApkQueueItem(@NonNull String packageName, boolean installExisting) {
-        mPackageName = packageName;
+        mPackageName = Objects.requireNonNull(packageName);
         mInstallExisting = installExisting;
         assert installExisting;
     }
 
-    ApkQueueItem(int apkFileKey) {
-        mApkFileKey = apkFileKey;
-        assert apkFileKey != -1;
+    ApkQueueItem(@NonNull ApkFile.ApkSource apkSource) {
+        mApkSource = Objects.requireNonNull(apkSource);
     }
 
     protected ApkQueueItem(@NonNull Parcel in) {
-        mUri = ParcelCompat.readParcelable(in, Uri.class.getClassLoader(), Uri.class);
         mPackageName = in.readString();
         mAppLabel = in.readString();
-        mMimeType = in.readString();
         mInstallExisting = in.readByte() != 0;
-        mApkFileKey = in.readInt();
-        mUserId = in.readInt();
-    }
-
-    @Nullable
-    public Uri getUri() {
-        return mUri;
-    }
-
-    public void setUri(@Nullable Uri uri) {
-        mUri = uri;
-    }
-
-    @Nullable
-    public String getMimeType() {
-        return mMimeType;
-    }
-
-    public void setMimeType(@Nullable String mimeType) {
-        mMimeType = mimeType;
+        mApkSource = ParcelCompat.readParcelable(in, ApkFile.ApkSource.class.getClassLoader(), ApkFile.ApkSource.class);
+        mInstallerOptions = ParcelCompat.readParcelable(in, InstallerOptions.class.getClassLoader(), InstallerOptions.class);
+        mSelectedSplits = new ArrayList<>();
+        in.readStringList(mSelectedSplits);
     }
 
     @Nullable
@@ -112,20 +90,31 @@ public class ApkQueueItem implements Parcelable {
         return mInstallExisting;
     }
 
-    public int getApkFileKey() {
-        return mApkFileKey;
+    @Nullable
+    public ApkFile.ApkSource getApkSource() {
+        return mApkSource;
     }
 
-    public void setApkFileKey(int apkFileKey) {
-        mApkFileKey = apkFileKey;
+    public void setApkSource(@Nullable ApkFile.ApkSource apkSource) {
+        mApkSource = apkSource;
     }
 
-    public int getUserId() {
-        return mUserId;
+    @Nullable
+    public InstallerOptions getInstallerOptions() {
+        return mInstallerOptions;
     }
 
-    public void setUserId(int userId) {
-        mUserId = userId;
+    public void setInstallerOptions(InstallerOptions installerOptions) {
+        mInstallerOptions = installerOptions;
+    }
+
+    public void setSelectedSplits(@NonNull ArrayList<String> selectedSplits) {
+        mSelectedSplits = selectedSplits;
+    }
+
+    @Nullable
+    public ArrayList<String> getSelectedSplits() {
+        return mSelectedSplits;
     }
 
     @Nullable
@@ -144,13 +133,12 @@ public class ApkQueueItem implements Parcelable {
 
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
-        dest.writeParcelable(mUri, flags);
         dest.writeString(mPackageName);
         dest.writeString(mAppLabel);
-        dest.writeString(mMimeType);
         dest.writeByte((byte) (mInstallExisting ? 1 : 0));
-        dest.writeInt(mApkFileKey);
-        dest.writeInt(mUserId);
+        dest.writeParcelable(mApkSource, flags);
+        dest.writeParcelable(mInstallerOptions, flags);
+        dest.writeStringList(mSelectedSplits);
     }
 
     public static final Creator<ApkQueueItem> CREATOR = new Creator<ApkQueueItem>() {

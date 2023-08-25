@@ -2,9 +2,6 @@
 
 package io.github.muntashirakon.AppManager.main;
 
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getSecondaryText;
-import static io.github.muntashirakon.AppManager.utils.UIUtils.getSmallerText;
-
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -13,7 +10,6 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
-import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.Menu;
@@ -47,6 +43,7 @@ import java.util.List;
 import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.apk.behavior.DexOptDialog;
 import io.github.muntashirakon.AppManager.apk.list.ListExporter;
 import io.github.muntashirakon.AppManager.backup.dialog.BackupRestoreDialogFragment;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
@@ -60,8 +57,7 @@ import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.misc.HelpActivity;
 import io.github.muntashirakon.AppManager.misc.LabsActivity;
 import io.github.muntashirakon.AppManager.oneclickops.OneClickOpsActivity;
-import io.github.muntashirakon.AppManager.profiles.ProfileManager;
-import io.github.muntashirakon.AppManager.profiles.ProfileMetaManager;
+import io.github.muntashirakon.AppManager.profiles.AddToProfileDialogFragment;
 import io.github.muntashirakon.AppManager.profiles.ProfilesActivity;
 import io.github.muntashirakon.AppManager.rules.RulesTypeSelectionDialogFragment;
 import io.github.muntashirakon.AppManager.runningapps.RunningAppsActivity;
@@ -80,13 +76,13 @@ import io.github.muntashirakon.dialog.ScrollableDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableSingleChoiceDialogBuilder;
 import io.github.muntashirakon.io.Paths;
-import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 import io.github.muntashirakon.util.UiUtils;
 import io.github.muntashirakon.widget.MultiSelectionView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
 public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQueryTextListener,
-        SwipeRefreshLayout.OnRefreshListener, ReflowMenuViewWrapper.OnItemSelectedListener {
+        SwipeRefreshLayout.OnRefreshListener, MultiSelectionActionsView.OnItemSelectedListener {
     private static final String PACKAGE_NAME_APK_UPDATER = "com.apkupdater";
     private static final String ACTIVITY_NAME_APK_UPDATER = "com.apkupdater.activity.MainActivity";
 
@@ -397,6 +393,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                         handleBatchOp(BatchOpsManager.OP_NET_POLICY, args);
                     })
                     .show();
+        } else if (id == R.id.action_optimize) {
+            DexOptDialog dialog = DexOptDialog.getInstance(viewModel.getSelectedPackages().keySet().toArray(new String[0]));
+            dialog.show(getSupportFragmentManager(), DexOptDialog.TAG);
         } else if (id == R.id.action_export_blocking_rules) {
             final String fileName = "app_manager_rules_export-" + DateUtils.formatDateTime(this, System.currentTimeMillis()) + ".am.tsv";
             mBatchExportRules.launch(fileName);
@@ -428,27 +427,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         } else if (id == R.id.action_uninstall) {
             handleBatchOpWithWarning(BatchOpsManager.OP_UNINSTALL);
         } else if (id == R.id.action_add_to_profile) {
-            List<ProfileMetaManager> profiles = ProfileManager.getProfileMetadata();
-            List<CharSequence> profileNames = new ArrayList<>(profiles.size());
-            for (ProfileMetaManager profileMetaManager : profiles) {
-                profileNames.add(new SpannableStringBuilder(profileMetaManager.getProfileName()).append("\n")
-                        .append(getSecondaryText(this, getSmallerText(profileMetaManager.toLocalizedString(this)))));
-            }
-            new SearchableMultiChoiceDialogBuilder<>(this, profiles, profileNames)
-                    .setTitle(R.string.add_to_profile)
-                    .setNegativeButton(R.string.cancel, null)
-                    .setPositiveButton(R.string.add, (dialog, which, selectedItems) -> {
-                        for (ProfileMetaManager metaManager : selectedItems) {
-                            try {
-                                metaManager.appendPackages(viewModel.getSelectedPackages().keySet());
-                                metaManager.writeProfile();
-                            } catch (Throwable e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        UIUtils.displayShortToast(R.string.done);
-                    })
-                    .show();
+            AddToProfileDialogFragment dialog = AddToProfileDialogFragment.getInstance(viewModel.getSelectedPackages()
+                    .keySet().toArray(new String[0]));
+            dialog.show(getSupportFragmentManager(), AddToProfileDialogFragment.TAG);
         } else {
             return false;
         }
@@ -495,7 +476,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         if (viewModel != null) viewModel.onResume();
         if (mAdapter != null && mBatchOpsHandler != null && mAdapter.isInSelectionMode()) {
             mBatchOpsHandler.updateConstraints();
-            mBatchOpsHandler.onSelectionChange(0); // count is irrelevant
+            mMultiSelectionView.updateCounter(false);
         }
         registerReceiver(mBatchOpsBroadCastReceiver, new IntentFilter(BatchOpsService.ACTION_BATCH_OPS_COMPLETED));
     }

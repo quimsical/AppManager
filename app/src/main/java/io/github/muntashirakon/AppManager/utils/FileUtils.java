@@ -53,33 +53,15 @@ public final class FileUtils {
         return header == 0x504B0304 || header == 0x504B0506 || header == 0x504B0708;
     }
 
-    @WorkerThread
-    @NonNull
-    public static Path saveZipFile(@NonNull InputStream zipInputStream,
-                                   @NonNull Path destinationDirectory,
-                                   @NonNull String fileName)
-            throws IOException {
-        return saveZipFile(zipInputStream, destinationDirectory.findOrCreateFile(fileName, null));
-    }
-
-    @WorkerThread
-    @NonNull
-    public static Path saveZipFile(@NonNull InputStream zipInputStream, @NonNull Path filePath) throws IOException {
-        try (OutputStream outputStream = filePath.openOutputStream()) {
-            IoUtils.copy(zipInputStream, outputStream, -1, null);
-        }
-        return filePath;
-    }
-
     @AnyThread
     @NonNull
-    public static String getFileNameFromZipEntry(@NonNull ZipEntry zipEntry) {
+    public static String getFilenameFromZipEntry(@NonNull ZipEntry zipEntry) {
         return Paths.getLastPathSegment(zipEntry.getName());
     }
 
     @AnyThread
     @Nullable
-    public static String getSanitizedFileName(@NonNull String fileName, boolean replaceSpace) {
+    public static String getSanitizedFilename(@NonNull String fileName, boolean replaceSpace) {
         if (fileName.equals(".") || fileName.equals("..")) {
             return null;
         }
@@ -113,7 +95,7 @@ public final class FileUtils {
     public static void deleteSilently(@Nullable Path path) {
         if (path == null || !path.exists()) return;
         if (!path.delete()) {
-            Log.w(TAG, String.format("Unable to delete %s", path));
+            Log.w(TAG, "Unable to delete %s", path);
         }
     }
 
@@ -121,7 +103,7 @@ public final class FileUtils {
     public static void deleteSilently(@Nullable File file) {
         if (!Paths.exists(file)) return;
         if (!file.delete()) {
-            Log.w(TAG, String.format("Unable to delete %s", file.getAbsoluteFile()));
+            Log.w(TAG, "Unable to delete %s", file);
         }
     }
 
@@ -189,11 +171,11 @@ public final class FileUtils {
                 continue;
             }
             if (!(extDir.exists() || extDir.mkdirs())) {
-                Log.w(TAG, "Could not use " + extDir + ".");
+                Log.w(TAG, "Could not use %s.", extDir);
                 continue;
             }
             if (!Objects.equals(Environment.getExternalStorageState(extDir), Environment.MEDIA_MOUNTED)) {
-                Log.w(TAG, "Path " + extDir + " not mounted.");
+                Log.w(TAG, "Path %s not mounted.", extDir);
                 continue;
             }
             return extDir;
@@ -206,7 +188,7 @@ public final class FileUtils {
         try {
             Os.chmod(file.getAbsolutePath(), 420);
         } catch (ErrnoException e) {
-            Log.e(TAG, "Failed to apply mode 644 to " + file);
+            Log.e(TAG, "Failed to apply mode 644 to %s", file);
             throw new IOException(e);
         }
     }

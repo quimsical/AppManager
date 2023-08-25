@@ -88,8 +88,11 @@ public final class FreezeUnfreeze {
             intent.putExtra(EXTRA_FORCE_FREEZE, true);
             PendingIntent pendingIntent = PendingIntentCompat.getActivity(activity, 0, intent,
                     PendingIntent.FLAG_ONE_SHOT, false);
-            int notificationId = shortcutInfo.hashCode();
-            NotificationUtils.displayFreezeUnfreezeNotification(activity, notificationId, builder -> builder
+            // There's a small chance that the notification by shortcutInfo.hasCode() already exists, in that case,
+            // find the next one. This will cause trouble with dismissing the notification, but this is a viable
+            // trade-off.
+            String notificationTag = String.valueOf(shortcutInfo.hashCode());
+            NotificationUtils.displayFreezeUnfreezeNotification(activity, notificationTag, builder -> builder
                     .setDefaults(Notification.DEFAULT_ALL)
                     .setWhen(System.currentTimeMillis())
                     .setSmallIcon(R.drawable.ic_default_notification)

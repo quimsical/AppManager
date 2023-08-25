@@ -41,6 +41,7 @@ import io.github.muntashirakon.AppManager.apk.parser.AndroidBinXmlDecoder;
 import io.github.muntashirakon.AppManager.apk.splitapk.SplitApkExporter;
 import io.github.muntashirakon.AppManager.backup.BackupFiles;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
+import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.misc.OsEnvironment;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
 import io.github.muntashirakon.AppManager.utils.AppPref;
@@ -64,7 +65,7 @@ public final class ApkUtils {
         synchronized (sLock) {
             ApplicationInfo info = packageInfo.applicationInfo;
             PackageManager pm = ctx.getPackageManager();
-            String outputName = FileUtils.getSanitizedFileName(info.loadLabel(pm).toString() + "_" +
+            String outputName = FileUtils.getSanitizedFilename(info.loadLabel(pm).toString() + "_" +
                     packageInfo.versionName, false);
             if (outputName == null) outputName = info.packageName;
             Path tmpPublicSource;
@@ -94,7 +95,7 @@ public final class ApkUtils {
                 MATCH_UNINSTALLED_PACKAGES | PackageManager.GET_SHARED_LIBRARY_FILES
                         | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userHandle);
         ApplicationInfo info = packageInfo.applicationInfo;
-        String outputName = FileUtils.getSanitizedFileName(getFormattedApkFilename(ctx, packageInfo, pm), false);
+        String outputName = FileUtils.getSanitizedFilename(getFormattedApkFilename(ctx, packageInfo, pm), false);
         if (outputName == null) outputName = packageName;
         Path apkFile;
         if (isSplitApk(info) || hasObbFiles(packageName, userHandle)) {
@@ -186,11 +187,28 @@ public final class ApkUtils {
             throws ApkFile.ApkFileException, IOException {
         HashMap<String, String> manifestAttrs = new HashMap<>();
         XMLDocument xmlDocument = AndroidBinXmlDecoder.decodeToXml(manifestBytes);
-        XMLElement xmlElement = xmlDocument.getDocumentElement();
-        if (!"manifest".equals(xmlElement.getTagName())) {
+        XMLElement manifestElement = xmlDocument.getDocumentElement();
+        if (!"manifest".equals(manifestElement.getTagName())) {
             throw new ApkFile.ApkFileException("No manifest found.");
         }
-        for (XMLAttribute attribute : xmlElement.listAttributes()) {
+        for (XMLAttribute attribute : manifestElement.listAttributes()) {
+            if (attribute.getName().isEmpty()) {
+                continue;
+            }
+            manifestAttrs.put(attribute.getName(), attribute.getValue());
+        }
+        XMLElement androidElement = null;
+        for (XMLElement elem : manifestElement.listChildElements()) {
+            if ("application".equals(elem.getTagName())) {
+                androidElement = elem;
+                break;
+            }
+        }
+        if (androidElement == null) {
+            Log.w("ApkUtils", "No application element found while parsing APK.");
+            return manifestAttrs;
+        }
+        for (XMLAttribute attribute : androidElement.listAttributes()) {
             if (attribute.getName().isEmpty()) {
                 continue;
             }

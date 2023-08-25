@@ -80,18 +80,15 @@
     <string name="error_verbose_pin_shortcut">Текущий лончер не поддерживает закрепление ярлыков. Невозможно создать ярлык.</string>
     <string name="starting_activity">Стартовое активити: <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="create_shortcut">Создать ярлык</string>
-    <string name="edit_shortcut">Изменить ярлык</string>
     <string name="shortcut_name">Название ярлыка</string>
     <string name="package_name">Имя пакета</string>
     <string name="class_name">Название класса</string>
-    <string name="error_invalid_icon_resource">Недействительный ресурс значка</string>
-    <string name="error_invalid_icon_format">Неверный формат значка</string>
     <string name="icon_picker">Выбор иконок</string>
     <string name="license">Лицензия</string>
     <string name="third_party">Сторонние библиотеки и значки</string>
     <string name="credits">Авторы</string>
     <string name="credits_message">Благодарность авторам:
-\n- The Android Open Source Project
+\n- Android Open Source Project
 \n- <a href="https://github.com/zhaobozhen/libraries">Absinthe\'s libraries</a>
 \n- <a href="https://github.com/butzist/ActivityLauncher">Activity Launcher</a>
 \n- <a href="https://bitbucket.org/oF2pks/fdroid-applications-info">Apps_packages Info</a>
@@ -100,6 +97,7 @@
 \n- <a href="https://github.com/gabrielemariotti/changeloglib">ChangeLog Library</a>
 \n- <a href="https://bitbucket.org/oF2pks/fdroid-classyshark3xodus">ClassySharkAndroid</a>
 \n- <a href="https://github.com/billthefarmer/editor">Editor</a>
+\n- <a href="https://github.com/Raival-e/File-Explorer">File Explorer</a>
 \n- <a href="https://github.com/nex3z/FlowLayout">FlowLayout</a>
 \n- <a href="https://github.com/k3b/intent-intercept">Intent Intercept</a>
 \n- <a href="https://github.com/YarikSOffice/lingver">Lingver</a>
@@ -382,7 +380,7 @@
     <string name="filter">Фильтр</string>
     <string name="filter_user_apps">Пользовательские приложения</string>
     <string name="filter_system_apps">Системные приложения</string>
-    <string name="filter_apps_with_rules">Приложения с правилами</string>
+    <string name="filter_apps_with_rules">С правилами</string>
     <string name="select_all">Выбрать все</string>
     <string name="installed_version">Установленная версия</string>
     <string name="trackers">Трекеры</string>
@@ -671,7 +669,6 @@
     <string name="pref_encryption_msg">Шифрование резервных копий.</string>
     <string name="encryption">Шифрование</string>
     <string name="select_user">Выбрать пользователя</string>
-    <string name="pref_show_users_in_installer_msg">Отображение списка пользователей для выбора, перед установкой внешнего приложения. Требуется ROOT или ADB.</string>
     <string name="pref_show_users_in_installer">Показать пользователей в установщике</string>
     <string name="failed_to_duplicate_profile">Не удалось продублировать профиль</string>
     <string name="send_selected">Отправить выбранный</string>
@@ -778,8 +775,8 @@
     <string name="security">Безопасность</string>
     <string name="patch_level">Обновление системы безопасности Андроид</string>
     <string name="backup_skip_signature_checks_description">Восстановление резервных копий, которые либо не прошли проверку контрольных сумм, либо имеют подписи, отличные от предыдущих резервных копий APK.</string>
-    <string name="backup_multiple_description">Создание отдельной резервной копии, с <i>именем</i> , которое отличается от базового наименования бекапа.</string>
-    <string name="backup_rules_description">Резервное копирование правил, настроенных в App Manager.</string>
+    <string name="backup_multiple_description">Создание отдельной резервной копии, с <i>именем</i> , которое отличается от основного наименования бекапа.</string>
+    <string name="backup_rules_description">Резервное копирование правил, настроенных в App Manager.<font fgcolor="#ff0000">В зависимости от разрешений не все правила можно повторно применить во время восстановления.</font> </string>
     <string name="backup_extras_description">Резервное копирование разрешений приложения, экономия батареи, параметры использования данных, статус MagiskHide, SSAID и т.д.</string>
     <string name="backup_extras">Дополнительно</string>
     <string name="backup_cache_description">Резервное копирование папок <b>cache</b>, <b>no_cache</b> и <b>no_backup</b>.</string>
@@ -793,10 +790,10 @@
     <string name="size">Размер</string>
     <string name="hardware">Модель</string>
     <plurals name="alert_failed_to_set_app_ops">
-        <item quantity="one">Не удалось настроить операции приложения для %1$d приложения</item>
-        <item quantity="few">Не удалось настроить операции приложения для %1$d приложений</item>
-        <item quantity="many">Не удалось настроить операции приложения для %1$d приложений</item>
-        <item quantity="other">Не удалось настроить операции приложения для %1$d приложений</item>
+        <item quantity="one">Не удалось настроить операции приложения %1$d приложения</item>
+        <item quantity="few">Не удалось настроить операции приложения %1$d приложений</item>
+        <item quantity="many">Не удалось настроить операции приложения %1$d приложений</item>
+        <item quantity="other">Не удалось настроить операции приложения %1$d приложений</item>
     </plurals>
     <string name="refresh_rate">Частота обновления</string>
     <string name="scaling_factor">Коэффициент масштабирования</string>
@@ -1027,7 +1024,7 @@
     <string name="pref_rules_msg">Мгновенная блокировка, импорт/экспорт/удаление правил и т. д.</string>
     <string name="orientation_right_to_left">Справа налево</string>
     <string name="orientation_left_to_right">Слева направо</string>
-    <string name="orientation_follow_locale">В соответствии с языком</string>
+    <string name="orientation_follow_locale">В соответствии с локалью</string>
     <plurals name="file_deletion_confirmation">
         <item quantity="one">%d файл будет удален</item>
         <item quantity="few">%d файла будет удалено</item>
@@ -1371,8 +1368,98 @@
         <item quantity="many">Не удалось оптимизировать %1$d приложений</item>
         <item quantity="other">Не удалось оптимизировать %1$d приложений</item>
     </plurals>
-    <string name="app_info_tag_open_links">Открытые ссылки</string>
+    <string name="app_info_tag_open_links">Открываемые ссылки</string>
     <string name="source_stamp_verified_and_identified_to_be_from_source">SourceStamp проверен и идентифицирован как принадлежащий <xliff:g id="source" example="Google Play">%1$s</xliff:g> .</string>
     <string name="title_domains_supported_by_the_app">Поддерживаемые домены</string>
     <string name="pref_zip_align">Выравнивание APK-файлов</string>
+    <string name="block_unblock_components_dots">Блокировать/разблокировать компоненты…</string>
+    <string name="unblock_components_dots">Разблокировать компоненты…</string>
+    <string name="block_unblock_components_description">Блокировать или разблокировать все компоненты, идентифицированные данными подписями</string>
+    <string name="pref_layout_direction">Направление текста</string>
+    <string name="title_code_editor">Редактор кода</string>
+    <string name="redo">Повторить</string>
+    <string name="read_only_file_warning">Изменения не могут быть записаны в файл, возможно, из-за того, что он находится в томе, на запись в который у App Manager нет разрешения. Сохранить его в другом месте\?</string>
+    <string name="line_separator">Разделитель строк</string>
+    <plurals name="search_results">
+        <item quantity="one">%d результат</item>
+        <item quantity="few">%d результата</item>
+        <item quantity="many">%d результатов</item>
+        <item quantity="other">%d результатов</item>
+    </plurals>
+    <string name="replacement_text">Заменить</string>
+    <string name="action_replace_all">Заменить все</string>
+    <string name="search_option_match_case">Учитывать регистр</string>
+    <string name="search_option_whole_word">Целое слово</string>
+    <string name="search_option_regex">Регулярное выражение</string>
+    <string name="uninstall_app_again_message">Приложение было удалено без очистки данных и подписи. Хотите полностью удалить его\?</string>
+    <string name="uninstall_app">Удалить %1$s</string>
+    <string name="debloat_list_type">Список</string>
+    <string name="debloat_removal_type">Тип</string>
+    <string name="system_app_put_back">Вернуть</string>
+    <string name="debloat_list_misc">Разное</string>
+    <string name="debloat_list_pending">На рассмотрении</string>
+    <string name="debloat_removal_replace">Замена</string>
+    <string name="debloat_removal_caution">Осторожно</string>
+    <string name="debloat_removal_safe">Безопасно</string>
+    <string name="static_shared_library">Статическая общая библиотека</string>
+    <plurals name="alert_failed_to_unblock_components">
+        <item quantity="one">Не удалось разблокировать компоненты приложения %1$d</item>
+        <item quantity="few">Не удалось разблокировать компоненты приложений %1$d</item>
+        <item quantity="many">Не удалось разблокировать компоненты приложений %1$d</item>
+        <item quantity="other">Не удалось разблокировать компоненты приложений %1$d</item>
+    </plurals>
+    <string name="pref_zip_align_msg">Выравнивание APK-файла снижает использование памяти, поскольку к файлам в APK можно обращаться напрямую, не копируя данные в ОЗУ. Этот шаг необходим, если для параметра <tt>extractNativeLibs</tt> задано значение <tt>true</tt>.</string>
+    <string name="read_only_file">Файл только для чтения</string>
+    <string name="debloat_list_google">Google</string>
+    <string name="debloater_title">Деблоатер</string>
+    <string name="debloat_list_aosp">AOSP</string>
+    <string name="debloat_list_oem">OEM</string>
+    <string name="debloat_list_carrier">Оператор связи/интернет-провайдер</string>
+    <plurals name="folder_count">
+        <item quantity="one">%d папка</item>
+        <item quantity="few">%d папки</item>
+        <item quantity="many">%d папок</item>
+        <item quantity="other">%d папок</item>
+    </plurals>
+    <plurals name="file_count">
+        <item quantity="one">%%d файл</item>
+        <item quantity="few">%d файла</item>
+        <item quantity="many">%d файлов</item>
+        <item quantity="other">%d файлов</item>
+    </plurals>
+    <string name="filter_force_stopped_apps">Остановленные приложения</string>
+    <string name="empty_folder">Пусто</string>
+    <string name="go_to_path">Перейти к…</string>
+    <string name="copy_this_path">Копировать путь</string>
+    <string name="title_audio_player">Аудиоплеер</string>
+    <string name="backing_up_app">Резервное копирование %1$s…</string>
+    <string name="restoring_app">Восстановление %1$s…</string>
+    <string name="folder">Папка</string>
+    <string name="create_new_symbolic_link">Новая символическая ссылка</string>
+    <string name="symbolic_link_not_supported">Эта папка не поддерживает создание символической ссылки.</string>
+    <string name="create_new_folder">Новая папка</string>
+    <string name="create_new_file">Новый файл</string>
+    <string name="title_confirm_deletion">Подтвердить удаление</string>
+    <string name="copy_keep_both_file">Сохранить оба</string>
+    <string name="copied_successfully">Скопировано</string>
+    <string name="moved_successfully">Перемещено</string>
+    <string name="failed_to_copy_specified_file">Не удалось скопировать “%1$s”.</string>
+    <string name="apply_recursively">Применить к вложенным файлам</string>
+    <string name="change_owner_uid">Изменить владельца (UID)</string>
+    <string name="change_group_gid">Изменить группу (GID)</string>
+    <string name="warning_working_on_system_mode">Предупреждение: работа в системе, а не в режиме ADB.</string>
+    <string name="pref_installer_force_dexopt_description">Выполнить оптимизацию DEX сразу после установки приложения, не дожидаясь, пока система сделает это во время простоя.</string>
+    <string name="symbolic_link">Символическая ссылка</string>
+    <string name="enter_symbolic_link_name">Название ссылки</string>
+    <string name="installing_package">Установка %1$s…</string>
+    <string name="enter_target_path">Целевой путь</string>
+    <string name="invalid_target_path">Неверный путь</string>
+    <string name="copy_these_paths">Копировать пути</string>
+    <string name="conflict_detected_while_copying">Обнаружен конфликт</string>
+    <string name="conflict_detected_while_copying_message">В этом расположении уже существует элемент с именем «%1$s». Вы хотите заменить его\?</string>
+    <string name="title_change_selinux_context">Изменение контекста SELinux</string>
+    <string name="change_mode">Изменить режим</string>
+    <string name="failed_to_delete_specified_file_after_copying">Не удалось удалить «%1$s» после его копирования, возможно, из-за отсутствия прав.</string>
+    <string name="pref_send_notifications_to_connected_devices">Отправка уведомлений на подключенные устройства</string>
+    <string name="pref_send_notification_to_connected_devices_msg">Укажите, следует ли отправлять уведомления на подключенные устройства, такие как носимые устройства.</string>
 </resources>

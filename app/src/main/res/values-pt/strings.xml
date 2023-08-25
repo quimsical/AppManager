@@ -309,12 +309,9 @@
     <string name="third_party">Bibliotecas e ícones de terceiros</string>
     <string name="license">Licença</string>
     <string name="icon_picker">Selecionar ícone</string>
-    <string name="error_invalid_icon_format">Ícone com formato inválido</string>
-    <string name="error_invalid_icon_resource">Recurso de ícone inválido</string>
     <string name="class_name">Nome da classe</string>
     <string name="package_name">Nome do pacote</string>
     <string name="shortcut_name">Nome do atalho</string>
-    <string name="edit_shortcut">Editar atalho</string>
     <string name="create_shortcut">Criar atalho</string>
     <string name="starting_activity">A iniciar atividade: <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="error_verbose_pin_shortcut">O iniciador atual não suporta PinShortcut. Não foi possível criar o atalho.</string>
@@ -369,7 +366,7 @@
     <string name="trackers">Rastreadores</string>
     <string name="installed_version">Versão instalada</string>
     <string name="select_all">Selecionar todos</string>
-    <string name="filter_apps_with_rules">Apps com regras</string>
+    <string name="filter_apps_with_rules">Com regras</string>
     <string name="filter_system_apps">Apps do sistema</string>
     <string name="filter_user_apps">Apps do utilizador</string>
     <string name="filter">Filtro</string>
@@ -886,7 +883,6 @@
     <string name="aes">AES</string>
     <string name="pref_encryption_msg">Criptografia para backups.</string>
     <string name="encryption">Criptografia</string>
-    <string name="pref_show_users_in_installer_msg">Mostrar uma lista de utilizadores para selecionar antes de instalar uma app externa. Requer root ou ADB.</string>
     <string name="pref_show_users_in_installer">Mostrar utilizadores no instalador</string>
     <string name="un_apkm">UnApkm</string>
     <string name="select_apk">Selecionar APK</string>
@@ -1330,5 +1326,38 @@
         <item quantity="one">Não foi possível optimizar a %1$d app</item>
         <item quantity="many">Não foi possível optimizar as %1$d apps</item>
         <item quantity="other">Não foi possível optimizar as %1$d apps</item>
+    </plurals>
+    <string name="search_option_match_case">Correspondente</string>
+    <string name="search_option_whole_word">Palavra completa</string>
+    <string name="search_option_regex">Regex</string>
+    <string name="uninstall_app_again_message">A aplicação foi desinstalada sem limpar os dados e assinatura. Deseja desinstar completamente\?</string>
+    <string name="uninstall_app">Desinstalar %1$s</string>
+    <string name="debloat_list_type">Lista</string>
+    <string name="debloat_removal_type">Tipo</string>
+    <string name="system_app_put_back">Adiar</string>
+    <string name="debloater_title">Debloater</string>
+    <string name="debloat_list_aosp">AOSP</string>
+    <string name="debloat_list_oem">OEM</string>
+    <string name="debloat_list_carrier">Operadora/ISP</string>
+    <string name="debloat_list_google">Google</string>
+    <string name="debloat_list_pending">Pendente</string>
+    <string name="debloat_list_misc">Miscelânea</string>
+    <string name="debloat_removal_safe">Seguro</string>
+    <string name="debloat_removal_replace">Repor</string>
+    <string name="debloat_removal_caution">Cuidado</string>
+    <string name="static_shared_library">Livraria partilhada estática</string>
+    <string name="empty_folder">Vazio</string>
+    <string name="go_to_path">Ir para…</string>
+    <string name="copy_this_path">Copiar caminho</string>
+    <string name="title_audio_player">Audio Player</string>
+    <plurals name="file_count">
+        <item quantity="one">%d ficheiro</item>
+        <item quantity="many">%d ficheiros</item>
+        <item quantity="other">%d ficheiros</item>
+    </plurals>
+    <plurals name="folder_count">
+        <item quantity="one">%d pasta</item>
+        <item quantity="many">%d pastas</item>
+        <item quantity="other">%d outras pastas</item>
     </plurals>
 </resources>

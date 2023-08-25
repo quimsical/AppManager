@@ -253,7 +253,6 @@
     <string name="pref_encryption_msg">為備份加密。</string>
     <string name="encryption">加密</string>
     <string name="select_user">選擇使用者</string>
-    <string name="pref_show_users_in_installer_msg">顯示要安裝的外部應用程式之前要選擇的使用者清單。需要root或ADB。</string>
     <string name="pref_show_users_in_installer">在安裝程式中顯示使用者</string>
     <string name="failed_to_duplicate_profile">無法複製設定檔</string>
     <string name="duplicate">複製</string>
@@ -730,12 +729,9 @@
     <string name="third_party">第三方資源庫和圖示</string>
     <string name="license">授權條款</string>
     <string name="icon_picker">圖示選擇器</string>
-    <string name="error_invalid_icon_format">無效的圖示格式</string>
-    <string name="error_invalid_icon_resource">無效的圖示資源</string>
     <string name="class_name">類別名稱</string>
     <string name="package_name">套件名稱</string>
     <string name="shortcut_name">捷徑名稱</string>
-    <string name="edit_shortcut">編輯捷徑</string>
     <string name="create_shortcut">建立捷徑</string>
     <string name="error_verbose_pin_shortcut">目前啟動器不支援PinShortcut。無法建立捷徑。</string>
     <string name="error_creating_shortcut">建立捷徑時發生錯誤</string>

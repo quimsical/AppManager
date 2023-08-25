@@ -27,6 +27,7 @@ import androidx.annotation.Nullable;
 import androidx.core.provider.DocumentsContractCompat;
 import androidx.core.util.Pair;
 import androidx.documentfile.provider.DocumentFile;
+import androidx.documentfile.provider.DocumentFileUtils;
 import androidx.documentfile.provider.ExtendedRawDocumentFile;
 import androidx.documentfile.provider.MediaDocumentFile;
 import androidx.documentfile.provider.VirtualDocumentFile;
@@ -142,7 +143,7 @@ public class Path implements Comparable<Path> {
 
     @NonNull
     private static DocumentFile getRequiredRawDocument(@NonNull String path) {
-        if (needPrivilegedAccess(path)) {
+        if (needPrivilegedAccess(path) && LocalServices.alive()) {
             try {
                 FileSystemManager fs = LocalServices.getFileSystemManager();
                 return new ExtendedRawDocumentFile(fs.getFile(path));
@@ -192,6 +193,9 @@ public class Path implements Comparable<Path> {
             mDocumentFile = fsRoot.mDocumentFile;
             return;
         }
+        if (uri.getScheme() == null) {
+            throw new IllegalArgumentException("Uri has no scheme: " + uri);
+        }
         DocumentFile documentFile;
         switch (uri.getScheme()) {
             case ContentResolver.SCHEME_CONTENT:
@@ -211,7 +215,7 @@ public class Path implements Comparable<Path> {
                 if (parsedUri != null) {
                     Path rootPath = VirtualFileSystem.getFsRoot(parsedUri.first);
                     if (rootPath != null) {
-                        String path = Paths.getSanitizedPath(parsedUri.second, true);
+                        String path = Paths.sanitize(parsedUri.second, true);
                         if (TextUtils.isEmpty(path) || path.equals(File.separator)) {
                             // Root requested
                             documentFile = rootPath.mDocumentFile;
@@ -255,7 +259,33 @@ public class Path implements Comparable<Path> {
     @NonNull
     public String getName() {
         // Last path segment is required.
-        return Objects.requireNonNull(mDocumentFile.getName());
+        String name = mDocumentFile.getName();
+        if (name != null) {
+            return name;
+        }
+        // For Document Uris, an invalid Uri can return no display name
+        if (DocumentFileUtils.isSingleDocumentFile(mDocumentFile)) {
+            // It's impossible to figure out the correct display name, but since this path is incorrect,
+            // return the full last path segment
+            return mDocumentFile.getUri().getLastPathSegment();
+        }
+        if (DocumentFileUtils.isTreeDocumentFile(mDocumentFile)) {
+            // The last path segment of the last path segment is the real name
+            List<String> segments = mDocumentFile.getUri().getPathSegments();
+            String primaryName = segments.get(1);
+            if (segments.size() == 2) {
+                return primaryName;
+            }
+            String secondaryName = segments.get(3);
+            if (secondaryName.startsWith(primaryName + File.separator)) {
+                secondaryName = Paths.getLastPathSegment(secondaryName.substring(primaryName.length() + 1));
+            }
+            if (!secondaryName.isEmpty()) {
+                return secondaryName;
+            }
+        }
+        // Invalid logic
+        throw new IllegalStateException("Invalid document: " + this);
     }
 
     @Nullable
@@ -413,7 +443,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path createNewFile(@NonNull String displayName, @Nullable String mimeType) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -432,7 +462,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path createNewDirectory(@NonNull String displayName) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -467,7 +497,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path createNewArbitraryFile(@NonNull String displayName, @Nullable String mimeType) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -496,7 +526,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path createDirectoriesIfRequired(@NonNull String displayName) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -524,7 +554,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path createDirectories(@NonNull String displayName) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -623,7 +653,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path findOrCreateFile(@NonNull String displayName, @Nullable String mimeType) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -668,7 +698,7 @@ public class Path implements Comparable<Path> {
      */
     @NonNull
     public Path findOrCreateDirectory(@NonNull String displayName) throws IOException {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             throw new IOException("Empty display name.");
         }
@@ -947,7 +977,7 @@ public class Path implements Comparable<Path> {
      * @throws UnsupportedOperationException when working with a single document
      */
     public boolean renameTo(@NonNull String displayName) {
-        displayName = Paths.getSanitizedPath(displayName, true);
+        displayName = Paths.sanitize(displayName, true);
         if (displayName == null) {
             // Empty display name
             return false;
@@ -1682,7 +1712,7 @@ public class Path implements Comparable<Path> {
 
     @Nullable
     private static DocumentFile findFileInternal(@NonNull DocumentFile documentFile, @NonNull String dirtyDisplayName) {
-        String displayName = Paths.getSanitizedPath(dirtyDisplayName, true);
+        String displayName = Paths.sanitize(dirtyDisplayName, true);
         if (displayName == null) {
             // Empty display name
             return null;
@@ -1746,11 +1776,11 @@ public class Path implements Comparable<Path> {
         }
     }
 
-    private static boolean isDocumentsProvider(Context context, String authority) {
+    private static boolean isDocumentsProvider(@NonNull Context context, @Nullable String authority) {
         final Intent intent = new Intent(DocumentsContract.PROVIDER_INTERFACE);
         final List<ResolveInfo> infos = context.getPackageManager().queryIntentContentProviders(intent, 0);
         for (ResolveInfo info : infos) {
-            if (authority.equals(info.providerInfo.authority)) {
+            if (Objects.equals(authority, info.providerInfo.authority)) {
                 return true;
             }
         }

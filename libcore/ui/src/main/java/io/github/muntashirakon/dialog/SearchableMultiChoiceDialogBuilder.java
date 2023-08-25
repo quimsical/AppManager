@@ -38,6 +38,7 @@ import io.github.muntashirakon.widget.CheckBox;
 import io.github.muntashirakon.widget.SearchView;
 
 public class SearchableMultiChoiceDialogBuilder<T> {
+    private final View mView;
     @NonNull
     private final MaterialAlertDialogBuilder mBuilder;
     private final SearchView mSearchView;
@@ -71,13 +72,13 @@ public class SearchableMultiChoiceDialogBuilder<T> {
     }
 
     public SearchableMultiChoiceDialogBuilder(@NonNull Context context, @NonNull List<T> items, @NonNull List<CharSequence> itemNames) {
-        View view = View.inflate(context, R.layout.dialog_searchable_multi_choice, null);
-        RecyclerView recyclerView = view.findViewById(android.R.id.list);
+        mView = View.inflate(context, R.layout.dialog_searchable_multi_choice, null);
+        RecyclerView recyclerView = mView.findViewById(android.R.id.list);
         recyclerView.setHasFixedSize(true);
         recyclerView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false));
-        mSearchView = view.findViewById(R.id.action_search);
-        mSelectAll = view.findViewById(android.R.id.checkbox);
-        mSearchView.setOnQueryTextListener(new androidx.appcompat.widget.SearchView.OnQueryTextListener() {
+        mSearchView = mView.findViewById(R.id.action_search);
+        mSelectAll = mView.findViewById(android.R.id.checkbox);
+        mSearchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
             public boolean onQueryTextSubmit(String query) {
                 return false;
@@ -93,7 +94,7 @@ public class SearchableMultiChoiceDialogBuilder<T> {
         if (items.size() < 6) {
             mSearchView.setVisibility(View.GONE);
         }
-        mBuilder = new MaterialAlertDialogBuilder(context).setView(view);
+        mBuilder = new MaterialAlertDialogBuilder(context).setView(mView);
         @SuppressLint({"RestrictedApi", "PrivateResource"})
         int layoutId = MaterialAttributes.resolveInteger(context, androidx.appcompat.R.attr.multiChoiceItemLayout,
                 com.google.android.material.R.layout.mtrl_alert_select_dialog_multichoice);
@@ -111,6 +112,10 @@ public class SearchableMultiChoiceDialogBuilder<T> {
             mSelectAll.setVisibility(View.GONE);
         }
         checkSelections();
+    }
+
+    public View getView() {
+        return mView;
     }
 
     public SearchableMultiChoiceDialogBuilder<T> setOnMultiChoiceClickListener(@Nullable OnMultiChoiceClickListener<T>
@@ -414,14 +419,15 @@ public class SearchableMultiChoiceDialogBuilder<T> {
             holder.item.setChecked(selected.get());
             holder.item.setOnClickListener(v -> {
                 synchronized (mSelectedItems) {
-                    if (selected.get()) {
+                    boolean isSelected = selected.get();
+                    if (isSelected) {
                         mSelectedItems.remove(index);
                     } else mSelectedItems.add(index);
+                    selected.set(!isSelected);
+                    holder.item.setChecked(!isSelected);
+                    checkSelections();
+                    triggerMultiChoiceClickListener(index, selected.get());
                 }
-                selected.set(!selected.get());
-                holder.item.setChecked(selected.get());
-                checkSelections();
-                triggerMultiChoiceClickListener(index, selected.get());
             });
         }
 

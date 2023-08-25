@@ -45,12 +45,12 @@ import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
-import io.github.muntashirakon.reflow.ReflowMenuViewWrapper;
+import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 import io.github.muntashirakon.widget.MultiSelectionView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
 public class RunningAppsActivity extends BaseActivity implements MultiSelectionView.OnSelectionChangeListener,
-        ReflowMenuViewWrapper.OnItemSelectedListener, AdvancedSearchView.OnQueryTextListener,
+        MultiSelectionActionsView.OnItemSelectedListener, AdvancedSearchView.OnQueryTextListener,
         SwipeRefreshLayout.OnRefreshListener {
 
     @IntDef(value = {
@@ -351,8 +351,10 @@ public class RunningAppsActivity extends BaseActivity implements MultiSelectionV
     }
 
     @Override
-    public void onSelectionChange(int selectionCount) {
-        if (mSelectionMenu == null || mAdapter == null) return;
+    public boolean onSelectionChange(int selectionCount) {
+        if (mSelectionMenu == null || mAdapter == null) {
+            return false;
+        }
         ArrayList<ProcessItem> selectedItems = mAdapter.getSelectedItems();
         MenuItem kill = mSelectionMenu.findItem(R.id.action_kill);
         MenuItem forceStop = mSelectionMenu.findItem(R.id.action_force_stop);
@@ -378,6 +380,7 @@ public class RunningAppsActivity extends BaseActivity implements MultiSelectionV
             }
         }
         kill.setEnabled(selectedItems.size() != 0 && killEnabled);
+        return true;
     }
 
     private void handleBatchOp(@BatchOpsManager.OpType int op) {

@@ -17,6 +17,7 @@ import android.widget.EditText;
 import androidx.annotation.AnyThread;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.IntDef;
+import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -24,6 +25,7 @@ import androidx.annotation.StringDef;
 import androidx.annotation.UiThread;
 import androidx.annotation.WorkerThread;
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.LiveData;
 
@@ -46,6 +48,7 @@ import io.github.muntashirakon.AppManager.runner.RunnerUtils;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.servermanager.LocalServer;
 import io.github.muntashirakon.AppManager.servermanager.ServerConfig;
+import io.github.muntashirakon.AppManager.session.SessionMonitoringService;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
@@ -158,10 +161,18 @@ public class Ops {
     }
 
     @GuardedBy("sSecurityLock")
-    @AnyThread
-    public static void setAuthenticated(boolean authenticated) {
+    @MainThread
+    public static void setAuthenticated(@NonNull Context context, boolean authenticated) {
         synchronized (sSecurityLock) {
             sIsAuthenticated = authenticated;
+            if (Prefs.Privacy.isPersistentSessionAllowed()) {
+                Intent service = new Intent(context, SessionMonitoringService.class);
+                if (authenticated) {
+                    ContextCompat.startForegroundService(context, service);
+                } else {
+                    context.stopService(service);
+                }
+            }
         }
     }
 
@@ -206,7 +217,7 @@ public class Ops {
     public static int init(@NonNull Context context, boolean force) {
         String mode = getMode();
         if (MODE_AUTO.equals(mode)) {
-            autoDetectRootSystemOrAdb(context);
+            autoDetectRootSystemOrAdbAndPersist(context);
             return sIsAdb ? STATUS_SUCCESS : initPermissionsWithSuccess();
         }
         if (MODE_NO_ROOT.equals(mode)) {
@@ -227,7 +238,7 @@ public class Ops {
                     }
                     sIsSystem = sIsAdb = false;
                     sIsRoot = true;
-                    LocalServer.launchAmService();
+                    LocalServices.bindServicesIfNotAlready();
                     return initPermissionsWithSuccess();
                 case MODE_ADB_WIFI:
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -262,12 +273,14 @@ public class Ops {
 
     @WorkerThread
     @NoOps // Although we've used Ops checks, its overall usage does not affect anything
-    private static void autoDetectRootSystemOrAdb(@NonNull Context context) {
+    private static void autoDetectRootSystemOrAdbAndPersist(@NonNull Context context) {
         sIsRoot = hasRoot();
         if (sIsRoot) {
-            // Root permission was granted, disable ADB and force root
+            // Root permission was granted
+            setMode(MODE_ROOT);
+            // Disable ADB and force root
             sIsSystem = sIsAdb = false;
-            if (LocalServer.isAMServiceAlive()) {
+            if (LocalServices.alive()) {
                 if (Users.getSelfOrRemoteUid() == ROOT_UID) {
                     // Service is already running in root mode
                     return;
@@ -276,9 +289,9 @@ public class Ops {
                 LocalServices.stopServices();
             }
             try {
-                // AM service is confirmed dead
-                LocalServer.launchAmService();
-                if (LocalServer.isAMServiceAlive() && Users.getSelfOrRemoteUid() == ROOT_UID) {
+                // Service is confirmed dead
+                LocalServices.bindServices();
+                if (LocalServices.alive() && Users.getSelfOrRemoteUid() == ROOT_UID) {
                     // Service is running in root
                     return;
                 }
@@ -296,7 +309,8 @@ public class Ops {
             // Fall-through, in case we can use other options
         }
         // Root was not working/granted, but check for AM service just in case
-        if (LocalServer.isAMServiceAlive()) {
+        if (LocalServices.alive()) {
+            setMode(MODE_ADB_OVER_TCP);
             int uid = Users.getSelfOrRemoteUid();
             if (uid == ROOT_UID) {
                 sIsSystem = sIsAdb = false;
@@ -317,7 +331,9 @@ public class Ops {
         }
         // Root not granted
         if (!SelfPermissions.checkSelfPermission(Manifest.permission.INTERNET)) {
-            // INTERNET permission is not granted, skip checking for ADB
+            // INTERNET permission is not granted
+            setMode(MODE_NO_ROOT);
+            // Skip checking for ADB
             sIsAdb = false;
             return;
         }
@@ -329,12 +345,13 @@ public class Ops {
         } catch (Throwable e) {
             Log.e("ADB", e);
         }
-        sIsAdb = LocalServer.isAMServiceAlive();
+        sIsAdb = LocalServices.alive();
         if (sIsAdb) {
             // No need to return anything here because we're in auto-mode.
             // Any message produced by the method below is just a helpful message.
             checkRootOrIncompleteUsbDebuggingInAdb();
         }
+        setMode(isPrivileged() ? MODE_ADB_OVER_TCP : MODE_NO_ROOT);
     }
 
     @UiThread
@@ -535,7 +552,7 @@ public class Ops {
         sIsRoot = MODE_ROOT.equals(mode);
         sIsAdb = !sIsRoot; // Because the rests are ADB
         sIsSystem = false;
-        if (LocalServer.isLocalServerAlive(context)) {
+        if (LocalServer.alive(context)) {
             // Remote server is running, but local server may not be running
             try {
                 LocalServer.getInstance();
@@ -544,7 +561,7 @@ public class Ops {
                 // fall-through, because the remote service may still be alive
             }
         }
-        if (LocalServer.isAMServiceAlive()) {
+        if (LocalServices.alive()) {
             // AM service is running
             int uid = Users.getSelfOrRemoteUid();
             if (sIsRoot && uid == ROOT_UID) {
@@ -594,6 +611,7 @@ public class Ops {
             ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.working_on_adb_mode));
         } else {
             // No-root mode
+            sIsAdb = sIsSystem = sIsRoot = false;
             return STATUS_FAILURE;
         }
         return initPermissionsWithSuccess();

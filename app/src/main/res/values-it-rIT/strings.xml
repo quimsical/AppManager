@@ -134,8 +134,6 @@
     <string name="found_trackers">Trova tracker:</string>
     <string name="no_shared_libs">Nessuna libreria condivisa</string>
     <string name="third_party">Librerie e icone di terze parti</string>
-    <string name="error_invalid_icon_format">Formato icona non valido</string>
-    <string name="error_invalid_icon_resource">Risorsa icona non valida</string>
     <string name="class_name">Nome classe</string>
     <string name="package_name">Nome pacchetto</string>
     <string name="error_verbose_pin_shortcut">Il launcher corrente non supporta PinShortcut. Impossibile creare una scorciatoia.</string>
@@ -334,13 +332,12 @@
     <string name="sort_by_target_sdk">SDK di destinazione</string>
     <string name="icon_picker">Selettore icone</string>
     <string name="shortcut_name">Nome scorciatoia</string>
-    <string name="edit_shortcut">Modifica scorciatoia</string>
     <string name="create_shortcut">Crea scorciatoia</string>
     <string name="starting_activity">Attività iniziale: <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="empty_package_name">Nome pacchetto vuoto</string>
     <string name="main_activity">Attività principale</string>
     <string name="installer_app">App di installazione</string>
-    <string name="about">Informazioni</string>
+    <string name="about">Informazioni su</string>
     <string name="input_features">Input funzionalità</string>
     <string name="no_feature">Nessuna funzionalità</string>
     <string name="uses_feature">Utilizza funzionalità</string>
@@ -581,7 +578,6 @@
     <string name="send_crash_report">Invia rapporto di arresto anomalo</string>
     <string name="input_profile_name_description">Il nome del profilo non può contenere spazi.</string>
     <string name="failed_to_duplicate_profile">Impossibile duplicare profilo</string>
-    <string name="pref_show_users_in_installer">Mostra utenti nel programma di installazione</string>
     <string name="pref_show_users_in_installer_msg">Visualizza un elenco di utenti da selezionare prima di installare un\'app esterna. Richiede root o ADB.</string>
     <string name="pref_encryption_msg">Crittografa backup.</string>
     <string name="none">Nessuno</string>
@@ -743,7 +739,7 @@
     <string name="installer_error_conflict">Impossibile installare l\'app perché il nome del pacchetto è in uso</string>
     <string name="state_dead">Morto</string>
     <string name="close">Chiudi</string>
-    <string name="state_trace_stop">Fermata traccia</string>
+    <string name="state_trace_stop">Ferma traccia</string>
     <string name="state_zombie">Zombie</string>
     <string name="root">Root</string>
     <string name="backup_all_apps_msg">Esegui il backup di tutte le app installate.</string>
@@ -935,7 +931,7 @@
     <string name="failed_to_save_key">Impossibile salvare la chiave.</string>
     <string name="restore_latest">Ripristina gli ultimi backup</string>
     <string name="uninstalled_apps">App disinstallate</string>
-    <string name="filter_apps_with_rules">App con regole</string>
+    <string name="filter_apps_with_rules">Con regole</string>
     <string name="input_app_ops">Inserisci operazioni applicazione</string>
     <string name="installer_error_blocked">Installazione bloccata da <xliff:g id="app_name" example="App Manager">%1$s</xliff:g></string>
     <plurals name="alert_failed_to_backup">
@@ -959,8 +955,8 @@
     <string name="enabled">Abilitato</string>
     <string name="install_location_prefer_external">Preferisci esterni</string>
     <string name="backup_multiple_description">Crea un backup separato denominato <i>named</i> invece del backup di base.</string>
-    <string name="backup_extras_description">Esegui il backup delle autorizzazioni delle app, del risparmio della batteria e delle opzioni di utilizzo dei dati, lo stato di MagiskHide, SSAID, ecc.</string>
-    <string name="backup_rules_description">Esegui il backup delle regole configurate in App Manager.</string>
+    <string name="backup_extras_description">Esegui il backup delle autorizzazioni delle app, del risparmio della batteria e delle opzioni di utilizzo dei dati, lo stato di MagiskHide, SSAID, etc. <font fgcolor="#ff0000">A seconda delle autorizzazioni, non tutti gli extra possono essere ripristinati.</font> </string>
+    <string name="backup_rules_description">Esegui il backup delle regole configurate in App Manager. <font fgcolor="#ff0000">A seconda delle autorizzazioni, non tutte le regole possono essere riapplicate durante il ripristino.</font> </string>
     <string name="unlock_app_manager">Sblocca App Manager</string>
     <string name="screen_lock_msg">Blocca App Manager utilizzando il blocco schermo Android</string>
     <string name="type_component_name">Nome componente</string>
@@ -1377,5 +1373,49 @@
     <string name="read_only_file_warning">Le modifiche non possono essere scritte nel file, probabilmente perché si trova in un volume su cui App Manager non ha il permesso di scrivere. Vuoi salvarlo in un posto diverso\?</string>
     <string name="debloat_list_misc">Miscellanea</string>
     <string name="debloat_removal_safe">Sicuro</string>
-    <string name="debloat_removal_unsafe">Non sicuro</string>
+    <string name="filter_force_stopped_apps">App fermate</string>
+    <plurals name="file_count">
+        <item quantity="one">%d file</item>
+        <item quantity="many">%d file</item>
+        <item quantity="other">%d file</item>
+    </plurals>
+    <string name="empty_folder">Vuoto</string>
+    <plurals name="folder_count">
+        <item quantity="one">%d cartella</item>
+        <item quantity="many">%d cartelle</item>
+        <item quantity="other">%d cartelle</item>
+    </plurals>
+    <string name="go_to_path">Vai a…</string>
+    <string name="copy_this_path">Copia percorso</string>
+    <string name="title_audio_player">Lettore audio</string>
+    <string name="installing_package">Installazione di %1$s…</string>
+    <string name="backing_up_app">Backup di %1$s…</string>
+    <string name="restoring_app">Ripristino di %1$s…</string>
+    <string name="pref_installer_force_dexopt_description">Esegui l\'ottimizzazione DEX subito dopo aver installato l\'app senza attendere che il sistema lo esegua quando il sistema è inattivo.</string>
+    <string name="folder">Cartella</string>
+    <string name="symbolic_link">Collegamento simbolico</string>
+    <string name="create_new_symbolic_link">Nuovo collegamento simbolico</string>
+    <string name="create_new_folder">Nuova cartella</string>
+    <string name="create_new_file">Nuovo file</string>
+    <string name="enter_symbolic_link_name">Nome collegamento</string>
+    <string name="enter_target_path">Percorso di destinazione</string>
+    <string name="invalid_target_path">Percorso non valido</string>
+    <string name="copy_these_paths">Copia percorsi</string>
+    <string name="title_confirm_deletion">Conferma eliminazione</string>
+    <string name="conflict_detected_while_copying">Rilevato conflitto</string>
+    <string name="conflict_detected_while_copying_message">Un elemento chiamato \"%1$s\" esiste già in questa posizione. Vuoi sostituirlo\?</string>
+    <string name="copy_keep_both_file">Mantieni entrambi</string>
+    <string name="copied_successfully">Copiato.</string>
+    <string name="moved_successfully">Spostato</string>
+    <string name="failed_to_delete_specified_file_after_copying">Impossibile eliminare \"%1$s\" dopo averlo copiato, probabilmente a causa di un\'autorizzazione insufficiente.</string>
+    <string name="title_change_selinux_context">Cambia il contesto di SELinux</string>
+    <string name="apply_recursively">Applica ai file inclusi</string>
+    <string name="change_owner_uid">Cambia proprietario (UID)</string>
+    <string name="change_group_gid">Cambia gruppo (GID)</string>
+    <string name="change_mode">Cambia modalità</string>
+    <string name="pref_send_notification_to_connected_devices_msg">Imposta se inviare notifiche ai dispositivi connessi come i dispositivi indossabili.</string>
+    <string name="warning_working_on_system_mode">Avviso: sto operando in modalità sistema invece che in modalità ADB.</string>
+    <string name="symbolic_link_not_supported">Questa cartella non supporta la creazione di un collegamento simbolico.</string>
+    <string name="failed_to_copy_specified_file">Impossibile copiare \"%1$s\".</string>
+    <string name="pref_send_notifications_to_connected_devices">Invia notifiche ai dispositivi connessi</string>
 </resources>

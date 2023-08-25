@@ -84,7 +84,6 @@
     <string name="pref_encryption_msg">Chiffrement des sauvegardes.</string>
     <string name="encryption">Chiffrement</string>
     <string name="select_user">Sélectionner l\'utilisateur</string>
-    <string name="pref_show_users_in_installer_msg">Afficher une liste des utilisateurs à sélectionner avant d\'installer une application externe. Nécessite le mode root ou ADB.</string>
     <string name="pref_show_users_in_installer">Afficher les utilisateurs dans l\'installeur</string>
     <string name="failed_to_duplicate_profile">Impossible de dupliquer le profil</string>
     <string name="duplicate">Dupliquer</string>
@@ -562,12 +561,9 @@
     <string name="third_party">Bibliothèques tierces et icônes</string>
     <string name="license">Licence</string>
     <string name="icon_picker">Sélecteur d\'icône</string>
-    <string name="error_invalid_icon_format">Format d\'icône invalide</string>
-    <string name="error_invalid_icon_resource">Ressource d\'icône invalide</string>
     <string name="class_name">Nom de classe</string>
     <string name="package_name">Nom du paquet</string>
     <string name="shortcut_name">Nom du raccourci</string>
-    <string name="edit_shortcut">Modifier le raccourci</string>
     <string name="create_shortcut">Créer un raccourci</string>
     <string name="starting_activity">Démarrage de l\'activité : <xliff:g id="activity_name" example=".main.MainActivity">%1$s</xliff:g></string>
     <string name="error_creating_shortcut">Erreur lors de la création du raccourci</string>
@@ -1263,7 +1259,6 @@
     <string name="debloat_removal_safe">Sécurisé</string>
     <string name="debloat_removal_replace">Remplacer</string>
     <string name="debloat_removal_caution">Attention</string>
-    <string name="debloat_removal_unsafe">Non sécurisé</string>
     <string name="source_stamp_verified_and_identified_to_be_from_source">Le SourceStamp est vérifié et provient de <xliff:g id="source" example="Google Play">%1$s</xliff:g>.</string>
     <string name="app_manager_build_expiring_soon_warning">Cette version d\'App Manager expire bientôt. Veuillez installer la version la plus récente.</string>
     <string name="app_manager_build_expired">Mise à jour requise</string>

@@ -75,6 +75,10 @@ public final class ColorCodes {
         return ContextCompat.getColor(context, R.color.red);
     }
 
+    public static int getBloatwareIndicatorColor(@NonNull Context context) {
+        return ContextCompat.getColor(context, R.color.tracker);
+    }
+
     public static int getAppSuspendedIndicatorColor(@NonNull Context context) {
         return ContextCompat.getColor(context, R.color.stopped);
     }
@@ -137,10 +141,6 @@ public final class ColorCodes {
 
     public static int getRemovalCautionIndicatorColor(@NonNull Context context) {
         return ContextCompat.getColor(context, R.color.tracker);
-    }
-
-    public static int getRemovalUnsafeIndicatorColor(@NonNull Context context) {
-        return ContextCompat.getColor(context, R.color.electric_red);
     }
 
     public static int getScannerNoTrackerIndicatorColor(@NonNull Context context) {

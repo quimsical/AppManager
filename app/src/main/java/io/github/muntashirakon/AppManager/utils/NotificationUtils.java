@@ -5,9 +5,14 @@ package io.github.muntashirakon.AppManager.utils;
 import android.Manifest;
 import android.app.Notification;
 import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+import android.os.Process;
+import android.provider.Settings;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -21,6 +26,7 @@ import java.util.Map;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.progress.NotificationProgressHandler;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 
 public final class NotificationUtils {
     private static final String HIGH_PRIORITY_CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.HIGH_PRIORITY";
@@ -61,26 +67,22 @@ public final class NotificationUtils {
 
     private static final Map<String, Integer> sNotificationIds = Collections.synchronizedMap(new HashMap<>());
 
-    public static int getNotificationId(String channelId) {
-        Integer id = sNotificationIds.get(channelId);
+    public static int nextNotificationId(@Nullable String tag) {
+        Integer id = sNotificationIds.get(tag);
         if (id == null) {
-            sNotificationIds.put(channelId, 1);
+            sNotificationIds.put(tag, 1);
             return 1;
         }
-        sNotificationIds.put(channelId, id + 1);
+        ++id;
+        sNotificationIds.put(tag, id);
         return id;
     }
 
     @NonNull
     public static NotificationCompat.Builder getHighPriorityNotificationBuilder(@NonNull Context context) {
         return new NotificationCompat.Builder(context, NotificationUtils.HIGH_PRIORITY_CHANNEL_ID)
+                .setLocalOnly(!Prefs.Misc.sendNotificationsToConnectedDevices())
                 .setPriority(NotificationCompat.PRIORITY_HIGH);
-    }
-
-    @NonNull
-    public static NotificationCompat.Builder getFreezeUnfreezeNotificationBuilder(@NonNull Context context) {
-        return new NotificationCompat.Builder(context, NotificationUtils.FREEZE_UNFREEZE_CHANNEL_ID)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT);
     }
 
     public static void displayHighPriorityNotification(@NonNull Context context, Notification notification) {
@@ -89,24 +91,24 @@ public final class NotificationUtils {
 
     public static void displayHighPriorityNotification(@NonNull Context context,
                                                        @NonNull NotificationBuilder notification) {
-        int notificationId = getNotificationId(HIGH_PRIORITY_CHANNEL_ID);
+        String notificationTag = "alert";
+        int notificationId = nextNotificationId(notificationTag);
         displayNotification(context, HIGH_PRIORITY_CHANNEL_ID, "Alerts",
-                NotificationManagerCompat.IMPORTANCE_HIGH, notificationId, notification);
+                NotificationManagerCompat.IMPORTANCE_HIGH, notificationTag , notificationId, notification);
     }
 
-    public static int displayFreezeUnfreezeNotification(@NonNull Context context,
-                                                        int notificationId,
-                                                        @NonNull NotificationBuilder notification) {
+    public static void displayFreezeUnfreezeNotification(@NonNull Context context,
+                                                         String notificationTag,
+                                                         @NonNull NotificationBuilder notification) {
         displayNotification(context, FREEZE_UNFREEZE_CHANNEL_ID, "Freeze",
-                NotificationManagerCompat.IMPORTANCE_DEFAULT, notificationId, notification);
-        return notificationId;
+                NotificationManagerCompat.IMPORTANCE_DEFAULT, notificationTag, 1, notification);
     }
 
     public static int displayInstallConfirmNotification(@NonNull Context context,
                                                         @NonNull NotificationBuilder notification) {
-        int notificationId = getNotificationId(INSTALL_CONFIRM_CHANNEL_ID);
+        int notificationId = nextNotificationId(INSTALL_CONFIRM_CHANNEL_ID);
         displayNotification(context, INSTALL_CONFIRM_CHANNEL_ID, "Confirm Installation",
-                NotificationManagerCompat.IMPORTANCE_HIGH, notificationId, notification);
+                NotificationManagerCompat.IMPORTANCE_HIGH, INSTALL_CONFIRM_CHANNEL_ID, notificationId, notification);
         return notificationId;
     }
 
@@ -116,20 +118,22 @@ public final class NotificationUtils {
         }
         NotificationManagerCompat manager = getNewNotificationManager(context, INSTALL_CONFIRM_CHANNEL_ID,
                 "Confirm Installation", NotificationManagerCompat.IMPORTANCE_HIGH);
-        manager.cancel(notificationId);
+        manager.cancel(INSTALL_CONFIRM_CHANNEL_ID, notificationId);
     }
 
-    public static void displayNotification(@NonNull Context context,
-                                           @NonNull String channelId,
-                                           @NonNull CharSequence channelName,
-                                           @NotificationImportance int importance,
-                                           int notificationId,
-                                           @NonNull NotificationBuilder notification) {
+    private static void displayNotification(@NonNull Context context,
+                                            @NonNull String channelId,
+                                            @NonNull CharSequence channelName,
+                                            @NotificationImportance int importance,
+                                            @Nullable String notificationTag,
+                                            int notificationId,
+                                            @NonNull NotificationBuilder notification) {
         NotificationManagerCompat manager = getNewNotificationManager(context, channelId, channelName, importance);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId)
+                .setLocalOnly(!Prefs.Misc.sendNotificationsToConnectedDevices())
                 .setPriority(importanceToPriority(importance));
         if (SelfPermissions.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)) {
-            manager.notify(notificationId, notification.build(builder));
+            manager.notify(notificationTag, notificationId, notification.build(builder));
         }
     }
 
@@ -169,5 +173,26 @@ public final class NotificationUtils {
             case NotificationManagerCompat.IMPORTANCE_MIN:
                 return NotificationCompat.PRIORITY_MIN;
         }
+    }
+
+    public static Intent getNotificationSettingIntent(@Nullable String channelId) {
+        Intent intent = new Intent();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (channelId != null) {
+                intent.setAction(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS);
+                intent.putExtra(Settings.EXTRA_CHANNEL_ID, channelId);
+            } else {
+                intent.setAction(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            }
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, BuildConfig.APPLICATION_ID);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+        } else {
+            intent.setAction("android.settings.APP_NOTIFICATION_SETTINGS");
+            intent.putExtra("app_package", BuildConfig.APPLICATION_ID);
+            intent.putExtra("app_uid", Process.myUid());
+        }
+        return intent;
     }
 }

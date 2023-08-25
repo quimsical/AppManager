@@ -24,7 +24,6 @@ import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.Signature;
-import android.net.Uri;
 import android.os.Build;
 import android.os.RemoteException;
 import android.text.TextUtils;
@@ -122,8 +121,9 @@ public class AppDetailsViewModel extends AndroidViewModel {
     @Nullable
     private String mApkPath;
     @Nullable
+    private ApkFile.ApkSource mApkSource;
+    @Nullable
     private ApkFile mApkFile;
-    private int mApkFileKey;
     private int mUserId;
     @AppDetailsFragment.SortOrder
     private int mSortOrderComponents = Prefs.AppDetailsPage.getComponentsSortOrder();
@@ -152,7 +152,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     @GuardedBy("blockerLocker")
     @Override
     public void onCleared() {
-        Log.d(TAG, "On Clear called for " + mPackageName);
+        Log.d(TAG, "On Clear called for %s", mPackageName);
         super.onCleared();
         mExecutor.submit(() -> {
             synchronized (mBlockerLocker) {
@@ -174,16 +174,16 @@ public class AppDetailsViewModel extends AndroidViewModel {
 
     @UiThread
     @NonNull
-    public LiveData<PackageInfo> setPackage(@NonNull Uri packageUri, @Nullable String type) {
+    public LiveData<PackageInfo> setPackage(@NonNull ApkFile.ApkSource apkSource) {
         MutableLiveData<PackageInfo> packageInfoLiveData = new MutableLiveData<>();
+        mApkSource = apkSource;
+        mExternalApk = true;
         mExecutor.submit(() -> {
             try {
                 Log.d(TAG, "Package Uri is being set");
-                mExternalApk = true;
-                mApkFileKey = ApkFile.createInstance(packageUri, type);
-                mApkFile = ApkFile.getInstance(mApkFileKey);
+                mApkFile = mApkSource.resolve();
                 setPackageName(mApkFile.getPackageName());
-                File cachedApkFile = mApkFile.getBaseEntry().getRealCachedFile();
+                File cachedApkFile = mApkFile.getBaseEntry().getFile(false);
                 if (!cachedApkFile.canRead()) throw new Exception("Cannot read " + cachedApkFile);
                 mApkPath = cachedApkFile.getAbsolutePath();
                 setPackageInfo(false);
@@ -202,17 +202,17 @@ public class AppDetailsViewModel extends AndroidViewModel {
     @NonNull
     public LiveData<PackageInfo> setPackage(@NonNull String packageName) {
         MutableLiveData<PackageInfo> packageInfoLiveData = new MutableLiveData<>();
+        mExternalApk = false;
         mExecutor.submit(() -> {
             try {
                 Log.d(TAG, "Package name is being set");
-                mExternalApk = false;
                 setPackageName(packageName);
                 // TODO: 23/5/21 The app could be “data only”
                 setPackageInfo(false);
                 PackageInfo pi = getPackageInfo();
                 if (pi == null) throw new ApkFile.ApkFileException("Package not installed.");
-                mApkFileKey = ApkFile.createInstance(pi.applicationInfo);
-                mApkFile = ApkFile.getInstance(mApkFileKey);
+                mApkSource = new ApkFile.ApkSource(pi.applicationInfo);
+                mApkFile = mApkSource.resolve();
                 packageInfoLiveData.postValue(pi);
             } catch (Throwable th) {
                 Log.e(TAG, "Could not fetch package info.", th);
@@ -238,7 +238,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     @GuardedBy("blockerLocker")
     private void setPackageName(String packageName) {
         if (mPackageName != null) return;
-        Log.d(TAG, "Package name is being set for " + packageName);
+        Log.d(TAG, "Package name is being set for %s", packageName);
         mPackageName = packageName;
         if (mExternalApk) return;
         mExecutor.submit(() -> {
@@ -265,9 +265,15 @@ public class AppDetailsViewModel extends AndroidViewModel {
         return mPackageName;
     }
 
+    @Nullable
+    public ApkFile getApkFile() {
+        return mApkFile;
+    }
+
     @AnyThread
-    public int getApkFileKey() {
-        return mApkFileKey;
+    @Nullable
+    public ApkFile.ApkSource getApkSource() {
+        return mApkSource;
     }
 
     public boolean isTestOnlyApp() {
@@ -603,10 +609,10 @@ public class AppDetailsViewModel extends AndroidViewModel {
         if (packageInfo == null) return false;
         try {
             if (!permissionItem.isGranted()) {
-                Log.d(TAG, "Granting permission: " + permissionItem.name);
+                Log.d(TAG, "Granting permission: %s", permissionItem.name);
                 permissionItem.grantPermission(packageInfo, mAppOpsManager);
             } else {
-                Log.d(TAG, "Revoking permission: " + permissionItem.name);
+                Log.d(TAG, "Revoking permission: %s", permissionItem.name);
                 permissionItem.revokePermission(packageInfo, mAppOpsManager);
             }
         } catch (RemoteException | PermissionException e) {
@@ -1057,7 +1063,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     throw new PackageManager.NameNotFoundException("Package cannot be parsed");
                 }
                 if (mInstalledPackageInfo == null) {
-                    Log.d(TAG, mPackageName + " not installed for user " + mUserId);
+                    Log.d(TAG, "%s not installed for user %d", mPackageName, mUserId);
                 }
                 mPackageInfo.applicationInfo.sourceDir = mApkPath;
                 mPackageInfo.applicationInfo.publicSourceDir = mApkPath;
@@ -1105,11 +1111,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
     public LiveData<UserInfo> getUserInfo() {
         MutableLiveData<UserInfo> userInfoMutableLiveData = new MutableLiveData<>();
         mExecutor.submit(() -> {
-            final List<UserInfo> userInfoList;
-            if (!mExternalApk) {
-                userInfoList = Users.getUsers();
-            } else userInfoList = null;
-            if (userInfoList != null && userInfoList.size() > 1) {
+            if (mExternalApk) {
+                return;
+            }
+            final List<UserInfo> userInfoList = Users.getUsers();
+            if (userInfoList.size() > 1) {
                 for (UserInfo userInfo : userInfoList) {
                     if (userInfo.id == mUserId) {
                         userInfoMutableLiveData.postValue(userInfo);
@@ -1490,7 +1496,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
             PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(permissionName,
                     packageInfo.packageName, PackageManager.GET_META_DATA);
             if (permissionInfo == null) {
-                Log.d(TAG, "Couldn't fetch info for permission " + permissionName);
+                Log.d(TAG, "Couldn't fetch info for permission %s", permissionName);
                 permissionInfo = new PermissionInfo();
                 permissionInfo.name = permissionName;
             }
@@ -1558,7 +1564,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                             PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(activityInfo.permission,
                                     packageInfo.packageName, PackageManager.GET_META_DATA);
                             if (permissionInfo == null) {
-                                Log.d(TAG, "Couldn't fetch info for permission " + activityInfo.permission);
+                                Log.d(TAG, "Couldn't fetch info for permission %s", activityInfo.permission);
                                 permissionInfo = new PermissionInfo();
                                 permissionInfo.name = activityInfo.permission;
                             }
@@ -1579,7 +1585,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                             PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(serviceInfo.permission,
                                     packageInfo.packageName, PackageManager.GET_META_DATA);
                             if (permissionInfo == null) {
-                                Log.d(TAG, "Couldn't fetch info for permission " + serviceInfo.permission);
+                                Log.d(TAG, "Couldn't fetch info for permission %s", serviceInfo.permission);
                                 permissionInfo = new PermissionInfo();
                                 permissionInfo.name = serviceInfo.permission;
                             }
@@ -1600,7 +1606,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                             PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(providerInfo.readPermission,
                                     packageInfo.packageName, PackageManager.GET_META_DATA);
                             if (permissionInfo == null) {
-                                Log.d(TAG, "Couldn't fetch info for permission " + providerInfo.readPermission);
+                                Log.d(TAG, "Couldn't fetch info for permission %s", providerInfo.readPermission);
                                 permissionInfo = new PermissionInfo();
                                 permissionInfo.name = providerInfo.readPermission;
                             }
@@ -1617,7 +1623,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                             PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(providerInfo.writePermission,
                                     packageInfo.packageName, PackageManager.GET_META_DATA);
                             if (permissionInfo == null) {
-                                Log.d(TAG, "Couldn't fetch info for permission " + providerInfo.writePermission);
+                                Log.d(TAG, "Couldn't fetch info for permission %s", providerInfo.writePermission);
                                 permissionInfo = new PermissionInfo();
                                 permissionInfo.name = providerInfo.writePermission;
                             }
@@ -1638,7 +1644,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                             PermissionInfo permissionInfo = PermissionCompat.getPermissionInfo(activityInfo.permission,
                                     packageInfo.packageName, PackageManager.GET_META_DATA);
                             if (permissionInfo == null) {
-                                Log.d(TAG, "Couldn't fetch info for permission " + activityInfo.permission);
+                                Log.d(TAG, "Couldn't fetch info for permission %s", activityInfo.permission);
                                 permissionInfo = new PermissionInfo();
                                 permissionInfo.name = activityInfo.permission;
                             }
@@ -1718,7 +1724,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
         }
         try {
             File idsigFile = mApkFile.getIdsigFile();
-            ApkVerifier.Builder builder = new ApkVerifier.Builder(mApkFile.getBaseEntry().getRealCachedFile())
+            ApkVerifier.Builder builder = new ApkVerifier.Builder(mApkFile.getBaseEntry().getFile(false))
                     .setMaxCheckedPlatformVersion(Build.VERSION.SDK_INT);
             if (idsigFile != null) {
                 builder.setV4SignatureFile(idsigFile);
@@ -1813,12 +1819,12 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     || entry.type == ApkFile.APK_SPLIT_UNKNOWN) {
                 // Scan for .so files
                 NativeLibraries nativeLibraries;
-                try (InputStream is = entry.getRealInputStream()) {
+                try (InputStream is = entry.getInputStream(false)) {
                     try {
                         nativeLibraries = new NativeLibraries(is);
                     } catch (IOException e) {
                         // Maybe zip error, Try without InputStream
-                        nativeLibraries = new NativeLibraries(entry.getRealCachedFile());
+                        nativeLibraries = new NativeLibraries(entry.getFile(false));
                     }
                     for (NativeLibraries.NativeLib nativeLib : nativeLibraries.getLibs()) {
                         AppDetailsItem<?> appDetailsItem = new AppDetailsItem<>(nativeLib);
