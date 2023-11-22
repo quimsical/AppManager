@@ -65,8 +65,8 @@ public final class ApkUtils {
         synchronized (sLock) {
             ApplicationInfo info = packageInfo.applicationInfo;
             PackageManager pm = ctx.getPackageManager();
-            String outputName = FileUtils.getSanitizedFilename(info.loadLabel(pm).toString() + "_" +
-                    packageInfo.versionName, false);
+            String outputName = Paths.sanitizeFilename(info.loadLabel(pm).toString() + "_" +
+                    packageInfo.versionName, "_");
             if (outputName == null) outputName = info.packageName;
             Path tmpPublicSource;
             if (isSplitApk(info) || hasObbFiles(info.packageName, UserHandleHidden.getUserId(info.uid))) {
@@ -86,26 +86,27 @@ public final class ApkUtils {
      * that these are saved at /sdcard/AppManager/apks
      */
     @WorkerThread
-    public static void backupApk(@NonNull Context ctx, @NonNull String packageName, @UserIdInt int userHandle)
+    public static void backupApk(@NonNull Context ctx, @NonNull String packageName, @UserIdInt int userId)
             throws IOException, PackageManager.NameNotFoundException, RemoteException {
         Path backupPath = BackupFiles.getApkBackupDirectory();
         // Fetch package info
         PackageManager pm = ctx.getPackageManager();
         PackageInfo packageInfo = PackageManagerCompat.getPackageInfo(packageName,
                 MATCH_UNINSTALLED_PACKAGES | PackageManager.GET_SHARED_LIBRARY_FILES
-                        | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userHandle);
+                        | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
         ApplicationInfo info = packageInfo.applicationInfo;
-        String outputName = FileUtils.getSanitizedFilename(getFormattedApkFilename(ctx, packageInfo, pm), false);
+        String outputName = Paths.sanitizeFilename(getFormattedApkFilename(ctx, packageInfo, pm), "_",
+                Paths.SANITIZE_FLAG_FAT_ILLEGAL_CHARS | Paths.SANITIZE_FLAG_UNIX_RESERVED);
         if (outputName == null) outputName = packageName;
         Path apkFile;
-        if (isSplitApk(info) || hasObbFiles(packageName, userHandle)) {
+        if (isSplitApk(info) || hasObbFiles(packageName, userId)) {
             // Split apk
             apkFile = backupPath.createNewFile(outputName + EXT_APKS, null);
             SplitApkExporter.saveApks(packageInfo, apkFile);
         } else {
             // Regular apk
             apkFile = backupPath.createNewFile(outputName + EXT_APK, null);
-            IoUtils.copy(Paths.get(info.publicSourceDir), apkFile, null);
+            IoUtils.copy(Paths.get(info.publicSourceDir), apkFile);
         }
     }
 
@@ -188,7 +189,7 @@ public final class ApkUtils {
         HashMap<String, String> manifestAttrs = new HashMap<>();
         XMLDocument xmlDocument = AndroidBinXmlDecoder.decodeToXml(manifestBytes);
         XMLElement manifestElement = xmlDocument.getDocumentElement();
-        if (!"manifest".equals(manifestElement.getTagName())) {
+        if (!"manifest".equals(manifestElement.getName())) {
             throw new ApkFile.ApkFileException("No manifest found.");
         }
         for (XMLAttribute attribute : manifestElement.listAttributes()) {
@@ -198,8 +199,8 @@ public final class ApkUtils {
             manifestAttrs.put(attribute.getName(), attribute.getValue());
         }
         XMLElement androidElement = null;
-        for (XMLElement elem : manifestElement.listChildElements()) {
-            if ("application".equals(elem.getTagName())) {
+        for (XMLElement elem : manifestElement.getChildElementList()) {
+            if ("application".equals(elem.getName())) {
                 androidElement = elem;
                 break;
             }

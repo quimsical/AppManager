@@ -23,6 +23,8 @@ import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
+import org.json.JSONException;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -51,7 +53,8 @@ import io.github.muntashirakon.AppManager.db.utils.AppDb;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.misc.ListOptions;
-import io.github.muntashirakon.AppManager.profiles.ProfileMetaManager;
+import io.github.muntashirakon.AppManager.profiles.ProfileManager;
+import io.github.muntashirakon.AppManager.profiles.struct.AppsProfile;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.types.PackageChangeReceiver;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
@@ -179,13 +182,13 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
         int myUserId = UserHandleHidden.myUserId();
         int[] userIds = Users.getUsersIds();
         for (String packageName : mSelectedPackageApplicationItemMap.keySet()) {
-            int[] userHandles = Objects.requireNonNull(mSelectedPackageApplicationItemMap.get(packageName)).userHandles;
-            if (userHandles.length == 0) {
+            int[] userIds1 = Objects.requireNonNull(mSelectedPackageApplicationItemMap.get(packageName)).userIds;
+            if (userIds1.length == 0) {
                 // Could be a backup only item
                 // Assign current user in it
                 userPackagePairs.add(new UserPackagePair(packageName, myUserId));
             } else {
-                for (int userHandle : userHandles) {
+                for (int userHandle : userIds1) {
                     if (!ArrayUtils.contains(userIds, userHandle)) continue;
                     userPackagePairs.add(new UserPackagePair(packageName, userHandle));
                 }
@@ -317,7 +320,7 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
             try (OutputStream os = path.openOutputStream()) {
                 List<PackageInfo> packageInfoList = new ArrayList<>();
                 for (String packageName : getSelectedPackages().keySet()) {
-                    int[] userIds = Objects.requireNonNull(getSelectedPackages().get(packageName)).userHandles;
+                    int[] userIds = Objects.requireNonNull(getSelectedPackages().get(packageName)).userIds;
                     for (int userId : userIds) {
                         packageInfoList.add(PackageManagerCompat.getPackageInfo(packageName,
                                 PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId));
@@ -384,22 +387,28 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
         synchronized (mApplicationItems) {
             List<ApplicationItem> candidateApplicationItems = new ArrayList<>();
             if (mFilterProfileName != null) {
-                ProfileMetaManager profileMetaManager = new ProfileMetaManager(mFilterProfileName);
-                List<Integer> indexes = new ArrayList<>();
-                for (String packageName : profileMetaManager.getProfile().packages) {
-                    ApplicationItem item = new ApplicationItem();
-                    item.packageName = packageName;
-                    int index = mApplicationItems.indexOf(item);
-                    if (index != -1) {
-                        indexes.add(index);
+                String profileId = ProfileManager.getProfileIdCompat(mFilterProfileName);
+                Path profilePath = ProfileManager.findProfilePathById(profileId);
+                try {
+                    AppsProfile profile = AppsProfile.fromPath(profilePath);
+                    List<Integer> indexes = new ArrayList<>();
+                    for (String packageName : profile.packages) {
+                        ApplicationItem item = new ApplicationItem();
+                        item.packageName = packageName;
+                        int index = mApplicationItems.indexOf(item);
+                        if (index != -1) {
+                            indexes.add(index);
+                        }
                     }
-                }
-                Collections.sort(indexes);
-                for (int index : indexes) {
-                    ApplicationItem item = mApplicationItems.get(index);
-                    if (isAmongSelectedUsers(item)) {
-                        candidateApplicationItems.add(item);
+                    Collections.sort(indexes);
+                    for (int index : indexes) {
+                        ApplicationItem item = mApplicationItems.get(index);
+                        if (isAmongSelectedUsers(item)) {
+                            candidateApplicationItems.add(item);
+                        }
                     }
+                } catch (IOException | JSONException e) {
+                    e.printStackTrace();
                 }
             } else {
                 for (ApplicationItem item : mApplicationItems) {
@@ -476,7 +485,7 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
             return true;
         }
         for (int userId : mSelectedUsers) {
-            if (ArrayUtils.contains(applicationItem.userHandles, userId)) {
+            if (ArrayUtils.contains(applicationItem.userIds, userId)) {
                 return true;
             }
         }
@@ -690,7 +699,7 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
                 if (item.packageName == null) {
                     item.packageName = app.packageName;
                 }
-                item.userHandles = ArrayUtils.appendInt(item.userHandles, app.userId);
+                item.userIds = ArrayUtils.appendInt(item.userIds, app.userId);
                 item.isInstalled = true;
                 item.openCount += app.openCount;
                 item.screenTime += app.screenTime;

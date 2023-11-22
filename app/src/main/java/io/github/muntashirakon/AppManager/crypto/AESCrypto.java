@@ -134,7 +134,7 @@ public class AESCrypto implements Crypto {
         cipher.init(true, getParams());
         // Convert unencrypted stream to encrypted stream
         try (OutputStream cipherOS = new CipherOutputStream(encryptedStream, cipher)) {
-            IoUtils.copy(unencryptedStream, cipherOS, -1, null);
+            IoUtils.copy(unencryptedStream, cipherOS);
         }
     }
 
@@ -152,7 +152,7 @@ public class AESCrypto implements Crypto {
         cipher.init(false, getParams());
         // Convert encrypted stream to unencrypted stream
         try (InputStream cipherIS = new CipherInputStream(encryptedStream, cipher)) {
-            IoUtils.copy(cipherIS, unencryptedStream, -1, null);
+            IoUtils.copy(cipherIS, unencryptedStream);
         }
     }
 
@@ -171,7 +171,7 @@ public class AESCrypto implements Crypto {
         String ext = CryptoUtils.getExtension(mParentMode);
         // Encrypt/decrypt files
         for (Path inputPath : files) {
-            Path parent = inputPath.getParentFile();
+            Path parent = inputPath.getParent();
             if (parent == null) {
                 throw new IOException("Parent of " + inputPath + " cannot be null.");
             }
@@ -186,11 +186,11 @@ public class AESCrypto implements Crypto {
                  OutputStream os = outputPath.openOutputStream()) {
                 if (forEncryption) {
                     try (OutputStream cipherOS = new CipherOutputStream(os, cipher)) {
-                        IoUtils.copy(is, cipherOS, -1, null);
+                        IoUtils.copy(is, cipherOS);
                     }
                 } else {  // Cipher.DECRYPT_MODE
                     try (InputStream cipherIS = new CipherInputStream(is, cipher)) {
-                        IoUtils.copy(cipherIS, os, -1, null);
+                        IoUtils.copy(cipherIS, os);
                     }
                 }
             }

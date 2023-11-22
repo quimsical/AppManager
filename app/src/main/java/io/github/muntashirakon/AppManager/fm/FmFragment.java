@@ -46,6 +46,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.leinardi.android.speeddial.SpeedDialActionItem;
 import com.leinardi.android.speeddial.SpeedDialView;
 
@@ -63,6 +64,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.fm.dialogs.FilePropertiesDialogFragment;
+import io.github.muntashirakon.AppManager.fm.dialogs.NewFileDialogFragment;
+import io.github.muntashirakon.AppManager.fm.dialogs.NewFolderDialogFragment;
+import io.github.muntashirakon.AppManager.fm.dialogs.NewSymbolicLinkDialogFragment;
+import io.github.muntashirakon.AppManager.fm.dialogs.RenameDialogFragment;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.settings.SettingsActivity;
 import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
@@ -259,6 +265,10 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
             // force disable empty view
             if (mEmptyView.isShown()) {
                 mEmptyView.setVisibility(View.GONE);
+            }
+            // Reset subtitle
+            if (actionBar != null) {
+                actionBar.setSubtitle(R.string.loading);
             }
             if (uri1 == null) {
                 return;
@@ -577,19 +587,25 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     private void goToRawPath(@NonNull String p) {
         Uri uncheckedUri = Uri.parse(p);
         if (uncheckedUri.getScheme() != null) {
-            // Valid path
-            mModel.loadFiles(uncheckedUri);
+            Uri checkedUri = FmUtils.sanitizeContentInput(uncheckedUri);
+            if (checkedUri != null) {
+                // Valid path
+                mModel.loadFiles(checkedUri);
+            } // else bad URI
             return;
         }
         // Bad Uri, consider it to be a file://
         if (p.startsWith(File.separator)) {
             // absolute file
-            mModel.loadFiles(uncheckedUri.buildUpon().scheme(ContentResolver.SCHEME_FILE).build());
+            Uri checkedUri = FmUtils.sanitizeContentInput(uncheckedUri.buildUpon().scheme(ContentResolver.SCHEME_FILE).build());
+            if (checkedUri != null) {
+                mModel.loadFiles(checkedUri);
+            } // else bad file
             return;
         }
-        // relative path
+        // Relative path
         String goodPath = Paths.sanitize(p, false);
-        if (goodPath == null) {
+        if (goodPath == null || goodPath.equals(File.separator)) {
             // No relative path means current path which is already loaded
             return;
         }
@@ -598,7 +614,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
             List<String> pathSegments = currentUri.getPathSegments();
             if (pathSegments.size() == 4) {
                 // For a tree URI, the 3rd index is the path
-                String lastPathSegment = pathSegments.get(3) + File.separator + p;
+                String lastPathSegment = pathSegments.get(3) + File.separator + goodPath;
                 Uri.Builder b = new Uri.Builder()
                         .scheme(currentUri.getScheme())
                         .authority(currentUri.getAuthority())
@@ -613,7 +629,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         }
         // For others, simply append path segments at the end
         @SuppressWarnings("SuspiciousRegexArgument") // We aren't on Windows
-        String[] segments = p.split(File.separator);
+        String[] segments = goodPath.split(File.separator);
         Uri.Builder b = currentUri.buildUpon();
         for (String segment : segments) {
             b.appendPath(segment);
@@ -710,6 +726,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         // TODO: 27/6/23 Ideally, these should be done in a bound service
         AtomicReference<Future<?>> deletionThread = new AtomicReference<>();
         View view = View.inflate(requireContext(), R.layout.dialog_progress, null);
+        LinearProgressIndicator progress = view.findViewById(R.id.progress_linear);
         TextView label = view.findViewById(android.R.id.text1);
         TextView counter = view.findViewById(android.R.id.text2);
         counter.setText(String.format(Locale.getDefault(), "%d/%d", 0, paths.size()));
@@ -724,10 +741,17 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                 .setCancelable(false)
                 .show();
         deletionThread.set(ThreadUtils.postOnBackgroundThread(() -> {
+            WeakReference<LinearProgressIndicator> progressRef = new WeakReference<>(progress);
             WeakReference<TextView> labelRef = new WeakReference<>(label);
             WeakReference<TextView> counterRef = new WeakReference<>(counter);
             WeakReference<AlertDialog> dialogRef = new WeakReference<>(dialog);
             try {
+                LinearProgressIndicator p = progressRef.get();
+                if (p != null) {
+                    p.setMax(paths.size());
+                    p.setProgress(0);
+                    p.setIndeterminate(false);
+                }
                 int i = 1;
                 for (Path path : paths) {
                     // Update label
@@ -745,11 +769,15 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                     }
                     path.delete();
                     TextView c = counterRef.get();
-                    if (c != null) {
-                        int finalI = i;
-                        ThreadUtils.postOnMainThread(() ->
-                                c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, paths.size())));
-                    }
+                    int finalI = i;
+                    ThreadUtils.postOnMainThread(() -> {
+                        if (c != null) {
+                            c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, paths.size()));
+                        }
+                        if (p != null) {
+                            p.setProgress(finalI);
+                        }
+                    });
                     ++i;
                     if (ThreadUtils.isInterrupted()) {
                         break;
@@ -771,6 +799,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
     private void startBatchRenaming(List<Path> paths, String prefix, @Nullable String extension) {
         AtomicReference<Future<?>> renameThread = new AtomicReference<>();
         View view = View.inflate(requireContext(), R.layout.dialog_progress, null);
+        LinearProgressIndicator progress = view.findViewById(R.id.progress_linear);
         TextView label = view.findViewById(android.R.id.text1);
         TextView counter = view.findViewById(android.R.id.text2);
         counter.setText(String.format(Locale.getDefault(), "%d/%d", 0, paths.size()));
@@ -785,10 +814,17 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                 .setCancelable(false)
                 .show();
         renameThread.set(ThreadUtils.postOnBackgroundThread(() -> {
+            WeakReference<LinearProgressIndicator> progressRef = new WeakReference<>(progress);
             WeakReference<TextView> labelRef = new WeakReference<>(label);
             WeakReference<TextView> counterRef = new WeakReference<>(counter);
             WeakReference<AlertDialog> dialogRef = new WeakReference<>(dialog);
             try {
+                LinearProgressIndicator p = progressRef.get();
+                if (p != null) {
+                    p.setMax(paths.size());
+                    p.setProgress(0);
+                    p.setIndeterminate(false);
+                }
                 int i = 1;
                 for (Path path : paths) {
                     // Update label
@@ -804,17 +840,21 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                     if (ThreadUtils.isInterrupted()) {
                         break;
                     }
-                    Path basePath = path.getParentFile();
+                    Path basePath = path.getParent();
                     if (basePath != null) {
                         String displayName = findNextBestDisplayName(basePath, prefix, extension, i);
                         path.renameTo(displayName);
                     }
                     TextView c = counterRef.get();
-                    if (c != null) {
-                        int finalI = i;
-                        ThreadUtils.postOnMainThread(() ->
-                                c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, paths.size())));
-                    }
+                    int finalI = i;
+                    ThreadUtils.postOnMainThread(() -> {
+                        if (c != null) {
+                            c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, paths.size()));
+                        }
+                        if (p != null) {
+                            p.setProgress(finalI);
+                        }
+                    });
                     ++i;
                     if (ThreadUtils.isInterrupted()) {
                         break;
@@ -840,6 +880,7 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
         }
         AtomicReference<Future<?>> pasteThread = new AtomicReference<>();
         View view = View.inflate(requireContext(), R.layout.dialog_progress, null);
+        LinearProgressIndicator progress = view.findViewById(R.id.progress_linear);
         TextView label = view.findViewById(android.R.id.text1);
         TextView counter = view.findViewById(android.R.id.text2);
         counter.setText(String.format(Locale.getDefault(), "%d/%d", 0, task.files.size()));
@@ -854,11 +895,18 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                 .setCancelable(false)
                 .show();
         pasteThread.set(ThreadUtils.postOnBackgroundThread(() -> {
+            WeakReference<LinearProgressIndicator> progressRef = new WeakReference<>(progress);
             WeakReference<TextView> labelRef = new WeakReference<>(label);
             WeakReference<TextView> counterRef = new WeakReference<>(counter);
             WeakReference<AlertDialog> dialogRef = new WeakReference<>(dialog);
             Path targetPath = Paths.get(uri);
             try {
+                LinearProgressIndicator p = progressRef.get();
+                if (p != null) {
+                    p.setMax(task.files.size());
+                    p.setProgress(0);
+                    p.setIndeterminate(false);
+                }
                 int i = 1;
                 for (Path sourcePath : task.files) {
                     // Update label
@@ -895,11 +943,15 @@ public class FmFragment extends Fragment implements SearchView.OnQueryTextListen
                         }
                     }
                     TextView c = counterRef.get();
-                    if (c != null) {
-                        int finalI = i;
-                        ThreadUtils.postOnMainThread(() ->
-                                c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, task.files.size())));
-                    }
+                    int finalI = i;
+                    ThreadUtils.postOnMainThread(() -> {
+                        if (c != null) {
+                            c.setText(String.format(Locale.getDefault(), "%d/%d", finalI, task.files.size()));
+                        }
+                        if (p != null) {
+                            p.setProgress(finalI);
+                        }
+                    });
                     ++i;
                     if (ThreadUtils.isInterrupted()) {
                         break;

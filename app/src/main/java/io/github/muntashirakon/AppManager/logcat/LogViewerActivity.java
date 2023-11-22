@@ -2,17 +2,13 @@
 
 package io.github.muntashirakon.AppManager.logcat;
 
-import static io.github.muntashirakon.AppManager.logcat.LogViewerRecyclerAdapter.CONTEXT_MENU_COPY_ID;
-import static io.github.muntashirakon.AppManager.logcat.LogViewerRecyclerAdapter.CONTEXT_MENU_FILTER_ID;
-
 import android.app.Activity;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.provider.BaseColumns;
 import android.text.TextUtils;
 import android.view.MenuItem;
@@ -63,6 +59,7 @@ import io.github.muntashirakon.AppManager.logcat.struct.SearchCriteria;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.settings.SettingsActivity;
 import io.github.muntashirakon.AppManager.utils.BetterActivityResult;
+import io.github.muntashirakon.AppManager.utils.CpuUtils;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
 import io.github.muntashirakon.AppManager.utils.StoragePermission;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
@@ -76,7 +73,7 @@ import io.github.muntashirakon.widget.SearchView;
 // Copyright 2012 Nolan Lawson
 // Copyright 2021 Muntashir Al-Islam
 public class LogViewerActivity extends BaseActivity implements SearchView.OnQueryTextListener,
-        LogViewerRecyclerAdapter.ViewHolder.OnClickListener, SearchView.OnSuggestionListener {
+        LogViewerRecyclerAdapter.ViewHolder.OnSearchByClickListener, SearchView.OnSuggestionListener {
     public static final String TAG = LogViewerActivity.class.getSimpleName();
 
     public interface SearchingInterface {
@@ -107,6 +104,7 @@ public class LogViewerActivity extends BaseActivity implements SearchView.OnQuer
     @Nullable
     private SearchingInterface mSearchingInterface;
     private LogViewerViewModel mViewModel;
+    private PowerManager.WakeLock mWakeLock;
 
     private final MultithreadedExecutor mExecutor = MultithreadedExecutor.getNewInstance();
     private final BetterActivityResult<Intent, ActivityResult> mActivityLauncher =
@@ -271,6 +269,8 @@ public class LogViewerActivity extends BaseActivity implements SearchView.OnQuer
         } else if (filename != null) {
             openLogFile(filename);
         } else {
+            mWakeLock = CpuUtils.getPartialWakeLock("logcat_activity");
+            mWakeLock.acquire();
             startLiveLogViewer(false);
         }
     }
@@ -318,6 +318,7 @@ public class LogViewerActivity extends BaseActivity implements SearchView.OnQuer
 
     @Override
     public void onDestroy() {
+        CpuUtils.releaseWakeLock(mWakeLock);
         super.onDestroy();
         mExecutor.shutdownNow();
     }
@@ -379,22 +380,14 @@ public class LogViewerActivity extends BaseActivity implements SearchView.OnQuer
     }
 
     @Override
-    public boolean onMenuItemClick(MenuItem item, LogLine logLine) {
+    public boolean onSearchByClick(MenuItem item, LogLine logLine) {
         if (logLine != null) {
-            switch (item.getItemId()) {
-                case CONTEXT_MENU_COPY_ID:
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    clipboard.setPrimaryClip(ClipData.newPlainText(null, logLine.getOriginalLine()));
-                    Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show();
-                    return true;
-                case CONTEXT_MENU_FILTER_ID:
-                    if (logLine.getProcessId() == -1) {
-                        // invalid line
-                        return false;
-                    }
-                    showSearchByDialog(logLine);
-                    return true;
+            if (logLine.getProcessId() == -1) {
+                // invalid line
+                return false;
             }
+            showSearchByDialog(logLine);
+            return true;
         }
         return false;
     }

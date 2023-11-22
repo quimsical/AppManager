@@ -78,14 +78,14 @@ public class FileCache implements Closeable {
             throw new FileNotFoundException("Path " + source + " does not exist.");
         }
         File tempFile = mFileCacheMap.get(source);
-        if (tempFile == null) {
+        if (tempFile == null || !tempFile.exists()) {
             String extension = source.getExtension();
             tempFile = File.createTempFile(source.getName() + "_", "." + (extension != null ? extension : "tmp"), mCacheDir);
             mFileCacheMap.put(source, tempFile);
         } else if (source.lastModified() > 0 && source.lastModified() < tempFile.lastModified()) {
             return tempFile;
         }
-        IoUtils.copy(source, Paths.get(tempFile), null);
+        IoUtils.copy(source, Paths.get(tempFile));
         return tempFile;
     }
 
@@ -94,7 +94,7 @@ public class FileCache implements Closeable {
         File tempFile = File.createTempFile("file_", "." + (extension != null ? extension : "tmp"), mCacheDir);
         mFileCache.add(tempFile);
         try (OutputStream os = new FileOutputStream(tempFile)) {
-            IoUtils.copy(is, os, -1, null);
+            IoUtils.copy(is, os);
         }
         return tempFile;
     }

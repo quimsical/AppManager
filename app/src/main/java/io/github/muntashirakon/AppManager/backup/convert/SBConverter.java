@@ -89,7 +89,7 @@ public class SBConverter extends Converter {
     private Path mCachedApk;
 
     public SBConverter(@NonNull Path xmlFile) {
-        mBackupLocation = xmlFile.getParentFile();
+        mBackupLocation = xmlFile.getParent();
         mPackageName = Paths.trimPathExtension(xmlFile.getName());
         mBackupTime = xmlFile.lastModified();
         mUserId = UserHandleHidden.myUserId();
@@ -180,7 +180,7 @@ public class SBConverter extends Converter {
                 if (mCrypto != null) {
                     mCrypto.close();
                 }
-                Objects.requireNonNull(mCachedApk.getParentFile()).delete();
+                mCachedApk.requireParent().delete();
                 if (backupSuccess) {
                     BackupUtils.putBackupToDbAndBroadcast(ContextUtils.getContext(), mDestMetadata);
                 }
@@ -197,7 +197,7 @@ public class SBConverter extends Converter {
     }
 
     private void backupApkFile() throws BackupException {
-        Path sourceDir = Objects.requireNonNull(mCachedApk.getParentFile());
+        Path sourceDir = mCachedApk.requireParent();
         // Get certificate checksums
         try {
             String[] checksums = ConvertUtils.getChecksumsFromApk(mCachedApk, mDestMetadata.checksumAlgo);
@@ -269,7 +269,7 @@ public class SBConverter extends Converter {
                             // We need to use a temporary file
                             tmpFile = FileCache.getGlobalFileCache().createCachedFile(dataFile.getExtension());
                             try (OutputStream fos = new FileOutputStream(tmpFile)) {
-                                IoUtils.copy(zis, fos, -1, null);
+                                IoUtils.copy(zis, fos);
                             }
                         }
                         String fileName = zipEntry.getName().replaceFirst(Pattern.quote(mPackageName + "/"), "");
@@ -283,7 +283,7 @@ public class SBConverter extends Converter {
                         if (tmpFile != null) {
                             // Copy from the temporary file
                             try (FileInputStream fis = new FileInputStream(tmpFile)) {
-                                IoUtils.copy(fis, tos, -1, null);
+                                IoUtils.copy(fis, tos);
                             } finally {
                                 FileCache.getGlobalFileCache().delete(tmpFile);
                             }
@@ -308,7 +308,7 @@ public class SBConverter extends Converter {
         mCachedApk = FileUtils.getTempPath(mPackageName, "base.apk");
         try (InputStream pis = getApkFile().openInputStream()) {
             try (OutputStream fos = mCachedApk.openOutputStream()) {
-                IoUtils.copy(pis, fos, -1, null);
+                IoUtils.copy(pis, fos);
             }
             mFilesToBeDeleted.add(getApkFile());
         } catch (IOException e) {
@@ -415,9 +415,9 @@ public class SBConverter extends Converter {
                 if (zipEntry.isDirectory()) continue;
                 String splitName = FileUtils.getFilenameFromZipEntry(zipEntry);
                 splits.add(splitName);
-                Path file = Objects.requireNonNull(mCachedApk.getParentFile()).findOrCreateFile(splitName, null);
+                Path file = mCachedApk.requireParent().findOrCreateFile(splitName, null);
                 try (OutputStream fos = file.openOutputStream()) {
-                    IoUtils.copy(zis, fos, -1, null);
+                    IoUtils.copy(zis, fos);
                 } catch (IOException e) {
                     file.delete();
                     throw e;

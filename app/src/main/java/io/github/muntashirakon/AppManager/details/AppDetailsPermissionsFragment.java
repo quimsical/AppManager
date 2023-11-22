@@ -79,6 +79,8 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     private boolean mIsExternalApk;
     @PermissionProperty
     private int mNeededProperty;
+    private int mSortOrder;
+    private String mSearchQuery;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -113,6 +115,8 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             alertView.postDelayed(() -> alertView.hide(), 15_000);
         }
         if (viewModel == null) return;
+        mSortOrder = viewModel.getSortOrder(mNeededProperty);
+        mSearchQuery = viewModel.getSearchQuery();
         mPackageName = viewModel.getPackageName();
         viewModel.get(mNeededProperty).observe(getViewLifecycleOwner(), appDetailsItems -> {
             if (appDetailsItems != null && mAdapter != null && viewModel.isPackageExist()) {
@@ -280,13 +284,28 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     }
 
     @Override
+    public void onPause() {
+        super.onPause();
+        if (viewModel != null) {
+            mSortOrder = viewModel.getSortOrder(mNeededProperty);
+            mSearchQuery = viewModel.getSearchQuery();
+        }
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
         if (activity.searchView != null) {
-            activity.searchView.setVisibility(View.VISIBLE);
+            if (!activity.searchView.isShown()) {
+                activity.searchView.setVisibility(View.VISIBLE);
+            }
             activity.searchView.setOnQueryTextListener(this);
             if (viewModel != null) {
-                viewModel.filterAndSortItems(mNeededProperty);
+                int sortOrder = viewModel.getSortOrder(mNeededProperty);
+                String searchQuery = viewModel.getSearchQuery();
+                if (sortOrder != mSortOrder || !Objects.equals(searchQuery, mSearchQuery)) {
+                    viewModel.filterAndSortItems(mNeededProperty);
+                }
             }
         }
     }
@@ -374,15 +393,31 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
 
         @UiThread
         void setDefaultList(@NonNull List<AppDetailsItem<?>> list) {
-            mRequestedProperty = mNeededProperty;
-            mConstraint = viewModel == null ? null : viewModel.getSearchQuery();
-            mCanModifyAppOpMode = SelfPermissions.canModifyAppOpMode();
-            ProgressIndicatorCompat.setVisibility(progressIndicator, false);
-            synchronized (mAdapterList) {
-                mAdapterList.clear();
-                mAdapterList.addAll(list);
-                notifyDataSetChanged();
-            }
+            ThreadUtils.postOnBackgroundThread(() -> {
+                mRequestedProperty = mNeededProperty;
+                mConstraint = viewModel == null ? null : viewModel.getSearchQuery();
+                mCanModifyAppOpMode = SelfPermissions.canModifyAppOpMode();
+                int previousSize = mAdapterList.size();
+                synchronized (mAdapterList) {
+                    mAdapterList.clear();
+                    mAdapterList.addAll(list);
+                }
+                int currentSize = mAdapterList.size();
+                ThreadUtils.postOnMainThread(() -> {
+                    if (isDetached()) return;
+                    ProgressIndicatorCompat.setVisibility(progressIndicator, false);
+                    synchronized (mAdapterList) {
+                        if (previousSize != 0) {
+                            notifyItemRangeChanged(0, previousSize);
+                        }
+                        if (previousSize < currentSize) {
+                            notifyItemRangeInserted(previousSize, currentSize - previousSize);
+                        } else if (previousSize > currentSize) {
+                            notifyItemRangeRemoved(currentSize, previousSize - currentSize);
+                        }
+                    }
+                });
+            });
         }
 
         /**
@@ -640,7 +675,7 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             synchronized (mAdapterList) {
                 permissionItem = (AppDetailsPermissionItem) mAdapterList.get(index);
             }
-            @NonNull PermissionInfo permissionInfo = permissionItem.vanillaItem;
+            @NonNull PermissionInfo permissionInfo = permissionItem.mainItem;
             final String permName = permissionInfo.name;
             // Set permission name
             if (mConstraint != null && permName.toLowerCase(Locale.ROOT).contains(mConstraint)) {
@@ -722,7 +757,7 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             synchronized (mAdapterList) {
                 permissionItem = (AppDetailsDefinedPermissionItem) mAdapterList.get(index);
             }
-            PermissionInfo permissionInfo = permissionItem.vanillaItem;
+            PermissionInfo permissionInfo = permissionItem.mainItem;
             // Internal or external
             holder.chipType.setText(permissionItem.isExternal ? R.string.external : R.string.internal);
             // Label
@@ -736,7 +771,9 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
                         permissionInfo.name.replaceFirst(mPackageName, "") : permissionInfo.name);
             }
             // Icon
-            ImageLoader.getInstance().displayImage(mPackageName + "_" + permissionInfo.name, permissionInfo, holder.imageView);
+            String tag = mPackageName + "_" + permissionInfo.name;
+            holder.imageView.setTag(tag);
+            ImageLoader.getInstance().displayImage(tag, permissionInfo, holder.imageView);
             // Description
             CharSequence description = permissionInfo.loadDescription(packageManager);
             if (description != null) {

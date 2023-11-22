@@ -65,6 +65,7 @@ import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.BroadcastUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
+import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.MiuiUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
@@ -592,9 +593,10 @@ public final class PackageInstallerCompat {
             Log.d(TAG, "Install: selected entries: %s", selectedSplitIds);
             // Write apk files
             for (ApkFile.Entry entry : selectedEntries) {
+                long entrySize = entry.getFileSize(options.isSignApkFiles());
                 try (InputStream apkInputStream = entry.getInputStream(options.isSignApkFiles());
-                     OutputStream apkOutputStream = mSession.openWrite(entry.getFileName(), 0, entry.getFileSize())) {
-                    IoUtils.copy(apkInputStream, apkOutputStream, totalSize, progressHandler);
+                     OutputStream apkOutputStream = mSession.openWrite(entry.getFileName(), 0, entrySize)) {
+                    FileUtils.copy(apkInputStream, apkOutputStream, totalSize, progressHandler);
                     mSession.fsync(apkOutputStream);
                     Log.d(TAG, "Install: copied entry %s", entry.name);
                 } catch (IOException e) {
@@ -654,7 +656,7 @@ public final class PackageInstallerCompat {
             for (Path apkFile : apkFiles) {
                 try (InputStream apkInputStream = apkFile.openInputStream();
                      OutputStream apkOutputStream = mSession.openWrite(apkFile.getName(), 0, apkFile.length())) {
-                    IoUtils.copy(apkInputStream, apkOutputStream, totalSize, progressHandler);
+                    FileUtils.copy(apkInputStream, apkOutputStream, totalSize, progressHandler);
                     mSession.fsync(apkOutputStream);
                 } catch (IOException e) {
                     callFinish(STATUS_FAILURE_SESSION_WRITE);

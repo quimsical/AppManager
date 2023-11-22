@@ -13,8 +13,8 @@ android {
         applicationId 'io.github.muntashirakon.AppManager'
         minSdk min_sdk
         targetSdk target_sdk
-        versionCode 434
-        versionName "4.0.0-alpha01"
+        versionCode 435
+        versionName "4.0.0-alpha02"
         javaCompileOptions {
             annotationProcessorOptions {
                 arguments = ["room.schemaLocation": "$projectDir/schemas".toString()]
@@ -48,9 +48,8 @@ android {
     }
     lint {
         checkReleaseBuilds false
-        // Or, if you prefer, you can continue to check for errors in release builds,
-        // but continue the build even when errors are found:
         abortOnError false
+        checkDependencies true
     }
     compileOptions {
         encoding "UTF-8"
@@ -87,7 +86,15 @@ android {
         includeInBundle false
     }
     packagingOptions {
-        exclude 'META-INF/*.version'
+        jniLibs {
+            useLegacyPackaging true
+        }
+        resources {
+            excludes += ['META-INF/*.version']
+        }
+    }
+    buildFeatures {
+        aidl true
     }
 }
 

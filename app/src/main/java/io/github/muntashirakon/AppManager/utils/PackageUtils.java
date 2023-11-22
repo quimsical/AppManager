@@ -31,6 +31,7 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 import android.os.Build;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserHandleHidden;
@@ -112,9 +113,9 @@ public final class PackageUtils {
         ArrayList<UserPackagePair> userPackagePairList = new ArrayList<>();
         int currentUser = UserHandleHidden.myUserId();
         for (ApplicationItem item : applicationItems) {
-            if (item.userHandles.length > 0) {
-                for (int userHandle : item.userHandles)
-                    userPackagePairList.add(new UserPackagePair(item.packageName, userHandle));
+            if (item.userIds.length > 0) {
+                for (int userId : item.userIds)
+                    userPackagePairList.add(new UserPackagePair(item.packageName, userId));
             } else {
                 userPackagePairList.add(new UserPackagePair(item.packageName, currentUser));
             }
@@ -142,10 +143,16 @@ public final class PackageUtils {
             loadInBackground = false;
         }
         if (!loadInBackground) {
-            // Load app list for the first time
-            Log.d(TAG, "Loading apps for the first time.");
-            appDb.loadInstalledOrBackedUpApplications(context);
-            apps = appDb.getAllApplications();
+            PowerManager.WakeLock wakeLock = CpuUtils.getPartialWakeLock("appDbUpdater");
+            try {
+                wakeLock.acquire();
+                // Load app list for the first time
+                Log.d(TAG, "Loading apps for the first time.");
+                appDb.loadInstalledOrBackedUpApplications(context);
+                apps = appDb.getAllApplications();
+            } finally {
+                CpuUtils.releaseWakeLock(wakeLock);
+            }
         }
         Map<String, Backup> backups = appDb.getBackups(false);
         int thisUser = UserHandleHidden.myUserId();
@@ -164,7 +171,7 @@ public final class PackageUtils {
                     applicationItems.put(app.packageName, item);
                     item.packageName = app.packageName;
                 }
-                item.userHandles = ArrayUtils.appendInt(item.userHandles, app.userId);
+                item.userIds = ArrayUtils.appendInt(item.userIds, app.userId);
                 item.isInstalled = true;
                 item.openCount += app.openCount;
                 item.screenTime += app.screenTime;
@@ -239,9 +246,15 @@ public final class PackageUtils {
             // Update list of apps safely in the background.
             // We need to do this here to avoid locks in AppDb
             ThreadUtils.postOnBackgroundThread(() -> {
-                if (loadBackups) {
-                    appDb.loadInstalledOrBackedUpApplications(context);
-                } else appDb.updateApplications(context);
+                PowerManager.WakeLock wakeLock = CpuUtils.getPartialWakeLock("appDbUpdater");
+                try {
+                    wakeLock.acquire();
+                    if (loadBackups) {
+                        appDb.loadInstalledOrBackedUpApplications(context);
+                    } else appDb.updateApplications(context);
+                } finally {
+                    CpuUtils.releaseWakeLock(wakeLock);
+                }
             });
         }
         return new ArrayList<>(applicationItems.values());
@@ -265,7 +278,8 @@ public final class PackageUtils {
                 if (ThreadUtils.isInterrupted()) {
                     break;
                 }
-            } catch (RemoteException ignore) {
+            } catch (Exception e) {
+                Log.w(TAG, "Could not retrieve package info list for user " + userId, e);
             }
         }
         return packageInfoList;
@@ -528,7 +542,7 @@ public final class PackageUtils {
 
     public static int getAppUid(@NonNull UserPackagePair pair) {
         return ExUtils.requireNonNullElse(() -> PackageManagerCompat.getApplicationInfo(pair.getPackageName(),
-                PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, pair.getUserHandle()).uid, -1);
+                PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, pair.getUserId()).uid, -1);
     }
 
     public static boolean isTestOnlyApp(@NonNull ApplicationInfo applicationInfo) {
@@ -880,7 +894,7 @@ public final class PackageUtils {
         Path psd = Paths.get(PACKAGE_STAGING_DIRECTORY);
         if (!psd.isDirectory()) {
             // Recreate directory
-            Path parent = psd.getParentFile();
+            Path parent = psd.getParent();
             if (parent == null) {
                 throw new IllegalStateException("Parent should be /data/local");
             }

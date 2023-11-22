@@ -12,6 +12,7 @@ import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.Application;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
@@ -63,6 +64,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.muntashirakon.AppManager.apk.ApkFile;
+import io.github.muntashirakon.AppManager.apk.ApkSource;
+import io.github.muntashirakon.AppManager.apk.CachedApkSource;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
@@ -72,7 +75,9 @@ import io.github.muntashirakon.AppManager.compat.PermissionCompat;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsAppOpItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsComponentItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsDefinedPermissionItem;
+import io.github.muntashirakon.AppManager.details.struct.AppDetailsFeatureItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsItem;
+import io.github.muntashirakon.AppManager.details.struct.AppDetailsLibraryItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsPermissionItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsServiceItem;
 import io.github.muntashirakon.AppManager.logs.Log;
@@ -92,12 +97,14 @@ import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.rules.struct.RuleEntry;
 import io.github.muntashirakon.AppManager.scanner.NativeLibraries;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
+import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.types.PackageChangeReceiver;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
+import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.io.IoUtils;
 
 public class AppDetailsViewModel extends AndroidViewModel {
@@ -107,6 +114,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     private final Object mBlockerLocker = new Object();
     private final ExecutorService mExecutor = Executors.newFixedThreadPool(4);
     private final CountDownLatch mPackageInfoWatcher = new CountDownLatch(1);
+    private final MutableLiveData<PackageInfo> mPackageInfoLiveData = new MutableLiveData<>();
 
     @Nullable
     private PackageInfo mPackageInfo;
@@ -121,7 +129,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     @Nullable
     private String mApkPath;
     @Nullable
-    private ApkFile.ApkSource mApkSource;
+    private ApkSource mApkSource;
     @Nullable
     private ApkFile mApkFile;
     private int mUserId;
@@ -169,13 +177,15 @@ public class AppDetailsViewModel extends AndroidViewModel {
         }
         mReceiver = null;
         IoUtils.closeQuietly(mApkFile);
+        if (mApkSource instanceof CachedApkSource) {
+            ((CachedApkSource) mApkSource).cleanup();
+        }
         mExecutor.shutdownNow();
     }
 
     @UiThread
     @NonNull
-    public LiveData<PackageInfo> setPackage(@NonNull ApkFile.ApkSource apkSource) {
-        MutableLiveData<PackageInfo> packageInfoLiveData = new MutableLiveData<>();
+    public LiveData<PackageInfo> setPackage(@NonNull ApkSource apkSource) {
         mApkSource = apkSource;
         mExternalApk = true;
         mExecutor.submit(() -> {
@@ -187,21 +197,20 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 if (!cachedApkFile.canRead()) throw new Exception("Cannot read " + cachedApkFile);
                 mApkPath = cachedApkFile.getAbsolutePath();
                 setPackageInfo(false);
-                packageInfoLiveData.postValue(getPackageInfo());
+                mPackageInfoLiveData.postValue(getPackageInfo());
             } catch (Throwable th) {
                 Log.e(TAG, "Could not fetch package info.", th);
-                packageInfoLiveData.postValue(null);
+                mPackageInfoLiveData.postValue(null);
             } finally {
                 mPackageInfoWatcher.countDown();
             }
         });
-        return packageInfoLiveData;
+        return mPackageInfoLiveData;
     }
 
     @UiThread
     @NonNull
     public LiveData<PackageInfo> setPackage(@NonNull String packageName) {
-        MutableLiveData<PackageInfo> packageInfoLiveData = new MutableLiveData<>();
         mExternalApk = false;
         mExecutor.submit(() -> {
             try {
@@ -211,17 +220,17 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 setPackageInfo(false);
                 PackageInfo pi = getPackageInfo();
                 if (pi == null) throw new ApkFile.ApkFileException("Package not installed.");
-                mApkSource = new ApkFile.ApkSource(pi.applicationInfo);
+                mApkSource = ApkSource.getApkSource(pi.applicationInfo);
                 mApkFile = mApkSource.resolve();
-                packageInfoLiveData.postValue(pi);
+                mPackageInfoLiveData.postValue(pi);
             } catch (Throwable th) {
                 Log.e(TAG, "Could not fetch package info.", th);
-                packageInfoLiveData.postValue(null);
+                mPackageInfoLiveData.postValue(null);
             } finally {
                 mPackageInfoWatcher.countDown();
             }
         });
-        return packageInfoLiveData;
+        return mPackageInfoLiveData;
     }
 
     @AnyThread
@@ -272,7 +281,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
 
     @AnyThread
     @Nullable
-    public ApkFile.ApkSource getApkSource() {
+    public ApkSource getApkSource() {
         return mApkSource;
     }
 
@@ -681,7 +690,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
         if (packageInfo == null) return false;
         try {
             // Set mode
-            mAppOpsManager.setMode(op, packageInfo.applicationInfo.uid, mPackageName, mode);
+            PermUtils.setAppOpMode(mAppOpsManager, op, mPackageName, packageInfo.applicationInfo.uid, mode);
             mExecutor.submit(() -> {
                 synchronized (mBlockerLocker) {
                     waitForBlockerOrExit();
@@ -692,7 +701,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     mBlockerLocker.notifyAll();
                 }
             });
-        } catch (Exception e) {
+        } catch (PermissionException e) {
             e.printStackTrace();
             return false;
         }
@@ -708,9 +717,9 @@ public class AppDetailsViewModel extends AndroidViewModel {
         boolean isSuccessful = false;
         try {
             if (appOpItem.isAllowed()) {
-                isSuccessful = appOpItem.disallowAppOp(packageInfo, mAppOpsManager);
+                appOpItem.disallowAppOp(packageInfo, mAppOpsManager);
             } else {
-                isSuccessful = appOpItem.allowAppOp(packageInfo, mAppOpsManager);
+                appOpItem.allowAppOp(packageInfo, mAppOpsManager);
             }
             setAppOp(appOpItem);
             mExecutor.submit(() -> {
@@ -723,10 +732,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     mBlockerLocker.notifyAll();
                 }
             });
-        } catch (Exception e) {
+            return true;
+        } catch (PermissionException e) {
             e.printStackTrace();
+            return false;
         }
-        return isSuccessful;
     }
 
     @WorkerThread
@@ -735,9 +745,8 @@ public class AppDetailsViewModel extends AndroidViewModel {
         if (mExternalApk) return false;
         PackageInfo packageInfo = getPackageInfoInternal();
         if (packageInfo == null) return false;
-        boolean isSuccessful = false;
         try {
-            isSuccessful = appOpItem.setAppOp(packageInfo, mAppOpsManager, mode);
+            appOpItem.setAppOp(packageInfo, mAppOpsManager, mode);
             setAppOp(appOpItem);
             mExecutor.submit(() -> {
                 synchronized (mBlockerLocker) {
@@ -749,10 +758,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                     mBlockerLocker.notifyAll();
                 }
             });
-        } catch (Exception e) {
+            return true;
+        } catch (PermissionException e) {
             e.printStackTrace();
+            return false;
         }
-        return isSuccessful;
     }
 
     @WorkerThread
@@ -803,11 +813,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                         if (basePermissionType == PermissionInfo.PROTECTION_DANGEROUS) {
                             // Set mode
                             try {
-                                mAppOpsManager.setMode(mAppOpItem.getOp(), packageInfo.applicationInfo.uid,
-                                        mPackageName, AppOpsManager.MODE_IGNORED);
+                                PermUtils.setAppOpMode(mAppOpsManager, mAppOpItem.getOp(), mPackageName,
+                                        packageInfo.applicationInfo.uid, AppOpsManager.MODE_IGNORED);
                                 opItems.add(mAppOpItem.getOp());
                                 mAppOpItem.invalidate(mAppOpsManager, packageInfo);
-                            } catch (Exception e) {
+                            } catch (PermissionException e) {
                                 e.printStackTrace();
                                 isSuccessful = false;
                                 break;
@@ -857,29 +867,29 @@ public class AppDetailsViewModel extends AndroidViewModel {
     public LiveData<List<AppDetailsItem<?>>> get(@AppDetailsFragment.Property int property) {
         switch (property) {
             case AppDetailsFragment.ACTIVITIES:
-                return getInternal(mActivities, this::loadActivities);
+                return observeInternal(mActivities);
             case AppDetailsFragment.SERVICES:
-                return getInternal(mServices, this::loadServices);
+                return observeInternal(mServices);
             case AppDetailsFragment.RECEIVERS:
-                return getInternal(mReceivers, this::loadReceivers);
+                return observeInternal(mReceivers);
             case AppDetailsFragment.PROVIDERS:
-                return getInternal(mProviders, this::loadProviders);
+                return observeInternal(mProviders);
             case AppDetailsFragment.APP_OPS:
-                return getInternal(mAppOps, this::loadAppOps);
+                return observeInternal(mAppOps);
             case AppDetailsFragment.USES_PERMISSIONS:
-                return getInternal(mUsesPermissions, this::loadUsesPermissions);
+                return observeInternal(mUsesPermissions);
             case AppDetailsFragment.PERMISSIONS:
-                return getInternal(mPermissions, this::loadPermissions);
+                return observeInternal(mPermissions);
             case AppDetailsFragment.FEATURES:
-                return getInternal(mFeatures, this::loadFeatures);
+                return observeInternal(mFeatures);
             case AppDetailsFragment.CONFIGURATIONS:
-                return getInternal(mConfigurations, this::loadConfigurations);
+                return observeInternal(mConfigurations);
             case AppDetailsFragment.SIGNATURES:
-                return getInternal(mSignatures, this::loadSignatures);
+                return observeInternal(mSignatures);
             case AppDetailsFragment.SHARED_LIBRARIES:
-                return getInternal(mSharedLibraries, this::loadSharedLibraries);
+                return observeInternal(mSharedLibraries);
             case AppDetailsFragment.APP_INFO:
-                return getInternal(appInfo, this::loadAppInfo);
+                return observeInternal(mAppInfo);
             default:
                 throw new IllegalArgumentException("Invalid property: " + property);
         }
@@ -888,10 +898,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
     @SuppressWarnings("unchecked")
     @AnyThread
     @NonNull
-    private MutableLiveData<List<AppDetailsItem<?>>> getInternal(@NonNull MutableLiveData<?> liveData, Runnable loader) {
-        if (liveData.getValue() == null) {
-            mExecutor.submit(loader);
-        }
+    private MutableLiveData<List<AppDetailsItem<?>>> observeInternal(@NonNull MutableLiveData<?> liveData) {
         return (MutableLiveData<List<AppDetailsItem<?>>>) liveData;
     }
 
@@ -1128,19 +1135,19 @@ public class AppDetailsViewModel extends AndroidViewModel {
     }
 
     @NonNull
-    private final MutableLiveData<List<AppDetailsItem<PackageInfo>>> appInfo = new MutableLiveData<>();
+    private final MutableLiveData<List<AppDetailsItem<PackageInfo>>> mAppInfo = new MutableLiveData<>();
 
     @WorkerThread
     private void loadAppInfo() {
         PackageInfo packageInfo = getPackageInfoInternal();
         if (packageInfo == null) {
-            appInfo.postValue(null);
+            mAppInfo.postValue(null);
             return;
         }
         AppDetailsItem<PackageInfo> appDetailsItem = new AppDetailsItem<>(packageInfo);
         appDetailsItem.name = packageInfo.packageName;
         List<AppDetailsItem<PackageInfo>> appDetailsItems = Collections.singletonList(appDetailsItem);
-        appInfo.postValue(appDetailsItems);
+        mAppInfo.postValue(appDetailsItems);
     }
 
     @NonNull
@@ -1158,9 +1165,12 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 mActivities.postValue(mActivityItems);
                 return;
             }
+            CharSequence appLabel = packageInfo.applicationInfo.loadLabel(mPackageManager);
+            boolean canStartAnyActivity = SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.START_ANY_ACTIVITY);
             for (ActivityInfo activityInfo : packageInfo.activities) {
                 AppDetailsComponentItem componentItem = new AppDetailsComponentItem(activityInfo);
                 componentItem.name = activityInfo.name;
+                componentItem.label = getComponentLabel(activityInfo, appLabel);
                 synchronized (mBlockerLocker) {
                     if (!mExternalApk) {
                         componentItem.setRule(mBlocker.getComponent(activityInfo.name));
@@ -1168,6 +1178,12 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 }
                 componentItem.setTracker(ComponentUtils.isTracker(activityInfo.name));
                 componentItem.setDisabled(isComponentDisabled(activityInfo));
+                // An activity is allowed to launch only if it's
+                // 1) Not from an external APK
+                // 2) Root enabled or the activity is exportable
+                // 3) App or the activity is not disabled and/or blocked
+                componentItem.canLaunch = !mExternalApk && (canStartAnyActivity || activityInfo.exported)
+                        && !componentItem.isDisabled() && !componentItem.isBlocked();
                 mActivityItems.add(componentItem);
             }
             mActivities.postValue(filterAndSortComponents(mActivityItems));
@@ -1192,9 +1208,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
             }
             List<ActivityManager.RunningServiceInfo> runningServiceInfoList;
             runningServiceInfoList = ActivityManagerCompat.getRunningServices(mPackageName, mUserId);
+            CharSequence appLabel = packageInfo.applicationInfo.loadLabel(mPackageManager);
             for (ServiceInfo serviceInfo : packageInfo.services) {
                 AppDetailsServiceItem serviceItem = new AppDetailsServiceItem(serviceInfo);
                 serviceItem.name = serviceInfo.name;
+                serviceItem.label = getComponentLabel(serviceInfo, appLabel);
                 synchronized (mBlockerLocker) {
                     if (!mExternalApk) {
                         serviceItem.setRule(mBlocker.getComponent(serviceInfo.name));
@@ -1207,6 +1225,12 @@ public class AppDetailsViewModel extends AndroidViewModel {
                         serviceItem.setRunningServiceInfo(runningServiceInfo);
                     }
                 }
+                // A service is allowed to launch only if it's
+                // 1) Not from an external APK
+                // 2) Root enabled or the service is exportable without any permission
+                // 3) App or the service is not disabled and/or blocked
+                serviceItem.canLaunch = !mExternalApk && canLaunchService(serviceInfo) && !serviceItem.isDisabled()
+                        && !serviceItem.isBlocked();
                 mServiceItems.add(serviceItem);
             }
             mServices.postValue(filterAndSortComponents(mServiceItems));
@@ -1229,9 +1253,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 mReceivers.postValue(Collections.emptyList());
                 return;
             }
+            CharSequence appLabel = packageInfo.applicationInfo.loadLabel(mPackageManager);
             for (ActivityInfo activityInfo : packageInfo.receivers) {
                 AppDetailsComponentItem componentItem = new AppDetailsComponentItem(activityInfo);
                 componentItem.name = activityInfo.name;
+                componentItem.label = getComponentLabel(activityInfo, appLabel);
                 synchronized (mBlockerLocker) {
                     if (!mExternalApk) {
                         componentItem.setRule(mBlocker.getComponent(activityInfo.name));
@@ -1261,9 +1287,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 mProviders.postValue(Collections.emptyList());
                 return;
             }
+            CharSequence appLabel = packageInfo.applicationInfo.loadLabel(mPackageManager);
             for (ProviderInfo providerInfo : packageInfo.providers) {
                 AppDetailsComponentItem componentItem = new AppDetailsComponentItem(providerInfo);
                 componentItem.name = providerInfo.name;
+                componentItem.label = getComponentLabel(providerInfo, appLabel);
                 synchronized (mBlockerLocker) {
                     if (!mExternalApk) {
                         componentItem.setRule(mBlocker.getComponent(providerInfo.name));
@@ -1275,6 +1303,17 @@ public class AppDetailsViewModel extends AndroidViewModel {
             }
             mProviders.postValue(filterAndSortComponents(mProviderItems));
         }
+    }
+
+    @NonNull
+    private CharSequence getComponentLabel(@NonNull ComponentInfo componentInfo, @NonNull CharSequence appLabel) {
+        CharSequence componentLabel = componentInfo.loadLabel(mPackageManager);
+        if (componentLabel.equals(componentInfo.name) || componentLabel.equals(appLabel)) {
+            // Component label is as good as null
+            componentLabel = null;
+        }
+        return componentLabel != null ? componentLabel : Utils.camelCaseToSpaceSeparatedString(
+                Utils.getLastComponent(componentInfo.name));
     }
 
     @SuppressLint("SwitchIntDef")
@@ -1319,6 +1358,20 @@ public class AppDetailsViewModel extends AndroidViewModel {
         } catch (Throwable ignore) {
         }
         return !componentInfo.isEnabled();
+    }
+
+    private static boolean canLaunchService(@NonNull ServiceInfo info) {
+        if (info.exported && info.permission == null) {
+            return true;
+        }
+        int uid = Users.getSelfOrRemoteUid();
+        if (uid == Ops.ROOT_UID || (uid == Ops.SYSTEM_UID && info.permission == null)) {
+            return true;
+        }
+        if (info.permission == null) {
+            return false;
+        }
+        return SelfPermissions.checkSelfOrRemotePermission(info.permission, uid);
     }
 
     @NonNull
@@ -1663,13 +1716,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
     }
 
     @NonNull
-    private final MutableLiveData<List<AppDetailsItem<FeatureInfo>>> mFeatures = new MutableLiveData<>();
-
-    public static final String OPEN_GL_ES = "OpenGL ES";
+    private final MutableLiveData<List<AppDetailsFeatureItem>> mFeatures = new MutableLiveData<>();
 
     @WorkerThread
     private void loadFeatures() {
-        List<AppDetailsItem<FeatureInfo>> appDetailsItems = new ArrayList<>();
+        List<AppDetailsFeatureItem> appDetailsItems = new ArrayList<>();
         PackageInfo packageInfo = getPackageInfoInternal();
         if (packageInfo == null || packageInfo.reqFeatures == null) {
             // No required features
@@ -1677,14 +1728,27 @@ public class AppDetailsViewModel extends AndroidViewModel {
             return;
         }
         for (FeatureInfo fi : packageInfo.reqFeatures) {
-            if (fi.name == null) fi.name = OPEN_GL_ES;
+            if (fi.name == null) fi.name = AppDetailsFeatureItem.OPEN_GL_ES;
         }
-        Arrays.sort(packageInfo.reqFeatures, (o1, o2) -> o1.name.compareToIgnoreCase(o2.name));
         for (FeatureInfo featureInfo : packageInfo.reqFeatures) {
-            AppDetailsItem<FeatureInfo> appDetailsItem = new AppDetailsItem<>(featureInfo);
-            appDetailsItem.name = featureInfo.name;
+            String name = featureInfo.name;
+            boolean isAvailable;
+            if (name == null) {
+                // At most, only one name could be null
+                name = AppDetailsFeatureItem.OPEN_GL_ES;
+                ActivityManager activityManager = (ActivityManager) getApplication().getSystemService(Context.ACTIVITY_SERVICE);
+                int glEsVersion = activityManager.getDeviceConfigurationInfo().reqGlEsVersion;
+                isAvailable = featureInfo.reqGlEsVersion <= glEsVersion;
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                isAvailable = mPackageManager.hasSystemFeature(featureInfo.name, featureInfo.version);
+            } else {
+                isAvailable = mPackageManager.hasSystemFeature(featureInfo.name);
+            }
+            AppDetailsFeatureItem appDetailsItem = new AppDetailsFeatureItem(featureInfo, isAvailable);
             appDetailsItems.add(appDetailsItem);
+            appDetailsItem.name = name;
         }
+        Collections.sort(appDetailsItems, (o1, o2) -> o1.name.compareToIgnoreCase(o2.name));
         mFeatures.postValue(appDetailsItems);
     }
 
@@ -1781,36 +1845,42 @@ public class AppDetailsViewModel extends AndroidViewModel {
     }
 
     @NonNull
-    private final MutableLiveData<List<AppDetailsItem<?>>> mSharedLibraries = new MutableLiveData<>();
+    private final MutableLiveData<List<AppDetailsLibraryItem<?>>> mSharedLibraries = new MutableLiveData<>();
 
     @WorkerThread
     private void loadSharedLibraries() {
-        List<AppDetailsItem<?>> appDetailsItems = new ArrayList<>();
+        List<AppDetailsLibraryItem<?>> appDetailsItems = new ArrayList<>();
         PackageInfo packageInfo = getPackageInfoInternal();
         if (packageInfo == null || mApkFile == null) {
             mSharedLibraries.postValue(appDetailsItems);
             return;
         }
+        // Add shared libraries including the static shared libraries (which are basically APK files)
         ApplicationInfo info = packageInfo.applicationInfo;
         if (info.sharedLibraryFiles != null) {
             for (String sharedLibrary : info.sharedLibraryFiles) {
                 File sharedLib = new File(sharedLibrary);
-                AppDetailsItem<?> appDetailsItem = null;
+                AppDetailsLibraryItem<?> appDetailsItem = null;
                 if (sharedLib.exists() && sharedLib.getName().endsWith(".apk")) {
                     // APK file
                     PackageInfo packageArchiveInfo = mPackageManager.getPackageArchiveInfo(sharedLibrary, 0);
                     if (packageArchiveInfo != null) {
-                        appDetailsItem = new AppDetailsItem<>(packageArchiveInfo);
+                        appDetailsItem = new AppDetailsLibraryItem<>(packageArchiveInfo);
                         appDetailsItem.name = packageArchiveInfo.applicationInfo.loadLabel(mPackageManager).toString();
+                        appDetailsItem.type = "APK";
                     }
                 }
                 if (appDetailsItem == null) {
-                    appDetailsItem = new AppDetailsItem<>(sharedLib);
+                    appDetailsItem = new AppDetailsLibraryItem<>(sharedLib);
                     appDetailsItem.name = sharedLib.getName();
+                    appDetailsItem.type = sharedLibrary.endsWith(".so") ? "SO" : "JAR";
                 }
+                appDetailsItem.path = sharedLib;
+                appDetailsItem.size = sharedLib.length();
                 appDetailsItems.add(appDetailsItem);
             }
         }
+        // Add native libraries (shared objects)
         List<ApkFile.Entry> entries = mApkFile.getEntries();
         for (ApkFile.Entry entry : entries) {
             if (entry.type == ApkFile.APK_BASE
@@ -1827,8 +1897,20 @@ public class AppDetailsViewModel extends AndroidViewModel {
                         nativeLibraries = new NativeLibraries(entry.getFile(false));
                     }
                     for (NativeLibraries.NativeLib nativeLib : nativeLibraries.getLibs()) {
-                        AppDetailsItem<?> appDetailsItem = new AppDetailsItem<>(nativeLib);
+                        AppDetailsLibraryItem<?> appDetailsItem = new AppDetailsLibraryItem<>(nativeLib);
                         appDetailsItem.name = nativeLib.getName();
+                        if (nativeLib instanceof NativeLibraries.ElfLib) {
+                            switch (((NativeLibraries.ElfLib) nativeLib).getType()) {
+                                case NativeLibraries.ElfLib.TYPE_DYN:
+                                    appDetailsItem.type = "SHARED";
+                                    break;
+                                case NativeLibraries.ElfLib.TYPE_EXEC:
+                                    appDetailsItem.type = "EXEC";
+                                    break;
+                                default:
+                                    appDetailsItem.type = "SO";
+                            }
+                        } else appDetailsItem.type = "⚠️";
                         appDetailsItems.add(appDetailsItem);
                     }
                 } catch (Throwable th) {
@@ -1855,9 +1937,11 @@ public class AppDetailsViewModel extends AndroidViewModel {
         @Override
         @WorkerThread
         protected void onPackageChanged(Intent intent, @Nullable Integer uid, @Nullable String[] packages) {
-            if (uid != null && (mModel.mPackageInfo == null || mModel.mPackageInfo.applicationInfo.uid == uid)) {
-                Log.d(TAG, "Package is changed.");
-                mModel.setPackageChanged();
+            if (uid != null) {
+                if (mModel.mPackageInfo != null && mModel.mPackageInfo.applicationInfo.uid == uid) {
+                    Log.d(TAG, "Package is changed.");
+                    mModel.setPackageChanged();
+                }
             } else if (packages != null) {
                 for (String packageName : packages) {
                     if (packageName.equals(mModel.mPackageName)) {

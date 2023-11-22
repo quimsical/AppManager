@@ -15,6 +15,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
+import aosp.android.content.pm.StringParceledListSlice;
+
 // Copyright 2022 John "topjohnwu" Wu
 // Copyright 2022 Muntashir Al-Islam
 class RemoteFile extends FileImpl<RemoteFile> {
@@ -233,19 +235,19 @@ class RemoteFile extends FileImpl<RemoteFile> {
     }
 
     @Override
-    public long creationTime() throws ErrnoException {
+    public long creationTime() {
         try {
             return fs.creationTime(getPath()).tryAndGetErrnoException();
-        } catch (RemoteException e) {
+        } catch (RemoteException | ErrnoException e) {
             return 0;
         }
     }
 
     @Override
-    public long lastAccess() throws ErrnoException {
+    public long lastAccess() {
         try {
             return fs.lastAccess(getPath()).tryAndGetErrnoException();
-        } catch (RemoteException e) {
+        } catch (RemoteException | ErrnoException e) {
             return 0;
         }
     }
@@ -313,7 +315,8 @@ class RemoteFile extends FileImpl<RemoteFile> {
     @Override
     public String[] list() {
         try {
-            return fs.list(getPath());
+            StringParceledListSlice list = fs.list(getPath());
+            return list != null ? list.getList().toArray(new String[0]) : null;
         } catch (RemoteException e) {
             return null;
         }

@@ -14,7 +14,6 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.io.Path;
@@ -58,7 +57,7 @@ public class BackupFiles {
 
     @NonNull
     private static synchronized Path getTemporaryBackupPath(@NonNull Path originalBackupPath) throws IOException {
-        Path tmpDir = Objects.requireNonNull(originalBackupPath.getParentFile());
+        Path tmpDir = originalBackupPath.requireParent();
         String tmpFilename = "." + originalBackupPath.getName();
         String newFilename = tmpFilename;
         int i = 0;
@@ -183,7 +182,7 @@ public class BackupFiles {
 
     @NonNull
     private final String mPackageName;
-    private final int mUserHandle;
+    private final int mUserId;
     @NonNull
     private final String[] mBackupNames;
     @NonNull
@@ -193,20 +192,20 @@ public class BackupFiles {
      * Create and handle {@link BackupFile}.
      *
      * @param packageName Name of the package whose backups has to be managed
-     * @param userHandle  The user handle (aka user ID) to whom the package belong to
+     * @param userId      To whom the package belong
      * @param backupNames Name of the backups. If {@code null}, user handle will be used. If not
      *                    null, the backup names will have the format {@code userHandle_backupName}.
      */
-    public BackupFiles(@NonNull String packageName, int userHandle, @Nullable String[] backupNames) throws IOException {
+    public BackupFiles(@NonNull String packageName, int userId, @Nullable String[] backupNames) throws IOException {
         mPackageName = packageName;
-        mUserHandle = userHandle;
+        mUserId = userId;
         if (backupNames == null) {
-            mBackupNames = new String[]{String.valueOf(userHandle)};
+            mBackupNames = new String[]{String.valueOf(userId)};
         } else {
             // Add user handle before the backup name
             mBackupNames = new String[backupNames.length];
             for (int i = 0; i < backupNames.length; ++i) {
-                mBackupNames[i] = userHandle + "_" + backupNames[i].trim();
+                mBackupNames[i] = userId + "_" + backupNames[i].trim();
             }
         }
         mPackagePath = getPackagePath(packageName, true);

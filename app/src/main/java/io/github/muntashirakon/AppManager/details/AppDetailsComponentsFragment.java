@@ -11,7 +11,6 @@ import android.content.pm.ServiceInfo;
 import android.os.Bundle;
 import android.os.PatternMatcher;
 import android.os.UserHandleHidden;
-import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -43,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
@@ -57,11 +57,9 @@ import io.github.muntashirakon.AppManager.rules.struct.ComponentRule;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
-import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
-import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.Utils;
@@ -87,6 +85,8 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
     private boolean mIsExternalApk;
     @ComponentProperty
     private int mNeededProperty;
+    private int mSortOrder;
+    private String mSearchQuery;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -106,6 +106,8 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         alertView.setText(helpStringRes);
         alertView.setVisibility(View.GONE);
         if (viewModel == null) return;
+        mSortOrder = viewModel.getSortOrder(mNeededProperty);
+        mSearchQuery = viewModel.getSearchQuery();
         mPackageName = viewModel.getPackageName();
         viewModel.get(mNeededProperty).observe(getViewLifecycleOwner(), appDetailsItems -> {
             if (appDetailsItems != null && mAdapter != null && viewModel.isPackageExist()) {
@@ -119,6 +121,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             if (status == AppDetailsViewModel.RULE_NOT_APPLIED) {
                 alertView.show();
             } else alertView.hide();
+            updateBlockMenuItem(status);
         });
     }
 
@@ -134,20 +137,6 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 viewModel.getUserId(), viewModel.getPackageName(), viewModel.isTestOnlyApp())) {
             inflater.inflate(R.menu.fragment_app_details_components_actions, menu);
             mBlockingToggler = menu.findItem(R.id.action_toggle_blocking);
-            viewModel.getRuleApplicationStatus().observe(activity, status -> {
-                switch (status) {
-                    case AppDetailsViewModel.RULE_APPLIED:
-                        mBlockingToggler.setVisible(!Prefs.Blocking.globalBlockingEnabled());
-                        mBlockingToggler.setTitle(R.string.menu_remove_rules);
-                        break;
-                    case AppDetailsViewModel.RULE_NOT_APPLIED:
-                        mBlockingToggler.setVisible(!Prefs.Blocking.globalBlockingEnabled());
-                        mBlockingToggler.setTitle(R.string.menu_apply_rules);
-                        break;
-                    case AppDetailsViewModel.RULE_NO_RULE:
-                        mBlockingToggler.setVisible(false);
-                }
-            });
         } else inflater.inflate(R.menu.fragment_app_details_refresh_actions, menu);
     }
 
@@ -159,6 +148,10 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         MenuItem sortItem = menu.findItem(AppDetailsFragment.sSortMenuItemIdsMap[viewModel.getSortOrder(mNeededProperty)]);
         if (sortItem != null) {
             sortItem.setChecked(true);
+        }
+        Integer status = viewModel.getRuleApplicationStatus().getValue();
+        if (status != null) {
+            updateBlockMenuItem(status);
         }
     }
 
@@ -193,13 +186,28 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
     }
 
     @Override
+    public void onPause() {
+        super.onPause();
+        if (viewModel != null) {
+            mSortOrder = viewModel.getSortOrder(mNeededProperty);
+            mSearchQuery = viewModel.getSearchQuery();
+        }
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
         if (activity.searchView != null) {
-            activity.searchView.setVisibility(View.VISIBLE);
+            if (!activity.searchView.isShown()) {
+                activity.searchView.setVisibility(View.VISIBLE);
+            }
             activity.searchView.setOnQueryTextListener(this);
             if (viewModel != null) {
-                viewModel.filterAndSortItems(mNeededProperty);
+                int sortOrder = viewModel.getSortOrder(mNeededProperty);
+                String searchQuery = viewModel.getSearchQuery();
+                if (sortOrder != mSortOrder || !Objects.equals(searchQuery, mSearchQuery)) {
+                    viewModel.filterAndSortItems(mNeededProperty);
+                }
             }
         }
     }
@@ -212,7 +220,24 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         return true;
     }
 
-    public void blockUnblockTrackers(boolean block) {
+    private void updateBlockMenuItem(int status) {
+        if (mBlockingToggler != null) {
+            switch (status) {
+                case AppDetailsViewModel.RULE_APPLIED:
+                    mBlockingToggler.setVisible(!Prefs.Blocking.globalBlockingEnabled());
+                    mBlockingToggler.setTitle(R.string.menu_remove_rules);
+                    break;
+                case AppDetailsViewModel.RULE_NOT_APPLIED:
+                    mBlockingToggler.setVisible(!Prefs.Blocking.globalBlockingEnabled());
+                    mBlockingToggler.setTitle(R.string.menu_apply_rules);
+                    break;
+                case AppDetailsViewModel.RULE_NO_RULE:
+                    mBlockingToggler.setVisible(false);
+            }
+        }
+    }
+
+    private void blockUnblockTrackers(boolean block) {
         if (viewModel == null) return;
         // TODO: 19/3/23 Do it via ViewModel
         List<UserPackagePair> userPackagePairs = Collections.singletonList(new UserPackagePair(mPackageName,
@@ -220,7 +245,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         ThreadUtils.postOnBackgroundThread(() -> {
             List<UserPackagePair> failedPkgList = block ? ComponentUtils.blockTrackingComponents(userPackagePairs)
                     : ComponentUtils.unblockTrackingComponents(userPackagePairs);
-            if (failedPkgList.size() > 0) {
+            if (!failedPkgList.isEmpty()) {
                 ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(block ? R.string.failed_to_block_trackers
                         : R.string.failed_to_unblock_trackers));
             } else {
@@ -282,33 +307,57 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
         private boolean mCanModifyComponentStates;
         private boolean mCanStartAnyActivity;
         private final int mCardColor1;
+        private final int mBlockedIndicatorColor;
+        private final int mBlockedExternallyIndicatorColor;
+        private final int mTrackerIndicatorColor;
+        private final int mRunningIndicatorColor;
         private final int mDefaultIndicatorColor;
 
         AppDetailsRecyclerAdapter() {
             mAdapterList = new ArrayList<>();
             mCardColor1 = ColorCodes.getListItemColor1(activity);
+            mBlockedIndicatorColor = ColorCodes.getComponentBlockedIndicatorColor(activity);
+            mBlockedExternallyIndicatorColor = ColorCodes.getComponentExternallyBlockedIndicatorColor(activity);
+            mTrackerIndicatorColor = ColorCodes.getComponentTrackerIndicatorColor(activity);
+            mRunningIndicatorColor = ColorCodes.getComponentRunningIndicatorColor(activity);
             mDefaultIndicatorColor = ColorCodes.getListItemDefaultIndicatorColor(activity);
         }
 
         @UiThread
         void setDefaultList(@NonNull List<AppDetailsItem<?>> list) {
-            mRequestedProperty = mNeededProperty;
-            mCanStartAnyActivity = SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.START_ANY_ACTIVITY);
-            if (viewModel != null) {
-                mCanModifyComponentStates = !mIsExternalApk && SelfPermissions.canModifyAppComponentStates(mUserId, viewModel.getPackageName(), viewModel.isTestOnlyApp());
-                mConstraint = viewModel.getSearchQuery();
-                mUserId = viewModel.getUserId();
-            } else {
-                mCanModifyComponentStates = false;
-                mConstraint = null;
-                mUserId = UserHandleHidden.myUserId();
-            }
-            ProgressIndicatorCompat.setVisibility(progressIndicator, false);
-            synchronized (mAdapterList) {
-                mAdapterList.clear();
-                mAdapterList.addAll(list);
-                notifyDataSetChanged();
-            }
+            ThreadUtils.postOnBackgroundThread(() -> {
+                mRequestedProperty = mNeededProperty;
+                mCanStartAnyActivity = SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.START_ANY_ACTIVITY);
+                if (viewModel != null) {
+                    mCanModifyComponentStates = !mIsExternalApk && SelfPermissions.canModifyAppComponentStates(mUserId, viewModel.getPackageName(), viewModel.isTestOnlyApp());
+                    mConstraint = viewModel.getSearchQuery();
+                    mUserId = viewModel.getUserId();
+                } else {
+                    mCanModifyComponentStates = false;
+                    mConstraint = null;
+                    mUserId = UserHandleHidden.myUserId();
+                }
+                int previousSize = mAdapterList.size();
+                synchronized (mAdapterList) {
+                    mAdapterList.clear();
+                    mAdapterList.addAll(list);
+                }
+                int currentSize = mAdapterList.size();
+                ThreadUtils.postOnMainThread(() -> {
+                    if (isDetached()) return;
+                    ProgressIndicatorCompat.setVisibility(progressIndicator, false);
+                    synchronized (mAdapterList) {
+                        if (previousSize != 0) {
+                            notifyItemRangeChanged(0, previousSize);
+                        }
+                        if (previousSize < currentSize) {
+                            notifyItemRangeInserted(previousSize, currentSize - previousSize);
+                        } else if (previousSize > currentSize) {
+                            notifyItemRangeRemoved(currentSize, previousSize - currentSize);
+                        }
+                    }
+                });
+            });
         }
 
         /**
@@ -387,11 +436,11 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             if (mRequestedProperty == SERVICES) {
                 getServicesView(context, holder, position);
             } else if (mRequestedProperty == RECEIVERS) {
-                getReceiverView(context, holder, position);
+                getReceiverView(holder, position);
             } else if (mRequestedProperty == PROVIDERS) {
-                getProviderView(context, holder, position);
+                getProviderView(holder, position);
             } else if (mRequestedProperty == ACTIVITIES) {
-                getActivityView(context, holder, position);
+                getActivityView(holder, position);
             }
         }
 
@@ -448,21 +497,21 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             });
         }
 
-        private void getActivityView(@NonNull Context context, @NonNull ViewHolder holder, int index) {
+        private void getActivityView(@NonNull ViewHolder holder, int index) {
             final AppDetailsComponentItem componentItem;
             synchronized (mAdapterList) {
                 componentItem = (AppDetailsComponentItem) mAdapterList.get(index);
             }
-            final ActivityInfo activityInfo = (ActivityInfo) componentItem.vanillaItem;
+            final ActivityInfo activityInfo = (ActivityInfo) componentItem.mainItem;
             final String activityName = componentItem.name;
             final boolean isDisabled = !mIsExternalApk && componentItem.isDisabled();
             // Background color: regular < tracker < disabled < blocked
             if (!mIsExternalApk && componentItem.isBlocked()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedIndicatorColor);
             } else if (isDisabled) {
-                holder.divider.setDividerColor(ColorCodes.getComponentExternallyBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedExternallyIndicatorColor);
             } else if (componentItem.isTracker()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentTrackerIndicatorColor(context));
+                holder.divider.setDividerColor(mTrackerIndicatorColor);
             } else {
                 holder.divider.setDividerColor(mDefaultIndicatorColor);
             }
@@ -479,7 +528,9 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                         activityName.replaceFirst(mPackageName, "") : activityName);
             }
             // Icon
-            ImageLoader.getInstance().displayImage(mPackageName + "_" + activityName, activityInfo, holder.imageView);
+            String tag = mPackageName + "_" + activityName;
+            holder.imageView.setTag(tag);
+            ImageLoader.getInstance().displayImage(tag, activityInfo, holder.imageView);
             // TaskAffinity
             holder.textView1.setText(String.format(Locale.ROOT, "%s: %s",
                     getString(R.string.task_affinity), activityInfo.taskAffinity));
@@ -494,12 +545,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                     getString(R.string.soft_input), Utils.getSoftInputString(activityInfo.softInputMode),
                     (activityInfo.permission == null ? getString(R.string.require_no_permission) : activityInfo.permission)));
             // Label
-            String appLabel = activityInfo.applicationInfo.loadLabel(packageManager).toString();
-            String activityLabel = activityInfo.loadLabel(packageManager).toString();
-            String label = (activityLabel.equals(appLabel) || TextUtils.isEmpty(activityLabel))
-                    ? Utils.camelCaseToSpaceSeparatedString(Utils.getLastComponent(activityName))
-                    : activityLabel;
-            holder.labelView.setText(label);
+            holder.labelView.setText(componentItem.label);
             // Process name
             String processName = activityInfo.processName;
             if (processName != null && !processName.equals(mPackageName)) {
@@ -508,14 +554,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                         getString(R.string.process_name), processName));
             } else holder.processNameView.setVisibility(View.GONE);
             boolean isExported = activityInfo.exported;
-            // An activity is allowed to launch only if it's
-            // 1) Not from an external APK
-            // 2) Root enabled or the activity is exportable
-            // 3) App or the activity is not disabled and/or blocked
-            boolean canLaunch = !mIsExternalApk && (mCanStartAnyActivity || isExported)
-                    && !isDisabled
-                    && !componentItem.isBlocked();
-            if (canLaunch) {
+            if (componentItem.canLaunch) {
                 holder.launchBtn.setOnClickListener(v -> {
                     Intent intent = new Intent();
                     intent.setClassName(mPackageName, activityName);
@@ -540,7 +579,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 }
                 holder.shortcutBtn.setOnClickListener(v -> {
                     PackageItemShortcutInfo<ActivityInfo> shortcutInfo = new PackageItemShortcutInfo<>(activityInfo, ActivityInfo.class);
-                    shortcutInfo.setName(label);
+                    shortcutInfo.setName(componentItem.label);
                     shortcutInfo.setIcon(UIUtils.getBitmapFromDrawable(activityInfo.loadIcon(packageManager)));
                     CreateShortcutDialogFragment dialog = CreateShortcutDialogFragment.getInstance(shortcutInfo);
                     dialog.show(getParentFragmentManager(), CreateShortcutDialogFragment.TAG);
@@ -563,17 +602,17 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             synchronized (mAdapterList) {
                 serviceItem = (AppDetailsServiceItem) mAdapterList.get(index);
             }
-            final ServiceInfo serviceInfo = (ServiceInfo) serviceItem.vanillaItem;
+            final ServiceInfo serviceInfo = (ServiceInfo) serviceItem.mainItem;
             final boolean isDisabled = !mIsExternalApk && serviceItem.isDisabled();
             // Background color: regular < tracker < disabled < blocked < running
             if (serviceItem.isRunning()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentRunningIndicatorColor(context));
+                holder.divider.setDividerColor(mRunningIndicatorColor);
             } else if (!mIsExternalApk && serviceItem.isBlocked()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedIndicatorColor);
             } else if (isDisabled) {
-                holder.divider.setDividerColor(ColorCodes.getComponentExternallyBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedExternallyIndicatorColor);
             } else if (serviceItem.isTracker()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentTrackerIndicatorColor(context));
+                holder.divider.setDividerColor(mTrackerIndicatorColor);
             } else {
                 holder.divider.setDividerColor(mDefaultIndicatorColor);
             }
@@ -582,7 +621,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 holder.chipType.setVisibility(View.VISIBLE);
             } else holder.chipType.setVisibility(View.GONE);
             // Label
-            holder.labelView.setText(Utils.camelCaseToSpaceSeparatedString(Utils.getLastComponent(serviceInfo.name)));
+            holder.labelView.setText(serviceItem.label);
             // Name
             if (mConstraint != null && serviceInfo.name.toLowerCase(Locale.ROOT).contains(mConstraint)) {
                 // Highlight searched query
@@ -592,7 +631,9 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                         serviceInfo.name.replaceFirst(mPackageName, "") : serviceInfo.name);
             }
             // Icon
-            ImageLoader.getInstance().displayImage(mPackageName + "_" + serviceInfo.name, serviceInfo, holder.imageView);
+            String tag = mPackageName + "_" + serviceInfo.name;
+            holder.imageView.setTag(tag);
+            ImageLoader.getInstance().displayImage(tag, serviceInfo, holder.imageView);
             // Flags and Permission
             StringBuilder flagsAndPermission = new StringBuilder(Utils.getServiceFlagsString(serviceInfo.flags));
             if (flagsAndPermission.length() != 0) {
@@ -607,15 +648,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 holder.processNameView.setText(String.format(Locale.ROOT, "%s: %s",
                         getString(R.string.process_name), processName));
             } else holder.processNameView.setVisibility(View.GONE);
-            // A service is allowed to launch only if it's
-            // 1) Not from an external APK
-            // 2) Root enabled or the service is exportable without any permission
-            // 3) App or the service is not disabled and/or blocked
-            boolean canLaunch = !mIsExternalApk
-                    && canLaunchService(serviceInfo)
-                    && !isDisabled
-                    && !serviceItem.isBlocked();
-            if (canLaunch) {
+            if (serviceItem.canLaunch) {
                 holder.launchBtn.setOnClickListener(v -> {
                     Intent intent = new Intent();
                     intent.setClassName(mPackageName, serviceInfo.name);
@@ -637,19 +670,19 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
         }
 
-        private void getReceiverView(@NonNull Context context, @NonNull ViewHolder holder, int index) {
+        private void getReceiverView(@NonNull ViewHolder holder, int index) {
             final AppDetailsComponentItem componentItem;
             synchronized (mAdapterList) {
                 componentItem = (AppDetailsComponentItem) mAdapterList.get(index);
             }
-            final ActivityInfo activityInfo = (ActivityInfo) componentItem.vanillaItem;
+            final ActivityInfo activityInfo = (ActivityInfo) componentItem.mainItem;
             // Background color: regular < tracker < disabled < blocked
             if (!mIsExternalApk && componentItem.isBlocked()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedIndicatorColor);
             } else if (!mIsExternalApk && componentItem.isDisabled()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentExternallyBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedExternallyIndicatorColor);
             } else if (componentItem.isTracker()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentTrackerIndicatorColor(context));
+                holder.divider.setDividerColor(mTrackerIndicatorColor);
             } else {
                 holder.divider.setDividerColor(mDefaultIndicatorColor);
             }
@@ -658,7 +691,7 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 holder.chipType.setVisibility(View.VISIBLE);
             } else holder.chipType.setVisibility(View.GONE);
             // Label
-            holder.labelView.setText(Utils.camelCaseToSpaceSeparatedString(Utils.getLastComponent(activityInfo.name)));
+            holder.labelView.setText(componentItem.label);
             // Name
             if (mConstraint != null && activityInfo.name.toLowerCase(Locale.ROOT).contains(mConstraint)) {
                 // Highlight searched query
@@ -669,7 +702,9 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                         : activityInfo.name);
             }
             // Icon
-            ImageLoader.getInstance().displayImage(mPackageName + "_" + activityInfo.name, activityInfo, holder.imageView);
+            String tag = mPackageName + "_" + activityInfo.name;
+            holder.imageView.setTag(tag);
+            ImageLoader.getInstance().displayImage(tag, activityInfo, holder.imageView);
             // TaskAffinity
             holder.textView1.setText(String.format(Locale.ROOT, "%s: %s",
                     getString(R.string.task_affinity), activityInfo.taskAffinity));
@@ -696,20 +731,20 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
         }
 
-        private void getProviderView(@NonNull Context context, @NonNull ViewHolder holder, int index) {
+        private void getProviderView(@NonNull ViewHolder holder, int index) {
             final AppDetailsComponentItem componentItem;
             synchronized (mAdapterList) {
                 componentItem = (AppDetailsComponentItem) mAdapterList.get(index);
             }
-            final ProviderInfo providerInfo = (ProviderInfo) componentItem.vanillaItem;
+            final ProviderInfo providerInfo = (ProviderInfo) componentItem.mainItem;
             final String providerName = providerInfo.name;
             // Background color: regular < tracker < disabled < blocked
             if (!mIsExternalApk && componentItem.isBlocked()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedIndicatorColor);
             } else if (!mIsExternalApk && componentItem.isDisabled()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentExternallyBlockedIndicatorColor(context));
+                holder.divider.setDividerColor(mBlockedExternallyIndicatorColor);
             } else if (componentItem.isTracker()) {
-                holder.divider.setDividerColor(ColorCodes.getComponentTrackerIndicatorColor(context));
+                holder.divider.setDividerColor(mTrackerIndicatorColor);
             } else {
                 holder.divider.setDividerColor(mDefaultIndicatorColor);
             }
@@ -718,9 +753,11 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
                 holder.chipType.setVisibility(View.VISIBLE);
             } else holder.chipType.setVisibility(View.GONE);
             // Label
-            holder.labelView.setText(Utils.camelCaseToSpaceSeparatedString(Utils.getLastComponent(providerName)));
+            holder.labelView.setText(componentItem.label);
             // Icon
-            ImageLoader.getInstance().displayImage(mPackageName + "_" + providerName, providerInfo, holder.imageView);
+            String tag = mPackageName + "_" + providerName;
+            holder.imageView.setTag(tag);
+            ImageLoader.getInstance().displayImage(tag, providerInfo, holder.imageView);
             // Uri permission
             holder.textView1.setText(String.format(Locale.ROOT, "%s: %s", getString(R.string.grant_uri_permission), providerInfo.grantUriPermissions));
             // Path permissions
@@ -777,19 +814,5 @@ public class AppDetailsComponentsFragment extends AppDetailsFragment {
             } else holder.toggleSwitch.setVisibility(View.GONE);
             ((MaterialCardView) holder.itemView).setCardBackgroundColor(mCardColor1);
         }
-    }
-
-    public static boolean canLaunchService(@NonNull ServiceInfo info) {
-        if (info.exported && info.permission == null) {
-            return true;
-        }
-        int uid = Users.getSelfOrRemoteUid();
-        if (uid == Ops.ROOT_UID || (uid == Ops.SYSTEM_UID && info.permission == null)) {
-            return true;
-        }
-        if (info.permission == null) {
-            return false;
-        }
-        return SelfPermissions.checkSelfOrRemotePermission(info.permission, uid);
     }
 }

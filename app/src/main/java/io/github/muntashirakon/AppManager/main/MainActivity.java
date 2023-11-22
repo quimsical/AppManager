@@ -107,6 +107,10 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                     // Back button pressed.
                     return;
                 }
+                if (viewModel == null) {
+                    // Invalid state
+                    return;
+                }
                 RulesTypeSelectionDialogFragment dialogFragment = new RulesTypeSelectionDialogFragment();
                 Bundle args = new Bundle();
                 args.putInt(RulesTypeSelectionDialogFragment.ARG_MODE, RulesTypeSelectionDialogFragment.MODE_EXPORT);
@@ -449,7 +453,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
 
         // Set filter
         if (viewModel != null && mSearchView != null && !TextUtils.isEmpty(viewModel.getSearchQuery())) {
-            mSearchView.setIconified(false);
+            if (mSearchView.isIconified()) {
+                mSearchView.setIconified(false);
+            }
             mSearchView.setQuery(viewModel.getSearchQuery(), false);
         }
         // Show/hide app usage menu

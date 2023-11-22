@@ -131,7 +131,11 @@
         android:name="android.permission.UPDATE_DOMAIN_VERIFICATION_USER_SELECTION"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
@@ -141,7 +145,6 @@
         android:dataExtractionRules="@xml/backup_rules"
         android:fullBackupContent="@xml/full_backup_rules"
         android:banner="@mipmap/ic_banner"
-        android:extractNativeLibs="true"
         android:hasFragileUserData="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -650,6 +653,7 @@
                 <action android:name="android.intent.action.INSERT_OR_EDIT" />
                 <!-- Used by camera to view photo taken -->
                 <action android:name="com.android.camera.action.REVIEW" />
+                <action android:name="com.android.camera.action.SPLIT_SCREEN_REVIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -665,6 +669,9 @@
                 <action android:name="android.intent.action.GET_CONTENT" />
                 <action android:name="android.intent.action.INSERT" />
                 <action android:name="android.intent.action.INSERT_OR_EDIT" />
+                <!-- Used by camera to view photo taken -->
+                <action android:name="com.android.camera.action.REVIEW" />
+                <action android:name="com.android.camera.action.SPLIT_SCREEN_REVIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -678,6 +685,9 @@
                 <action android:name="android.intent.action.GET_CONTENT" />
                 <action android:name="android.intent.action.INSERT" />
                 <action android:name="android.intent.action.INSERT_OR_EDIT" />
+                <!-- Used by camera to view photo taken -->
+                <action android:name="com.android.camera.action.REVIEW" />
+                <action android:name="com.android.camera.action.SPLIT_SCREEN_REVIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -690,6 +700,7 @@
                 <data android:scheme="mailto" />
                 <data android:scheme="geo" />
                 <data android:scheme="file" />
+                <data android:scheme="content" />
 
                 <data android:scheme="rtsp" />
                 <data android:scheme="rtmp" />
@@ -721,6 +732,9 @@
                 <action android:name="android.intent.action.GET_CONTENT" />
                 <action android:name="android.intent.action.INSERT" />
                 <action android:name="android.intent.action.INSERT_OR_EDIT" />
+                <!-- Used by camera to view photo taken -->
+                <action android:name="com.android.camera.action.REVIEW" />
+                <action android:name="com.android.camera.action.SPLIT_SCREEN_REVIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -733,6 +747,7 @@
                 <data android:scheme="mailto" />
                 <data android:scheme="geo" />
                 <data android:scheme="file" />
+                <data android:scheme="content" />
 
                 <data android:scheme="rtsp" />
                 <data android:scheme="rtmp" />

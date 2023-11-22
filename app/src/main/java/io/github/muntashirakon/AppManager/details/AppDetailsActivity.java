@@ -21,18 +21,19 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.core.os.BundleCompat;
 import androidx.core.os.ParcelCompat;
 import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentManager;
-import androidx.fragment.app.FragmentPagerAdapter;
+import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.ViewModelProvider;
-import androidx.viewpager.widget.ViewPager;
+import androidx.viewpager2.adapter.FragmentStateAdapter;
+import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.material.tabs.TabLayout;
+import com.google.android.material.tabs.TabLayoutMediator;
 
 import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.R;
-import io.github.muntashirakon.AppManager.apk.ApkFile;
+import io.github.muntashirakon.AppManager.apk.ApkSource;
 import io.github.muntashirakon.AppManager.details.info.AppInfoFragment;
 import io.github.muntashirakon.AppManager.intercept.IntentCompat;
 import io.github.muntashirakon.AppManager.logs.Log;
@@ -40,6 +41,7 @@ import io.github.muntashirakon.AppManager.main.MainActivity;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.io.Path;
+import io.github.muntashirakon.io.Paths;
 
 public class AppDetailsActivity extends BaseActivity {
     public static final String ALIAS_APP_INFO = "io.github.muntashirakon.AppManager.details.AppInfoActivity";
@@ -68,7 +70,7 @@ public class AppDetailsActivity extends BaseActivity {
     }
 
     @NonNull
-    public static Intent getIntent(@NonNull Context context, @NonNull ApkFile.ApkSource apkSource, boolean backToMainPage) {
+    public static Intent getIntent(@NonNull Context context, @NonNull ApkSource apkSource, boolean backToMainPage) {
         Intent intent = new Intent(context, AppDetailsActivity.class);
         intent.putExtra(AppDetailsActivity.EXTRA_APK_SOURCE, apkSource);
         intent.putExtra(AppDetailsActivity.EXTRA_BACK_TO_MAIN, backToMainPage);
@@ -95,7 +97,7 @@ public class AppDetailsActivity extends BaseActivity {
     public AppDetailsViewModel model;
     public AdvancedSearchView searchView;
 
-    private ViewPager mViewPager;
+    private ViewPager2 mViewPager;
     private TypedArray mTabTitleIds;
     private Fragment[] mTabFragments;
 
@@ -103,7 +105,7 @@ public class AppDetailsActivity extends BaseActivity {
     @Nullable
     private String mPackageName;
     @Nullable
-    private ApkFile.ApkSource mApkSource;
+    private ApkSource mApkSource;
     @Nullable
     private String mApkType;
     @UserIdInt
@@ -127,10 +129,11 @@ public class AppDetailsActivity extends BaseActivity {
             Intent intent = getIntent();
             Uri uri = IntentCompat.getDataUri(intent);
             mBackToMainPage = intent.getBooleanExtra(EXTRA_BACK_TO_MAIN, mBackToMainPage);
-            mPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME);
+            // Package name needs to be sanitized since it's also a file
+            mPackageName = Paths.sanitizeFilename(intent.getStringExtra(EXTRA_PACKAGE_NAME));
             mApkSource = uri != null
-                    ? new ApkFile.ApkSource(uri, intent.getType())
-                    : IntentCompat.getParcelableExtra(intent, EXTRA_APK_SOURCE, ApkFile.ApkSource.class);
+                    ? ApkSource.getApkSource(uri, intent.getType())
+                    : IntentCompat.getParcelableExtra(intent, EXTRA_APK_SOURCE, ApkSource.class);
             mApkType = intent.getType();
             mUserId = intent.getIntExtra(EXTRA_USER_HANDLE, UserHandleHidden.myUserId());
         }
@@ -149,18 +152,18 @@ public class AppDetailsActivity extends BaseActivity {
             actionBar.setDisplayShowCustomEnabled(true);
             searchView = UIUtils.setupAdvancedSearchView(actionBar, null);
         }
-        FragmentManager fragmentManager = getSupportFragmentManager();
         mViewPager = findViewById(R.id.pager);
-
         TabLayout tabLayout = findViewById(R.id.tab_layout);
-        tabLayout.setupWithViewPager(mViewPager);
-        final AlertDialog progressDialog = UIUtils.getProgressDialog(this, getText(R.string.loading));
+        final AlertDialog progressDialog = UIUtils.getProgressDialog(this, getText(R.string.loading), true);
         if (mPackageName == null) {
             // Display progress dialog only for external apk files
             progressDialog.show();
         }
         // Set tabs
-        mViewPager.setAdapter(new AppDetailsFragmentPagerAdapter(fragmentManager));
+        mViewPager.setOffscreenPageLimit(4);
+        mViewPager.setAdapter(new AppDetailsFragmentPagerAdapter(this));
+        new TabLayoutMediator(tabLayout, mViewPager, (tab, position) -> tab.setText(mTabTitleIds.getString(position)))
+                .attach();
         // Load package info
         (mPackageName != null
                 ? model.setPackage(mPackageName)
@@ -204,7 +207,7 @@ public class AppDetailsActivity extends BaseActivity {
         @Nullable
         private String mPackageName;
         @Nullable
-        private ApkFile.ApkSource mApkSource;
+        private ApkSource mApkSource;
         @Nullable
         private String mApkType;
         private int mUserId;
@@ -215,7 +218,7 @@ public class AppDetailsActivity extends BaseActivity {
         public SavedState(Parcel source) {
             mBackToMainPage = ParcelCompat.readBoolean(source);
             mPackageName = source.readString();
-            mApkSource = ParcelCompat.readParcelable(source, ApkFile.ApkSource.class.getClassLoader(), ApkFile.ApkSource.class);
+            mApkSource = ParcelCompat.readParcelable(source, ApkSource.class.getClassLoader(), ApkSource.class);
             mApkType = source.readString();
             mUserId = source.readInt();
         }
@@ -287,62 +290,56 @@ public class AppDetailsActivity extends BaseActivity {
     }
 
     // For tab layout
-    private class AppDetailsFragmentPagerAdapter extends FragmentPagerAdapter {
-        AppDetailsFragmentPagerAdapter(@NonNull FragmentManager fragmentManager) {
-            super(fragmentManager, BEHAVIOR_RESUME_ONLY_CURRENT_FRAGMENT);
+    private class AppDetailsFragmentPagerAdapter extends FragmentStateAdapter {
+        AppDetailsFragmentPagerAdapter(@NonNull FragmentActivity fragmentActivity) {
+            super(fragmentActivity);
         }
 
         @NonNull
         @Override
-        public Fragment getItem(@AppDetailsFragment.Property int position) {
-            if (mTabFragments[position] == null) {
-                switch (position) {
-                    case AppDetailsFragment.APP_INFO:
-                        mTabFragments[position] = new AppInfoFragment();
-                        break;
-                    case AppDetailsFragment.ACTIVITIES:
-                    case AppDetailsFragment.SERVICES:
-                    case AppDetailsFragment.RECEIVERS:
-                    case AppDetailsFragment.PROVIDERS: {
-                        mTabFragments[position] = new AppDetailsComponentsFragment();
-                        Bundle args = new Bundle();
-                        args.putInt(AppDetailsFragment.ARG_TYPE, position);
-                        mTabFragments[position].setArguments(args);
-                        break;
-                    }
-                    case AppDetailsFragment.APP_OPS:
-                    case AppDetailsFragment.PERMISSIONS:
-                    case AppDetailsFragment.USES_PERMISSIONS: {
-                        mTabFragments[position] = new AppDetailsPermissionsFragment();
-                        Bundle args = new Bundle();
-                        args.putInt(AppDetailsFragment.ARG_TYPE, position);
-                        mTabFragments[position].setArguments(args);
-                        break;
-                    }
-                    case AppDetailsFragment.CONFIGURATIONS:
-                    case AppDetailsFragment.FEATURES:
-                    case AppDetailsFragment.SHARED_LIBRARIES:
-                    case AppDetailsFragment.SIGNATURES: {
-                        mTabFragments[position] = new AppDetailsOtherFragment();
-                        Bundle args = new Bundle();
-                        args.putInt(AppDetailsFragment.ARG_TYPE, position);
-                        mTabFragments[position].setArguments(args);
-                        break;
-                    }
+        public Fragment createFragment(@AppDetailsFragment.Property int position) {
+            if (mTabFragments[position] != null) {
+                return mTabFragments[position];
+            }
+            switch (position) {
+                case AppDetailsFragment.APP_INFO:
+                    return mTabFragments[position] = new AppInfoFragment();
+                case AppDetailsFragment.ACTIVITIES:
+                case AppDetailsFragment.SERVICES:
+                case AppDetailsFragment.RECEIVERS:
+                case AppDetailsFragment.PROVIDERS: {
+                    AppDetailsComponentsFragment fragment = new AppDetailsComponentsFragment();
+                    Bundle args = new Bundle();
+                    args.putInt(AppDetailsFragment.ARG_TYPE, position);
+                    fragment.setArguments(args);
+                    return mTabFragments[position] = fragment;
+                }
+                case AppDetailsFragment.APP_OPS:
+                case AppDetailsFragment.PERMISSIONS:
+                case AppDetailsFragment.USES_PERMISSIONS: {
+                    AppDetailsPermissionsFragment fragment = new AppDetailsPermissionsFragment();
+                    Bundle args = new Bundle();
+                    args.putInt(AppDetailsFragment.ARG_TYPE, position);
+                    fragment.setArguments(args);
+                    return mTabFragments[position] = fragment;
+                }
+                case AppDetailsFragment.CONFIGURATIONS:
+                case AppDetailsFragment.FEATURES:
+                case AppDetailsFragment.SHARED_LIBRARIES:
+                case AppDetailsFragment.SIGNATURES: {
+                    AppDetailsOtherFragment fragment = new AppDetailsOtherFragment();
+                    Bundle args = new Bundle();
+                    args.putInt(AppDetailsFragment.ARG_TYPE, position);
+                    fragment.setArguments(args);
+                    return mTabFragments[position] = fragment;
                 }
             }
             return mTabFragments[position];
         }
 
         @Override
-        public int getCount() {
+        public int getItemCount() {
             return mTabTitleIds.length();
-        }
-
-        @Nullable
-        @Override
-        public CharSequence getPageTitle(int position) {
-            return mTabTitleIds.getText(position);
         }
     }
 }

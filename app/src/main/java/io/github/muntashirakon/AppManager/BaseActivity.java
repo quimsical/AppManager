@@ -96,7 +96,7 @@ public abstract class BaseActivity extends AppCompatActivity {
         }
         // Run authentication
         mViewModel = new ViewModelProvider(this).get(SecurityAndOpsViewModel.class);
-        mAlertDialog = UIUtils.getProgressDialog(this, getString(R.string.initializing));
+        mAlertDialog = UIUtils.getProgressDialog(this, getString(R.string.initializing), true);
         Log.d(TAG, "Waiting to be authenticated.");
         mViewModel.authenticationStatus().observe(this, status -> {
             switch (status) {
@@ -237,7 +237,9 @@ public abstract class BaseActivity extends AppCompatActivity {
         // Authentication was successful
         Log.d(TAG, "Authenticated");
         // Set mode of operation
-        Objects.requireNonNull(mViewModel).setModeOfOps();
+        if (mViewModel != null) {
+            mViewModel.setModeOfOps();
+        }
     }
 
     private void initPermissionChecks() {

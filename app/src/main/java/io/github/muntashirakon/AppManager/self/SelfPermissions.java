@@ -23,6 +23,7 @@ import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PermissionCompat;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
+import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
@@ -40,7 +41,8 @@ public class SelfPermissions {
                 Manifest.permission.DUMP,
                 ManifestCompat.permission.GET_APP_OPS_STATS,
                 ManifestCompat.permission.INTERACT_ACROSS_USERS,
-                Manifest.permission.READ_LOGS
+                Manifest.permission.READ_LOGS,
+                Manifest.permission.WRITE_SECURE_SETTINGS
         };
         int userId = UserHandleHidden.myUserId();
         for (String permission : permissions) {
@@ -49,6 +51,20 @@ public class SelfPermissions {
                     PermissionCompat.grantPermission(BuildConfig.APPLICATION_ID, permission, userId);
                 } catch (Exception ignore) {
                 }
+            }
+        }
+        // Grant usage stats permission (both permission and app op needs to be granted)
+        if (FeatureController.isUsageAccessEnabled()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !checkSelfPermission(Manifest.permission.PACKAGE_USAGE_STATS)) {
+                try {
+                    PermissionCompat.grantPermission(BuildConfig.APPLICATION_ID, Manifest.permission.PACKAGE_USAGE_STATS, userId);
+                } catch (Exception ignore) {
+                }
+            }
+            try {
+                AppOpsManagerCompat appOps = new AppOpsManagerCompat();
+                appOps.setMode(AppOpsManagerHidden.OP_GET_USAGE_STATS, Process.myUid(), BuildConfig.APPLICATION_ID, AppOpsManager.MODE_ALLOWED);
+            } catch (RemoteException ignore) {
             }
         }
     }
@@ -209,7 +225,10 @@ public class SelfPermissions {
     }
 
     public static boolean checkCrossUserPermission(@UserIdInt int userId, boolean requireFullPermission, int callingUid) {
-        if (userId < 0) {
+        if (userId == UserHandleHidden.USER_NULL) {
+            userId = UserHandleHidden.myUserId();
+        }
+        if (userId < 0 && userId != UserHandleHidden.USER_ALL) {
             throw new IllegalArgumentException("Invalid userId " + userId);
         }
         if (isSystemOrRootOrShell(callingUid) || userId == UserHandleHidden.getUserId(callingUid)) {
@@ -220,6 +239,10 @@ public class SelfPermissions {
         }
         return checkSelfOrRemotePermission(ManifestCompat.permission.INTERACT_ACROSS_USERS_FULL, callingUid)
                 || checkSelfOrRemotePermission(ManifestCompat.permission.INTERACT_ACROSS_USERS, callingUid);
+    }
+
+    public static boolean isSystem() {
+        return Users.getSelfOrRemoteUid() == Ops.SYSTEM_UID;
     }
 
     public static boolean isSystemOrRoot() {

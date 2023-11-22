@@ -2,8 +2,6 @@
 
 package io.github.muntashirakon.AppManager.utils;
 
-import android.system.ErrnoException;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringDef;
@@ -94,14 +92,14 @@ public final class TarUtils {
             try (TarArchiveOutputStream tos = new TarArchiveOutputStream(os)) {
                 tos.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
                 tos.setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX);
-                Path basePath = source.isDirectory() ? source : source.getParentFile();
+                Path basePath = source.isDirectory() ? source : source.getParent();
                 if (basePath == null) {
                     basePath = Paths.get("/");
                 }
                 List<Path> files = Paths.getAll(basePath, source, filters, exclude, followLinks);
                 for (Path file : files) {
                     String relativePath = Paths.relativePath(file, basePath);
-                    if (relativePath.equals("") || relativePath.equals("/")) continue;
+                    if (relativePath.isEmpty() || relativePath.equals("/")) continue;
                     // For links, check if followLinks is enabled
                     if (!followLinks && file.isSymbolicLink()) {
                         // A path can be symbolic link only if it's a file
@@ -114,7 +112,7 @@ public final class TarUtils {
                         tos.putArchiveEntry(tarEntry);
                         if (!file.isDirectory()) {
                             try (InputStream is = file.openInputStream()) {
-                                IoUtils.copy(is, tos, -1, null);
+                                IoUtils.copy(is, tos);
                             }
                         }
                     }
@@ -225,20 +223,20 @@ public final class TarUtils {
                         }
                         if (!entry.isDirectory()) {
                             try (OutputStream os = file.openOutputStream()) {
-                                IoUtils.copy(tis, os, -1, null);
+                                IoUtils.copy(tis, os);
                             }
                         }
                     }
                     // Fix permissions
-                    Paths.setPermissions(file, entry.getMode(), entry.getUserId(), entry.getGroupId());
+                    TarArchiveEntry finalEntry = entry;
+                    ExUtils.exceptionAsIgnored(() -> Paths.setPermissions(file, finalEntry.getMode(),
+                            finalEntry.getUserId(), finalEntry.getGroupId()));
                     // Restore timestamp
                     long modificationTime = entry.getModTime().getTime();
                     if (modificationTime > 0) { // Backward-compatibility
                         file.setLastModified(entry.getModTime().getTime());
                     }
                 }
-            } catch (ErrnoException e) {
-                throw new IOException(e);
             } finally {
                 is.close();
             }
@@ -253,6 +251,7 @@ public final class TarUtils {
         if ("/data/app".equals(brokenPath)) {
             return brokenPath;
         }
+        //noinspection SuspiciousRegexArgument
         String[] brokenPathParts = brokenPath.split(File.separator);
         // The initial number of File.separator is 4, and the rests could be either part of the app path or
         // point to lib, oat or apk files

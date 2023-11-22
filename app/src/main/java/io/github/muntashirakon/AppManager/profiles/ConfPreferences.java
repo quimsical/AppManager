@@ -7,6 +7,7 @@ import android.text.TextUtils;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceDataStore;
 import androidx.preference.PreferenceFragmentCompat;
@@ -23,11 +24,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.backup.BackupFlags;
+import io.github.muntashirakon.AppManager.profiles.struct.AppsProfile;
 import io.github.muntashirakon.AppManager.rules.RulesTypeSelectionDialogFragment;
 import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.TextUtilsCompat;
+import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
 import io.github.muntashirakon.dialog.SearchableSingleChoiceDialogBuilder;
 import io.github.muntashirakon.dialog.TextInputDialogBuilder;
@@ -36,12 +39,16 @@ public class ConfPreferences extends PreferenceFragmentCompat {
     private AppsProfileActivity mActivity;
     private ProfileViewModel mModel;
 
-    @ProfileMetaManager.ProfileState
-    private final List<String> mStates = Arrays.asList(ProfileMetaManager.STATE_ON, ProfileMetaManager.STATE_OFF);
+    @AppsProfile.ProfileState
+    private final List<String> mStates = Arrays.asList(AppsProfile.STATE_ON, AppsProfile.STATE_OFF);
+    @Nullable
     private String[] mComponents;
+    @Nullable
     private String[] mAppOps;
+    @Nullable
     private String[] mPermissions;
-    private ProfileMetaManager.Profile.BackupInfo mBackupInfo;
+    @Nullable
+    private AppsProfile.BackupInfo mBackupInfo;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -54,6 +61,13 @@ public class ConfPreferences extends PreferenceFragmentCompat {
             return;
         }
         mModel = mActivity.model;
+        // Set profile ID
+        Preference profileIdPref = Objects.requireNonNull(findPreference("profile_id"));
+        profileIdPref.setSummary(mModel.getProfileId());
+        profileIdPref.setOnPreferenceClickListener(preference -> {
+            Utils.copyToClipboard(mActivity, mModel.getProfileName(), mModel.getProfileId());
+            return true;
+        });
         // Set comment
         Preference commentPref = Objects.requireNonNull(findPreference("comment"));
         commentPref.setSummary(mModel.getComment());
@@ -164,27 +178,31 @@ public class ConfPreferences extends PreferenceFragmentCompat {
         mBackupInfo = mModel.getBackupInfo();
         backupDataPref.setSummary(mBackupInfo != null ? R.string.enabled : R.string.disabled_app);
         backupDataPref.setOnPreferenceClickListener(preference -> {
-            View view = mActivity.getLayoutInflater().inflate(R.layout.dialog_profile_backup_restore, null);
+            View view = View.inflate(mActivity, R.layout.dialog_profile_backup_restore, null);
             final BackupFlags flags;
-            if (mBackupInfo != null) flags = new BackupFlags(mBackupInfo.flags);
-            else flags = BackupFlags.fromPref();
+            if (mBackupInfo != null) {
+                flags = new BackupFlags(mBackupInfo.flags);
+            } else flags = BackupFlags.fromPref();
             final AtomicInteger backupFlags = new AtomicInteger(flags.getFlags());
-            List<Integer> supportedBackupFlags = BackupFlags.getSupportedBackupFlagsAsArray();
-            new SearchableMultiChoiceDialogBuilder<>(requireActivity(), supportedBackupFlags, BackupFlags.getFormattedFlagNames(requireContext(), supportedBackupFlags))
-                    .setTitle(R.string.backup_options)
-                    .addSelections(flags.flagsToCheckedIndexes(supportedBackupFlags))
-                    .hideSearchBar(true)
-                    .showSelectAll(false)
-                    .setPositiveButton(R.string.save, (dialog, which, selectedItems) -> {
-                        int flagsInt = 0;
-                        for (int flag : selectedItems) {
-                            flagsInt |= flag;
-                        }
-                        flags.setFlags(flagsInt);
-                        backupFlags.set(flags.getFlags());
-                    })
-                    .setNegativeButton(R.string.cancel, null)
-                    .show();
+            view.findViewById(R.id.dialog_button).setOnClickListener(v -> {
+                List<Integer> supportedBackupFlags = BackupFlags.getSupportedBackupFlagsAsArray();
+                new SearchableMultiChoiceDialogBuilder<>(requireActivity(), supportedBackupFlags,
+                        BackupFlags.getFormattedFlagNames(requireContext(), supportedBackupFlags))
+                        .setTitle(R.string.backup_options)
+                        .addSelections(flags.flagsToCheckedIndexes(supportedBackupFlags))
+                        .hideSearchBar(true)
+                        .showSelectAll(false)
+                        .setPositiveButton(R.string.save, (dialog, which, selectedItems) -> {
+                            int flagsInt = 0;
+                            for (int flag : selectedItems) {
+                                flagsInt |= flag;
+                            }
+                            flags.setFlags(flagsInt);
+                            backupFlags.set(flags.getFlags());
+                        })
+                        .setNegativeButton(R.string.cancel, null)
+                        .show();
+            });
             final TextInputEditText editText = view.findViewById(android.R.id.input);
             if (mBackupInfo != null) {
                 editText.setText(mBackupInfo.name);
@@ -194,7 +212,7 @@ public class ConfPreferences extends PreferenceFragmentCompat {
                     .setView(view)
                     .setPositiveButton(R.string.ok, (dialog, which) -> {
                         if (mBackupInfo == null) {
-                            mBackupInfo = new ProfileMetaManager.Profile.BackupInfo();
+                            mBackupInfo = new AppsProfile.BackupInfo();
                         }
                         CharSequence backupName = editText.getText();
                         BackupFlags backupFlags1 = new BackupFlags(backupFlags.get());
@@ -308,6 +326,7 @@ public class ConfPreferences extends PreferenceFragmentCompat {
     }
 
     private List<Integer> mSelectedUsers;
+
     private void handleUsersPref(Preference pref) {
         List<UserInfo> users = Users.getUsers();
         if (users.size() > 1) {
@@ -325,17 +344,17 @@ public class ConfPreferences extends PreferenceFragmentCompat {
                 mSelectedUsers.add(user);
             }
             mActivity.runOnUiThread(() -> {
-                pref.setSummary(TextUtilsCompat.joinSpannable(", " , getUserInfo(users, mSelectedUsers)));
+                pref.setSummary(TextUtilsCompat.joinSpannable(", ", getUserInfo(users, mSelectedUsers)));
                 pref.setOnPreferenceClickListener(v -> {
                     new SearchableMultiChoiceDialogBuilder<>(mActivity, userHandles, userNames)
                             .setTitle(R.string.select_user)
                             .addSelections(mSelectedUsers)
                             .showSelectAll(false)
                             .setPositiveButton(R.string.ok, (dialog, which, selectedUserHandles) -> {
-                                if (selectedUserHandles.size() == 0) {
+                                if (selectedUserHandles.isEmpty()) {
                                     mSelectedUsers = userHandles;
                                 } else mSelectedUsers = selectedUserHandles;
-                                pref.setSummary(TextUtilsCompat.joinSpannable(", " , getUserInfo(users, mSelectedUsers)));
+                                pref.setSummary(TextUtilsCompat.joinSpannable(", ", getUserInfo(users, mSelectedUsers)));
                                 mModel.setUsers(ArrayUtils.convertToIntArray(mSelectedUsers));
                             })
                             .setNegativeButton(R.string.cancel, null)

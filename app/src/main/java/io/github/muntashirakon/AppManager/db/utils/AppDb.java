@@ -262,7 +262,7 @@ public class AppDb {
                             | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES
                             | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
                 } catch (Exception e) {
-                    Log.e(TAG, "Could not retrieve package info list for user %d", e, userId);
+                    Log.w(TAG, "Could not retrieve package info list for user %d", e, userId);
                     continue;
                 }
 
@@ -319,21 +319,21 @@ public class AppDb {
             // Add new data
             mAppDao.delete(oldApps);
             mAppDao.insert(modifiedApps);
-            if (oldApps.size() > 0) {
+            if (!oldApps.isEmpty()) {
                 // Delete broadcast
                 Intent intent = new Intent(PackageChangeReceiver.ACTION_DB_PACKAGE_REMOVED);
                 intent.setPackage(context.getPackageName());
                 intent.putExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST, getPackageNamesFromApps(oldApps));
                 context.sendBroadcast(intent);
             }
-            if (newApps.size() > 0) {
+            if (!newApps.isEmpty()) {
                 // New apps
                 Intent intent = new Intent(PackageChangeReceiver.ACTION_DB_PACKAGE_ADDED);
                 intent.setPackage(context.getPackageName());
                 intent.putExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST, newApps.toArray(new String[0]));
                 context.sendBroadcast(intent);
             }
-            if (updatedApps.size() > 0) {
+            if (!updatedApps.isEmpty()) {
                 // Altered apps
                 Intent intent = new Intent(PackageChangeReceiver.ACTION_DB_PACKAGE_ALTERED);
                 intent.setPackage(context.getPackageName());

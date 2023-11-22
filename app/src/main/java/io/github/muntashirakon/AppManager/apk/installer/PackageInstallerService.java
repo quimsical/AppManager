@@ -20,6 +20,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.os.PowerManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -35,6 +36,8 @@ import java.util.Objects;
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.ApkFile;
+import io.github.muntashirakon.AppManager.apk.ApkSource;
+import io.github.muntashirakon.AppManager.apk.CachedApkSource;
 import io.github.muntashirakon.AppManager.apk.behavior.DexOptimizer;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.intercept.IntentCompat;
@@ -46,6 +49,7 @@ import io.github.muntashirakon.AppManager.progress.QueuedProgressHandler;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.types.ForegroundService;
 import io.github.muntashirakon.AppManager.types.UserPackagePair;
+import io.github.muntashirakon.AppManager.utils.CpuUtils;
 import io.github.muntashirakon.AppManager.utils.NotificationUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
@@ -70,6 +74,14 @@ public class PackageInstallerService extends ForegroundService {
     private String mPackageName;
     private QueuedProgressHandler mProgressHandler;
     private NotificationInfo mNotificationInfo;
+    private PowerManager.WakeLock mWakeLock;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        mWakeLock = CpuUtils.getPartialWakeLock("installer");
+        mWakeLock.acquire();
+    }
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
@@ -158,7 +170,7 @@ public class PackageInstallerService extends ForegroundService {
         } else {
             // ApkFile/Uri
             ApkFile apkFile;
-            ApkFile.ApkSource apkSource = apkQueueItem.getApkSource();
+            ApkSource apkSource = apkQueueItem.getApkSource();
             if (apkSource != null) {
                 // ApkFile set
                 try {
@@ -173,6 +185,10 @@ public class PackageInstallerService extends ForegroundService {
                 return;
             }
             installer.install(apkFile, selectedSplitIds, options, mProgressHandler);
+            // Delete the cached file
+            if (apkSource instanceof CachedApkSource) {
+                ((CachedApkSource) apkSource).cleanup();
+            }
         }
     }
 
@@ -216,6 +232,7 @@ public class PackageInstallerService extends ForegroundService {
         if (mProgressHandler != null) {
             mProgressHandler.onDetach(this);
         }
+        CpuUtils.releaseWakeLock(mWakeLock);
         super.onDestroy();
     }
 

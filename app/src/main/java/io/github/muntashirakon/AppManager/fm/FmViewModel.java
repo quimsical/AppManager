@@ -4,8 +4,11 @@ package io.github.muntashirakon.AppManager.fm;
 
 import android.annotation.SuppressLint;
 import android.app.Application;
+import android.content.ContentResolver;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.text.TextUtils;
 
 import androidx.annotation.MainThread;
@@ -35,6 +38,7 @@ import java.util.concurrent.Future;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.dex.DexUtils;
 import io.github.muntashirakon.AppManager.fm.icons.FmIconFetcher;
+import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.misc.ListOptions;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
@@ -45,11 +49,14 @@ import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.io.IoUtils;
 import io.github.muntashirakon.io.Path;
+import io.github.muntashirakon.io.PathAttributes;
 import io.github.muntashirakon.io.Paths;
 import io.github.muntashirakon.io.fs.VirtualFileSystem;
 import io.github.muntashirakon.lifecycle.SingleLiveEvent;
 
 public class FmViewModel extends AndroidViewModel implements ListOptions.ListOptionActions {
+    public static final String TAG = FmViewModel.class.getSimpleName();
+
     private final Object mSizeLock = new Object();
     private final MutableLiveData<List<FmItem>> mFmItemsLiveData = new MutableLiveData<>();
     private final MutableLiveData<Throwable> mFmErrorLiveData = new MutableLiveData<>();
@@ -283,7 +290,7 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
         while (currentPath.isSymbolicLink()) {
             try {
                 Path realPath = currentPath.getRealPath();
-                if (realPath == null) {
+                if (realPath == null || realPath.equals(currentPath)) {
                     // Not a symbolic link
                     break;
                 }
@@ -307,24 +314,74 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
             }
             // Send current URI
             mUriLiveData.postValue(mCurrentUri);
-            Path[] children = path.listFiles();
+            long s, e;
+            boolean isSaf = ContentResolver.SCHEME_CONTENT.equals(mCurrentUri.getScheme());
             FolderShortInfo folderShortInfo = new FolderShortInfo();
-            int count = children.length;
             int folderCount = 0;
             synchronized (mFmItems) {
                 mFmItems.clear();
-                for (Path child : children) {
-                    if (child.isDirectory()) {
-                        ++folderCount;
+                if (isSaf) {
+                    // SAF needs special handling to retrieve children
+                    s = System.currentTimeMillis();
+                    ContentResolver resolver = getApplication().getContentResolver();
+                    Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(mCurrentUri,
+                            DocumentsContract.getDocumentId(mCurrentUri));
+                    Cursor c = null;
+                    try {
+                        c = resolver.query(childrenUri, null, null, null, null);
+                        String[] columns = c.getColumnNames();
+                        while (c.moveToNext()) {
+                            String documentId = null;
+                            for (int i = 0; i < columns.length; ++i) {
+                                if (DocumentsContract.Document.COLUMN_DOCUMENT_ID.equals(columns[i])) {
+                                    documentId = c.getString(i);
+                                }
+                            }
+                            if (documentId == null) {
+                                // Invalid document, probably loading still?
+                                continue;
+                            }
+                            Uri documentUri = DocumentsContract.buildDocumentUriUsingTree(mCurrentUri, documentId);
+                            Path child = Paths.getTreeDocument(path, documentUri);
+                            PathAttributes attributes = Paths.getAttributesFromSafTreeCursor(documentUri, c);
+                            FmItem fmItem = new FmItem(child, attributes);
+                            mFmItems.add(fmItem);
+                            if (fmItem.isDirectory) {
+                                ++folderCount;
+                            }
+                            if (ThreadUtils.isInterrupted()) {
+                                return;
+                            }
+                        }
+                        e = System.currentTimeMillis();
+                        Log.d(TAG, "Time to fetch files via SAF: %d ms", e - s);
+                    } catch (Exception ex) {
+                        Log.w(TAG, "Failed query: %s", ex);
+                    } finally {
+                        IoUtils.closeQuietly(c);
                     }
-                    mFmItems.add(new FmItem(child));
-                }
-                if (ThreadUtils.isInterrupted()) {
-                    return;
+                } else {
+                    s = System.currentTimeMillis();
+                    Path[] children = path.listFiles();
+                    e = System.currentTimeMillis();
+                    Log.d(TAG, "Time to list files: %d ms", e - s);
+                    s = System.currentTimeMillis();
+                    for (Path child : children) {
+                        FmItem fmItem = new FmItem(child);
+                        mFmItems.add(fmItem);
+                        if (fmItem.isDirectory) {
+                            ++folderCount;
+                        }
+                        if (ThreadUtils.isInterrupted()) {
+                            return;
+                        }
+                    }
+                    e = System.currentTimeMillis();
+                    Log.d(TAG, "Time to process file list: %d ms", e - s);
                 }
             }
             folderShortInfo.folderCount = folderCount;
-            folderShortInfo.fileCount = count - folderCount;
+            folderShortInfo.fileCount = mFmItems.size() - folderCount;
             folderShortInfo.canRead = path.canRead();
             folderShortInfo.canWrite = path.canWrite();
             if (ThreadUtils.isInterrupted()) {
@@ -333,7 +390,10 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
             // Send folder info for the first time
             mFolderShortInfoLiveData.postValue(folderShortInfo);
             // Run filter and sorting options for fmItems
+            s = System.currentTimeMillis();
             filterAndSort();
+            e = System.currentTimeMillis();
+            Log.d(TAG, "Time to sort files: %d ms", e - s);
             synchronized (mSizeLock) {
                 // Calculate size and send folder info again
                 folderShortInfo.size = Paths.size(path);
@@ -347,9 +407,9 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
 
     public void createShortcut(@NonNull FmItem fmItem) {
         ThreadUtils.postOnBackgroundThread(() -> {
-            Bitmap bitmap = ImageLoader.getInstance().getCachedImage(fmItem.tag);
+            Bitmap bitmap = ImageLoader.getInstance().getCachedImage(fmItem.getTag());
             if (bitmap == null) {
-                ImageLoader.ImageFetcherResult result = new FmIconFetcher(fmItem).fetchImage(fmItem.tag);
+                ImageLoader.ImageFetcherResult result = new FmIconFetcher(fmItem).fetchImage(fmItem.getTag());
                 bitmap = result.bitmap != null ? result.bitmap : result.defaultImage.getImage();
             }
             mShortcutCreatorLiveData.postValue(new Pair<>(fmItem.path, bitmap));
@@ -419,8 +479,7 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
         List<FmItem> filteredList;
         synchronized (mFmItems) {
             if (!TextUtils.isEmpty(mQueryString)) {
-                filteredList = AdvancedSearchView.matches(mQueryString, mFmItems,
-                        (AdvancedSearchView.ChoiceGenerator<FmItem>) object -> object.path.getName(),
+                filteredList = AdvancedSearchView.matches(mQueryString, mFmItems, FmItem::getName,
                         AdvancedSearchView.SEARCH_TYPE_CONTAINS);
             } else filteredList = new ArrayList<>(mFmItems);
         }
@@ -431,7 +490,7 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
             Iterator<FmItem> iterator = filteredList.listIterator();
             while (iterator.hasNext()) {
                 FmItem fmItem = iterator.next();
-                if (fmItem.path.getName().startsWith(".")) {
+                if (fmItem.getName().startsWith(".")) {
                     iterator.remove();
                 }
             }
@@ -440,7 +499,7 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
             return;
         }
         // Sort by name first
-        Collections.sort(filteredList, (o1, o2) -> o1.path.getName().compareToIgnoreCase(o2.path.getName()));
+        Collections.sort(filteredList, (o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
         if (mSortBy == FmListOptions.SORT_BY_NAME) {
             if (mReverseSort) {
                 Collections.reverse(filteredList);
@@ -452,10 +511,10 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
                 Path p1 = o1.path;
                 Path p2 = o2.path;
                 if (mSortBy == FmListOptions.SORT_BY_LAST_MODIFIED) {
-                    return -Long.compare(p1.lastModified(), p2.lastModified()) * inverse;
+                    return -Long.compare(o1.getLastModified(), o2.getLastModified()) * inverse;
                 }
                 if (mSortBy == FmListOptions.SORT_BY_SIZE) {
-                    return -Long.compare(p1.length(), p2.length()) * inverse;
+                    return -Long.compare(o1.getSize(), o2.getSize()) * inverse;
                 }
                 if (mSortBy == FmListOptions.SORT_BY_TYPE) {
                     return p1.getType().compareToIgnoreCase(p2.getType()) * inverse;
@@ -465,25 +524,14 @@ public class FmViewModel extends AndroidViewModel implements ListOptions.ListOpt
         }
         if (foldersOnTop) {
             // Folders should be on top
-            Collections.sort(filteredList, (o1, o2) -> {
-                if (o1.type == o2.type) {
-                    return 0;
-                }
-                if (o1.type == FileType.DIRECTORY) {
-                    return -1;
-                }
-                if (o2.type == FileType.DIRECTORY) {
-                    return 1;
-                }
-                return 0;
-            });
+            Collections.sort(filteredList, (o1, o2) -> -Boolean.compare(o1.isDirectory, o2.isDirectory));
         }
         if (ThreadUtils.isInterrupted()) {
             return;
         }
         if (mScrollToFilename != null) {
             for (int i = 0; i < filteredList.size(); ++i) {
-                if (mScrollToFilename.equals(filteredList.get(i).path.getName())) {
+                if (mScrollToFilename.equals(filteredList.get(i).getName())) {
                     setScrollPosition(mCurrentUri, i);
                     break;
                 }

@@ -28,6 +28,7 @@ import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 
 public class ImageLoader implements Closeable {
+    @AnyThread
     public static void displayImage(@Nullable PackageItemInfo info, @Nullable ImageView imageView) {
         WeakReference<ImageView> ivRef = new WeakReference<>(imageView);
         ThreadUtils.postOnBackgroundThread(() -> {
@@ -76,6 +77,7 @@ public class ImageLoader implements Closeable {
         return mImageFileCache.getImage(tag);
     }
 
+    @UiThread
     public void displayImage(@NonNull String tag, @NonNull ImageView imageView,
                              @NonNull ImageFetcherInterface imageFetcherInterface) {
         Bitmap image = mMemoryCache.get(tag);
@@ -343,7 +345,10 @@ public class ImageLoader implements Closeable {
             if (imageViewReusedOrClosed(mQueueItem)) return;
             ImageView iv = mQueueItem.imageView.get();
             if (iv != null) {
-                iv.setImageBitmap(mImage);
+                Object tag = iv.getTag();
+                if (tag == null || tag.equals(mQueueItem.tag)) {
+                    iv.setImageBitmap(mImage);
+                }
             }
         }
     }
