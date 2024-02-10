@@ -18,6 +18,7 @@ import static io.github.muntashirakon.AppManager.utils.UIUtils.getStyledKeyValue
 import static io.github.muntashirakon.AppManager.utils.Utils.openAsFolderInFM;
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
@@ -27,7 +28,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.pm.Signature;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
@@ -72,6 +72,8 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,6 +94,7 @@ import io.github.muntashirakon.AppManager.apk.behavior.DexOptDialog;
 import io.github.muntashirakon.AppManager.apk.behavior.FreezeUnfreezeShortcutInfo;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerActivity;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerCompat;
+import io.github.muntashirakon.AppManager.apk.signing.SignerInfo;
 import io.github.muntashirakon.AppManager.apk.whatsnew.WhatsNewDialogFragment;
 import io.github.muntashirakon.AppManager.backup.dialog.BackupRestoreDialogFragment;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
@@ -245,7 +248,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         mPackageNameView = view.findViewById(R.id.packageName);
         mIconView = view.findViewById(R.id.icon);
         mVersionView = view.findViewById(R.id.version);
-        mAdapter = new AppInfoRecyclerAdapter(mActivity);
+        mAdapter = new AppInfoRecyclerAdapter(requireContext());
         recyclerView.setAdapter(mAdapter);
         // Set observer
         mMainModel.get(AppDetailsFragment.APP_INFO).observe(getViewLifecycleOwner(), appDetailsItems -> {
@@ -270,7 +273,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             // Set package name
             mPackageNameView.setText(mPackageName);
             mPackageNameView.setOnClickListener(v ->
-                    Utils.copyToClipboard(mActivity, "Package name", mPackageName));
+                    Utils.copyToClipboard(ContextUtils.getContext(), "Package name", mPackageName));
             // Set App Version
             CharSequence version = getString(R.string.version_name_with_code, mPackageInfo.versionName, PackageInfoCompat.getLongVersionCode(mPackageInfo));
             mVersionView.setText(version);
@@ -293,24 +296,30 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             mLabelView.setText(mAppLabel);
         });
         mIconView.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) mActivity.getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipboardManager clipboard = (ClipboardManager) ContextUtils.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
             ThreadUtils.postOnBackgroundThread(() -> {
                 ClipData clipData = clipboard.getPrimaryClip();
                 if (clipData != null && clipData.getItemCount() > 0) {
-                    String data = clipData.getItemAt(0).coerceToText(mActivity).toString().trim()
+                    String data = clipData.getItemAt(0).coerceToText(ContextUtils.getContext()).toString().trim()
                             .toLowerCase(Locale.ROOT);
                     if (data.matches("[0-9a-f: \n]+")) {
                         data = data.replaceAll("[: \n]+", "");
-                        Signature[] signatures = PackageUtils.getSigningInfo(mPackageInfo, mIsExternalApk);
-                        if (signatures != null && signatures.length == 1) {
-                            byte[] certBytes = signatures[0].toByteArray();
-                            Pair<String, String>[] digests = DigestUtils.getDigests(certBytes);
-                            for (Pair<String, String> digest : digests) {
-                                if (digest.second.equals(data)) {
-                                    if (digest.first.equals(DigestUtils.MD5) || digest.first.equals(DigestUtils.SHA_1)) {
-                                        ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified_using_unreliable_hash));
-                                    } else ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified));
-                                    return;
+                        SignerInfo signerInfo = PackageUtils.getSignerInfo(mPackageInfo, mIsExternalApk);
+                        if (signerInfo != null) {
+                            X509Certificate[] certs = signerInfo.getCurrentSignerCerts();
+                            if (certs != null && certs.length == 1) {
+                                try {
+                                    Pair<String, String>[] digests = DigestUtils.getDigests(certs[0].getEncoded());
+                                    for (Pair<String, String> digest : digests) {
+                                        if (digest.second.equals(data)) {
+                                            if (digest.first.equals(DigestUtils.MD5) || digest.first.equals(DigestUtils.SHA_1)) {
+                                                ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified_using_unreliable_hash));
+                                            } else
+                                                ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified));
+                                            return;
+                                        }
+                                    }
+                                } catch (CertificateEncodingException ignore) {
                                 }
                             }
                         }
@@ -455,7 +464,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             displayMagiskDenyListDialog();
         } else if (itemId == R.id.action_battery_opt) {
             if (SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.DEVICE_POWER)) {
-                new MaterialAlertDialogBuilder(mActivity)
+                new MaterialAlertDialogBuilder(requireContext())
                         .setTitle(R.string.battery_optimization)
                         .setMessage(R.string.choose_what_to_do)
                         .setPositiveButton(R.string.enable, (dialog, which) -> {
@@ -483,7 +492,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 UIUtils.displayLongToast(R.string.netpolicy_cannot_be_modified_for_core_apps);
                 return true;
             }
-            ArrayMap<Integer, String> netPolicyMap = NetworkPolicyManagerCompat.getAllReadablePolicies(mActivity);
+            ArrayMap<Integer, String> netPolicyMap = NetworkPolicyManagerCompat.getAllReadablePolicies(ContextUtils.getContext());
             Integer[] polices = new Integer[netPolicyMap.size()];
             CharSequence[] policyStrings = new String[netPolicyMap.size()];
             int selectedPolicies = ExUtils.requireNonNullElse(() -> NetworkPolicyManagerCompat.getUidPolicy(mApplicationInfo.uid), 0);
@@ -516,7 +525,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     return;
                 }
                 ThreadUtils.postOnBackgroundThread(() -> {
-                    try (OutputStream outputStream = mActivity.getContentResolver().openOutputStream(uri)) {
+                    try (OutputStream outputStream = Paths.get(uri).openOutputStream()) {
                         if (outputStream == null) {
                             throw new IOException("Unable to open output stream.");
                         }
@@ -786,7 +795,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         builder.show();
                     });
         }
-        if (tagCloud.runningServices.size() > 0) {
+        if (!tagCloud.runningServices.isEmpty()) {
             TagItem runningTag = new TagItem();
             tagItems.add(runningTag);
             runningTag.setTextRes(R.string.running)
@@ -794,16 +803,17 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     .setOnClickListener(v -> {
                         showProgressIndicator(true);
                         ThreadUtils.postOnBackgroundThread(() -> {
-                            CharSequence[] runningServices = new CharSequence[tagCloud.runningServices.size()];
-                            for (int i = 0; i < runningServices.length; ++i) {
-                                runningServices[i] = new SpannableStringBuilder()
-                                        .append(tagCloud.runningServices.get(i).service.getShortClassName())
+                            List<ActivityManager.RunningServiceInfo> runningServices = tagCloud.runningServices;
+                            CharSequence[] runningServiceNames = new CharSequence[runningServices.size()];
+                            for (int i = 0; i < runningServiceNames.length; ++i) {
+                                runningServiceNames[i] = new SpannableStringBuilder()
+                                        .append(runningServices.get(i).service.getShortClassName())
                                         .append("\n")
                                         .append(getSmallerText(new SpannableStringBuilder()
                                                 .append(getStyledKeyValue(v.getContext(), R.string.process_name,
-                                                        tagCloud.runningServices.get(i).process)).append("\n")
+                                                        runningServices.get(i).process)).append("\n")
                                                 .append(getStyledKeyValue(mActivity, R.string.pid,
-                                                        String.valueOf(tagCloud.runningServices.get(i).pid)))));
+                                                        String.valueOf(runningServices.get(i).pid)))));
                             }
                             boolean logViewerAvailable = FeatureController.isLogViewerEnabled()
                                     && SelfPermissions.checkSelfOrRemotePermission(Manifest.permission.DUMP);
@@ -815,12 +825,12 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                             ThreadUtils.postOnMainThread(() -> {
                                 if (isDetached()) return;
                                 showProgressIndicator(false);
-                                SearchableItemsDialogBuilder<CharSequence> builder = new SearchableItemsDialogBuilder<>(mActivity, runningServices)
+                                SearchableItemsDialogBuilder<CharSequence> builder = new SearchableItemsDialogBuilder<>(mActivity, runningServiceNames)
                                         .setTitle(titleBuilder.build());
                                 if (logViewerAvailable) {
                                     builder.setOnItemClickListener((dialog, which, item) -> {
                                         Intent logViewerIntent = new Intent(mActivity.getApplicationContext(), LogViewerActivity.class)
-                                                .putExtra(LogViewerActivity.EXTRA_FILTER, SearchCriteria.PID_KEYWORD + tagCloud.runningServices.get(which).pid)
+                                                .putExtra(LogViewerActivity.EXTRA_FILTER, SearchCriteria.PID_KEYWORD + runningServices.get(which).pid)
                                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                                         mActivity.startActivity(logViewerIntent);
                                     });
@@ -1358,8 +1368,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 actionItems.add(settingAction);
                 settingAction.setOnClickListener(v -> {
                     try {
-                        ActivityManagerCompat.startActivity(IntentUtils.getAppDetailsSettings(mPackageName),
-                                mUserId);
+                        ActivityManagerCompat.startActivity(IntentUtils.getAppDetailsSettings(mPackageName), mUserId);
                     } catch (Throwable th) {
                         UIUtils.displayLongToast(th.getLocalizedMessage());
                     }

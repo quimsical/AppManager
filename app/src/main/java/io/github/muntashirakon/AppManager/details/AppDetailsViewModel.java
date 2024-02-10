@@ -6,6 +6,7 @@ import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.GET
 import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_DISABLED_COMPONENTS;
 import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.UserIdInt;
 import android.app.ActivityManager;
@@ -24,9 +25,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.Signature;
 import android.os.Build;
 import android.os.RemoteException;
+import android.os.UserHandleHidden;
 import android.text.TextUtils;
 
 import androidx.annotation.AnyThread;
@@ -41,14 +42,12 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
 import com.android.apksig.ApkVerifier;
-import com.android.apksig.SigningCertificateLineage;
 import com.android.apksig.apk.ApkFormatException;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,12 +65,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.ApkSource;
 import io.github.muntashirakon.AppManager.apk.CachedApkSource;
+import io.github.muntashirakon.AppManager.apk.signing.SignerInfo;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PermissionCompat;
+import io.github.muntashirakon.AppManager.details.struct.AppDetailsActivityItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsAppOpItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsComponentItem;
 import io.github.muntashirakon.AppManager.details.struct.AppDetailsDefinedPermissionItem;
@@ -1167,8 +1168,10 @@ public class AppDetailsViewModel extends AndroidViewModel {
             }
             CharSequence appLabel = packageInfo.applicationInfo.loadLabel(mPackageManager);
             boolean canStartAnyActivity = SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.START_ANY_ACTIVITY);
+            boolean canStartViaAssist = UserHandleHidden.myUserId() == mUserId &&
+                    SelfPermissions.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS);
             for (ActivityInfo activityInfo : packageInfo.activities) {
-                AppDetailsComponentItem componentItem = new AppDetailsComponentItem(activityInfo);
+                AppDetailsActivityItem componentItem = new AppDetailsActivityItem(activityInfo);
                 componentItem.name = activityInfo.name;
                 componentItem.label = getComponentLabel(activityInfo, appLabel);
                 synchronized (mBlockerLocker) {
@@ -1184,6 +1187,8 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 // 3) App or the activity is not disabled and/or blocked
                 componentItem.canLaunch = !mExternalApk && (canStartAnyActivity || activityInfo.exported)
                         && !componentItem.isDisabled() && !componentItem.isBlocked();
+                componentItem.canLaunchAssist = !mExternalApk && canStartViaAssist && !componentItem.isDisabled()
+                        && !componentItem.isBlocked();
                 mActivityItems.add(componentItem);
             }
             mActivities.postValue(filterAndSortComponents(mActivityItems));
@@ -1516,7 +1521,7 @@ public class AppDetailsViewModel extends AndroidViewModel {
                 return;
             }
             List<AppOpsManagerCompat.OpEntry> opEntries = ExUtils.requireNonNullElse(() -> AppOpsManagerCompat
-                    .getConfiguredOpsForPackage(mAppOpsManager, packageInfo.packageName, packageInfo.applicationInfo.uid),
+                            .getConfiguredOpsForPackage(mAppOpsManager, packageInfo.packageName, packageInfo.applicationInfo.uid),
                     Collections.emptyList());
             for (int i = 0; i < packageInfo.requestedPermissions.length; ++i) {
                 AppDetailsPermissionItem permissionItem = getPermissionItem(packageInfo.requestedPermissions[i],
@@ -1777,7 +1782,6 @@ public class AppDetailsViewModel extends AndroidViewModel {
         return mApkVerifierResult;
     }
 
-    @SuppressWarnings("deprecation")
     @WorkerThread
     private void loadSignatures() {
         List<AppDetailsItem<X509Certificate>> appDetailsItems = new ArrayList<>();
@@ -1795,23 +1799,14 @@ public class AppDetailsViewModel extends AndroidViewModel {
             }
             ApkVerifier apkVerifier = builder.build();
             mApkVerifierResult = apkVerifier.verify();
+            SignerInfo signerInfo = new SignerInfo(mApkVerifierResult);
             // Get signer certificates
-            List<X509Certificate> certificates = mApkVerifierResult.getSignerCertificates();
-            if (certificates != null && certificates.size() > 0) {
+            X509Certificate[] certificates = signerInfo.getCurrentSignerCerts();
+            if (certificates != null) {
                 for (X509Certificate certificate : certificates) {
                     AppDetailsItem<X509Certificate> item = new AppDetailsItem<>(certificate);
                     item.name = "Signer Certificate";
                     appDetailsItems.add(item);
-                }
-                if (mExternalApk && packageInfo.signatures == null) {
-                    List<Signature> signatures = new ArrayList<>(certificates.size());
-                    for (X509Certificate certificate : certificates) {
-                        try {
-                            signatures.add(new Signature(certificate.getEncoded()));
-                        } catch (CertificateEncodingException ignore) {
-                        }
-                    }
-                    packageInfo.signatures = signatures.toArray(new Signature[0]);
                 }
             } else {
                 //noinspection ConstantConditions Null is deliberately set here to get at least one row
@@ -1819,26 +1814,23 @@ public class AppDetailsViewModel extends AndroidViewModel {
             }
             // Get source stamp certificate
             if (mApkVerifierResult.isSourceStampVerified()) {
-                ApkVerifier.Result.SourceStampInfo sourceStampInfo = mApkVerifierResult.getSourceStampInfo();
-                X509Certificate certificate = sourceStampInfo.getCertificate();
+                X509Certificate certificate = signerInfo.getSourceStampCert();
                 if (certificate != null) {
                     AppDetailsItem<X509Certificate> item = new AppDetailsItem<>(certificate);
                     item.name = "SourceStamp Certificate";
                     appDetailsItems.add(item);
                 }
             }
-            SigningCertificateLineage lineage = mApkVerifierResult.getSigningCertificateLineage();
-            if (lineage != null) {
-                certificates = lineage.getCertificatesInLineage();
-                if (certificates != null && certificates.size() > 0) {
-                    for (X509Certificate certificate : certificates) {
-                        AppDetailsItem<X509Certificate> item = new AppDetailsItem<>(certificate);
-                        item.name = "Certificate for Lineage";
-                        appDetailsItems.add(item);
-                    }
+            // Get source lineage certificates
+            certificates = signerInfo.getSignerCertsInLineage();
+            if (certificates != null) {
+                for (X509Certificate certificate : certificates) {
+                    AppDetailsItem<X509Certificate> item = new AppDetailsItem<>(certificate);
+                    item.name = "Certificate for Lineage";
+                    appDetailsItems.add(item);
                 }
             }
-        } catch (IOException | ApkFormatException | NoSuchAlgorithmException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         mSignatures.postValue(appDetailsItems);
