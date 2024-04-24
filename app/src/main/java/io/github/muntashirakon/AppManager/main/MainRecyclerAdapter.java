@@ -26,7 +26,6 @@ import android.widget.SectionIndexer;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.ColorInt;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.NonNull;
 import androidx.annotation.UiThread;
@@ -35,7 +34,6 @@ import androidx.core.content.ContextCompat;
 
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.divider.MaterialDivider;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -62,6 +60,7 @@ import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
 import io.github.muntashirakon.dialog.SearchableItemsDialogBuilder;
 import io.github.muntashirakon.io.Paths;
+import io.github.muntashirakon.util.AdapterUtils;
 import io.github.muntashirakon.widget.MultiSelectionView;
 
 public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecyclerAdapter.ViewHolder>
@@ -74,29 +73,22 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     @GuardedBy("mAdapterList")
     private final List<ApplicationItem> mAdapterList = new ArrayList<>();
 
-    private final int mCardColor;
-    private final int mDefaultIndicatorColor;
     private final int mColorGreen;
     private final int mColorOrange;
     private final int mColorPrimary;
     private final int mColorSecondary;
     private final int mQueryStringHighlight;
-    @ColorInt
-    private final int mHighlightColor;
 
     MainRecyclerAdapter(@NonNull MainActivity activity) {
         super();
         mActivity = activity;
         mPackageManager = activity.getPackageManager();
 
-        mCardColor = ColorCodes.getListItemColor1(activity);
-        mDefaultIndicatorColor = ColorCodes.getListItemDefaultIndicatorColor(activity);
         mColorGreen = ContextCompat.getColor(mActivity, io.github.muntashirakon.ui.R.color.stopped);
         mColorOrange = ContextCompat.getColor(mActivity, io.github.muntashirakon.ui.R.color.orange);
         mColorPrimary = ContextCompat.getColor(mActivity, io.github.muntashirakon.ui.R.color.textColorPrimary);
         mColorSecondary = ContextCompat.getColor(mActivity, io.github.muntashirakon.ui.R.color.textColorSecondary);
         mQueryStringHighlight = ColorCodes.getQueryStringHighlightColor(mActivity);
-        mHighlightColor = ColorCodes.getListItemSelectionColor(activity);
     }
 
     @GuardedBy("mAdapterList")
@@ -104,17 +96,10 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     void setDefaultList(List<ApplicationItem> list) {
         if (mActivity.viewModel == null) return;
         synchronized (mAdapterList) {
-            mAdapterList.clear();
-            mAdapterList.addAll(list);
             mSearchQuery = mActivity.viewModel.getSearchQuery();
-            notifyDataSetChanged();
+            AdapterUtils.notifyDataSetChanged(this, mAdapterList, list);
             notifySelectionChange();
         }
-    }
-
-    @Override
-    public int getHighlightColor() {
-        return mHighlightColor;
     }
 
     @GuardedBy("mAdapterList")
@@ -199,7 +184,8 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             item = mAdapterList.get(position);
         }
         // Add click listeners
-        holder.itemView.setOnClickListener(v -> {
+        MaterialCardView cardView = holder.itemView;
+        cardView.setOnClickListener(v -> {
             // If selection mode is on, select/deselect the current item instead of the default behaviour
             if (isInSelectionMode()) {
                 toggleSelection(position);
@@ -207,7 +193,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             }
             handleClick(item);
         });
-        holder.itemView.setOnLongClickListener(v -> {
+        cardView.setOnLongClickListener(v -> {
             // Long click listener: Select/deselect an app.
             // 1) Turn selection mode on if this is the first item in the selection list
             // 2) Select between last selection position and this position (inclusive) if selection mode is on
@@ -222,16 +208,15 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             return true;
         });
         holder.icon.setOnClickListener(v -> toggleSelection(position));
-        holder.itemView.setCardBackgroundColor(mCardColor);
         // Divider colors: disabled > regular
         if (!item.isInstalled) {
-            holder.divider.setDividerColor(ColorCodes.getAppUninstalledIndicatorColor(mActivity));
+            cardView.setStrokeColor(ColorCodes.getAppUninstalledIndicatorColor(mActivity));
         } else if (item.isDisabled) {
-            holder.divider.setDividerColor(ColorCodes.getAppDisabledIndicatorColor(mActivity));
+            cardView.setStrokeColor(ColorCodes.getAppDisabledIndicatorColor(mActivity));
         } else if ((item.flags & ApplicationInfo.FLAG_STOPPED) != 0) { // Force-stopped: Dark cyan
-            holder.divider.setDividerColor(ColorCodes.getAppForceStoppedIndicatorColor(mActivity));
+            cardView.setStrokeColor(ColorCodes.getAppForceStoppedIndicatorColor(mActivity));
         } else {
-            holder.divider.setDividerColor(mDefaultIndicatorColor);
+            cardView.setStrokeColor(Color.TRANSPARENT);
         }
         // Add yellow star if the app is in debug mode
         holder.debugIcon.setVisibility(item.debuggable ? View.VISIBLE : View.INVISIBLE);
@@ -417,7 +402,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         synchronized (mAdapterList) {
             for (int i = 0; i < getItemCount(); i++) {
                 String item = mAdapterList.get(i).label;
-                if (item.length() > 0) {
+                if (!item.isEmpty()) {
                     if (item.charAt(0) == sSections.charAt(section))
                         return i;
                 }
@@ -535,7 +520,7 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
                 .show();
     }
 
-    static class ViewHolder extends MultiSelectionView.ViewHolder {
+    public static class ViewHolder extends MultiSelectionView.ViewHolder {
         MaterialCardView itemView;
         AppCompatImageView icon;
         AppCompatImageView debugIcon;
@@ -551,7 +536,6 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         TextView backupIndicator;
         TextView backupInfo;
         TextView backupInfoExt;
-        MaterialDivider divider;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -570,7 +554,6 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             backupIndicator = itemView.findViewById(R.id.backup_indicator);
             backupInfo = itemView.findViewById(R.id.backup_info);
             backupInfoExt = itemView.findViewById(R.id.backup_info_ext);
-            divider = itemView.findViewById(R.id.divider);
         }
     }
 }

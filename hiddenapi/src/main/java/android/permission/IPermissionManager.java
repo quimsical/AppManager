@@ -41,10 +41,35 @@ public interface IPermissionManager extends IInterface {
 
     void removePermission(String name) throws RemoteException;
 
+    /**
+     * First two parameters are permuted since Android 12 (S)
+     *
+     * @deprecated Replaced in Android 14 r29 (Upside Down Cake) by {@link #getPermissionFlags(String, String, int, int)}
+     */
+    @Deprecated
     int getPermissionFlags(String permName, String packageName, int userId) throws RemoteException;
 
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    int getPermissionFlags(String packageName, String permName, int deviceId, int userId) throws RemoteException;
+
+    /**
+     * First two parameters are permuted since Android 12 (S)
+     *
+     * @deprecated Replaced in Android 14 r29 (Upside Down Cake) by {@link #updatePermissionFlags(String, String, int, int, boolean, int, int)}
+     */
+    @Deprecated
     void updatePermissionFlags(String permName, String packageName, int flagMask,
                                int flagValues, boolean checkAdjustPolicyFlagPermission, int userId) throws RemoteException;
+
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    void updatePermissionFlags(String packageName, String permName, int flagMask,
+                               int flagValues, boolean checkAdjustPolicyFlagPermission, int deviceId, int userId) throws RemoteException;
 
     void updatePermissionFlagsForAllApps(int flagMask, int flagValues, int userId) throws RemoteException;
 
@@ -101,9 +126,33 @@ public interface IPermissionManager extends IInterface {
     boolean removeAllowlistedRestrictedPermission(String packageName, String permissionName, int flags, int userId)
             throws RemoteException;
 
+    /**
+     * @deprecated Replaced in Android 14 r29 (Upside Down Cake) by {@link #grantRuntimePermission(String, String, int, int)}
+     */
+    @Deprecated
     void grantRuntimePermission(String packageName, String permName, int userId) throws RemoteException;
 
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    void grantRuntimePermission(String packageName, String permName, int deviceId, int userId) throws RemoteException;
+
+    /**
+     * @deprecated Replaced in Android 14 r29 (Upside Down Cake) by {@link #revokeRuntimePermission(String, String, int, int, String)}
+     */
+    @Deprecated
     void revokeRuntimePermission(String packageName, String permName, int userId, String reason) throws RemoteException;
+
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    void revokeRuntimePermission(String packageName, String permName, int deviceId,
+                                 int userId, String reason) throws RemoteException;
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    void revokePostNotificationPermissionWithoutKillForTest(String packageName, int userId) throws RemoteException;
 
     /**
      * @deprecated Removed in Android 12 (S)
@@ -171,15 +220,58 @@ public interface IPermissionManager extends IInterface {
     @Deprecated
     boolean isPermissionEnforced(String permName) throws RemoteException;
 
+    /**
+     * First two parameters are permuted since Android 12 (S)
+     *
+     * @deprecated Replaced in Android 14 r29 (Upside Down Cake) by {@link #shouldShowRequestPermissionRationale(String, String, int, int)}
+     */
+    @Deprecated
     boolean shouldShowRequestPermissionRationale(String permName, String packageName, int userId)
             throws RemoteException;
 
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    boolean shouldShowRequestPermissionRationale(String packageName, String permName, int deviceId, int userId)
+            throws RemoteException;
+
+    /**
+     * First two parameters are permuted since Android 12 (S)
+     *
+     * @deprecated Replaced in Android 14 r29 (Upside Down Cake) by {@link #isPermissionRevokedByPolicy(String, String, int, int)}
+     */
+    @Deprecated
     boolean isPermissionRevokedByPolicy(String permName, String packageName, int userId) throws RemoteException;
+
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    boolean isPermissionRevokedByPolicy(String packageName, String permName, int deviceId,
+                                        int userId) throws RemoteException;
 
     List<SplitPermissionInfoParcelable> getSplitPermissions() throws RemoteException;
 
+    /**
+     * @deprecated Replaced in Android 13 (Tiramisu) by {@link #startOneTimePermissionSession(String, int, long, long, int, int)}
+     */
+    @Deprecated
     void startOneTimePermissionSession(String packageName, int userId, long timeout,
                                        int importanceToResetTimer, int importanceToKeepSessionAlive) throws RemoteException;
+
+    /**
+     * @deprecated Replaced in Android 14 (Upside Down Cake) by {@link #startOneTimePermissionSession(String, int, long, long)}
+     */
+    @Deprecated
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    void startOneTimePermissionSession(String packageName, int userId, long timeout,
+                                       long revokeAfterKilledDelay, int importanceToResetTimer,
+                                       int importanceToKeepSessionAlive) throws RemoteException;
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    void startOneTimePermissionSession(String packageName, int userId, long timeout,
+                                       long revokeAfterKilledDelay) throws RemoteException;
 
     void stopOneTimePermissionSession(String packageName, int userId) throws RemoteException;
 
@@ -204,6 +296,18 @@ public interface IPermissionManager extends IInterface {
 
     @RequiresApi(Build.VERSION_CODES.S)
     boolean isAutoRevokeExempted(String packageName, int userId) throws RemoteException;
+
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    int checkPermission(String packageName, String permissionName, int deviceId, int userId) throws RemoteException;
+
+    /**
+     * Introduced in Android 14.0.0_r29
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    int checkUidPermission(int uid, String permissionName, int deviceId) throws RemoteException;
 
     abstract class Stub extends Binder implements IPermissionManager {
         public static IPermissionManager asInterface(IBinder binder) {

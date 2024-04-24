@@ -53,6 +53,7 @@ import io.github.muntashirakon.AppManager.changelog.ChangelogParser;
 import io.github.muntashirakon.AppManager.changelog.ChangelogRecyclerAdapter;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
 import io.github.muntashirakon.AppManager.debloat.DebloaterActivity;
+import io.github.muntashirakon.AppManager.filters.FinderActivity;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.misc.HelpActivity;
 import io.github.muntashirakon.AppManager.misc.LabsActivity;
@@ -194,7 +195,6 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
 
         mAdapter = new MainRecyclerAdapter(MainActivity.this);
         mAdapter.setHasStableIds(true);
-        recyclerView.setHasFixedSize(true);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(mAdapter);
         mMultiSelectionView = findViewById(R.id.selection_view);
@@ -295,6 +295,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         } else if (id == R.id.action_one_click_ops) {
             Intent onClickOpsIntent = new Intent(this, OneClickOpsActivity.class);
             startActivity(onClickOpsIntent);
+        } else if (id == R.id.action_finder) {
+            Intent intent = new Intent(this, FinderActivity.class);
+            startActivity(intent);
         } else if (id == R.id.action_apk_updater) {
             try {
                 if (!getPackageManager().getApplicationInfo(PACKAGE_NAME_APK_UPDATER, 0).enabled)
@@ -517,8 +520,8 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                             return;
                         }
                         runOnUiThread(() -> {
-                            RecyclerView recyclerView = (RecyclerView) View.inflate(this, R.layout.dialog_whats_new, null);
-                            recyclerView.setHasFixedSize(true);
+                            View view = View.inflate(this, R.layout.dialog_whats_new, null);
+                            RecyclerView recyclerView = view.findViewById(android.R.id.list);
                             recyclerView.setLayoutManager(new LinearLayoutManager(recyclerView.getContext()));
                             ChangelogRecyclerAdapter adapter = new ChangelogRecyclerAdapter();
                             recyclerView.setAdapter(adapter);

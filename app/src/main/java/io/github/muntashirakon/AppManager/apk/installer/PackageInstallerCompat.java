@@ -590,7 +590,7 @@ public final class PackageInstallerCompat {
         ThreadUtils.ensureWorkerThread();
         try {
             mApkFile = apkFile;
-            mPackageName = apkFile.getPackageName();
+            mPackageName = Objects.requireNonNull(apkFile.getPackageName());
             initBroadcastReceiver();
             int userId = options.getUserId();
             int installFlags = getInstallFlags(userId);
@@ -670,7 +670,7 @@ public final class PackageInstallerCompat {
         ThreadUtils.ensureWorkerThread();
         try {
             mApkFile = null;
-            mPackageName = packageName;
+            mPackageName = Objects.requireNonNull(packageName);
             initBroadcastReceiver();
             int userId = options.getUserId();
             int installFlags = getInstallFlags(userId);
@@ -736,6 +736,7 @@ public final class PackageInstallerCompat {
             Log.d(TAG, "Commit: Calling activity to request permission...");
             intentReceiver = null;
             Intent callbackIntent = new Intent(PackageInstallerBroadcastReceiver.ACTION_PI_RECEIVER);
+            callbackIntent.setPackage(BuildConfig.APPLICATION_ID);
             PendingIntent pendingIntent = PendingIntentCompat.getBroadcast(mContext, 0, callbackIntent, 0, true);
             sender = pendingIntent.getIntentSender();
         }
@@ -846,6 +847,7 @@ public final class PackageInstallerCompat {
 
     public boolean installExisting(@NonNull String packageName, @UserIdInt int userId) {
         ThreadUtils.ensureWorkerThread();
+        mPackageName = Objects.requireNonNull(packageName);
         if (mOnInstallListener != null) {
             mOnInstallListener.onStartInstall(mSessionId, packageName);
         }
@@ -1032,7 +1034,7 @@ public final class PackageInstallerCompat {
     public boolean uninstall(String packageName, @UserIdInt int userId, boolean keepData) {
         ThreadUtils.ensureWorkerThread();
         boolean hasDeletePackagesPermission = SelfPermissions.checkSelfOrRemotePermission(Manifest.permission.DELETE_PACKAGES);
-        mPackageName = packageName;
+        mPackageName = Objects.requireNonNull(packageName);
         String callerPackageName = SelfPermissions.getCallingPackage(Users.getSelfOrRemoteUid());
         initBroadcastReceiver();
         try {
@@ -1076,6 +1078,7 @@ public final class PackageInstallerCompat {
                 Log.d(TAG, "Uninstall: Calling activity to request permission...");
                 intentReceiver = null;
                 Intent callbackIntent = new Intent(PackageInstallerBroadcastReceiver.ACTION_PI_RECEIVER);
+                callbackIntent.setPackage(BuildConfig.APPLICATION_ID);
                 PendingIntent pendingIntent = PendingIntentCompat.getBroadcast(mContext, 0, callbackIntent, 0, true);
                 sender = pendingIntent.getIntentSender();
             }
