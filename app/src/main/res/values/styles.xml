@@ -11,7 +11,7 @@
         <item name="postSplashScreenTheme">@style/AppTheme.Black</item>
     </style>
 
-    <style name="AppTheme.AppWidgetContainerParent" parent="@android:style/Theme.DeviceDefault">
+    <style name="AppTheme.AppWidgetContainerParent" parent="AppTheme">
         <item name="appWidgetRadius">24dp</item>
         <item name="appWidgetPadding">16dp</item>
         <item name="appWidgetInnerRadius">4dp</item>
@@ -24,10 +24,12 @@
         <item name="appWidgetRadius">8dp</item>
     </style>
 
-    <style name="Widget.AppTheme.AppWidget" parent="android:Widget">
+    <style name="Widget.AppTheme.AppWidgetOverlay" parent="android:Widget">
         <item name="android:id">@android:id/background</item>
         <item name="android:background">?android:attr/colorBackground</item>
         <item name="android:padding">?attr/appWidgetPadding</item>
     </style>
+
+    <style name="Widget.AppTheme.AppWidget" parent="Widget.AppTheme.AppWidgetOverlay" />
 
 </resources>

@@ -450,6 +450,18 @@
             android:label="@string/title_labs_activity" />
 
         <activity-alias
+            android:name=".apk.installer.AppInfoActivity"
+            android:exported="false"
+            android:label="@string/app_info"
+            android:targetActivity=".details.AppDetailsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SHOW_APP_INFO" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
             android:name=".details.AppInfoActivity"
             android:exported="true"
             android:label="@string/app_info"
@@ -1117,8 +1129,9 @@
         <activity
             android:name=".viewer.audio.AudioPlayerActivity"
             android:excludeFromRecents="true"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/title_audio_player"
+            android:process=":audio_player"
             android:taskAffinity=".misc.music.AudioPlayerActivity"
             android:theme="@style/AppTheme.TransparentBackground">
             <intent-filter>
@@ -1205,7 +1218,8 @@
         <service
             android:name=".adb.AdbPairingService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|specialUse" />
+            android:foregroundServiceType="dataSync|specialUse"
+            tools:targetApi="r" />
 
         <receiver
             android:name=".servermanager.ServerStatusChangeReceiver"
@@ -1217,6 +1231,11 @@
             android:label="@string/screen_time">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE_OPTIONS" />
+                <action android:name="android.appwidget.action.APPWIDGET_DELETED" />
+                <action android:name="android.appwidget.action.APPWIDGET_DISABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_ENABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_RESTORED" />
             </intent-filter>
 
             <meta-data

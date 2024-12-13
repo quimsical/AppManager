@@ -14,7 +14,7 @@ import io.github.muntashirakon.AppManager.filters.FilterableAppInfo;
 
 public class InstallerOption extends FilterOption {
     private final Map<String, Integer> mKeysWithType = new LinkedHashMap<String, Integer>() {{
-        put("all", TYPE_NONE);
+        put(KEY_ALL, TYPE_NONE);
         put("installer", TYPE_STR_SINGLE);
         put("installers", TYPE_STR_MULTIPLE);
         put("regex", TYPE_REGEX);
@@ -35,7 +35,7 @@ public class InstallerOption extends FilterOption {
     public TestResult test(@NonNull FilterableAppInfo info, @NonNull TestResult result) {
         InstallSourceInfoCompat installSourceInfo = info.getInstallerInfo();
         if (installSourceInfo == null) {
-            return result.setMatched(key.equals("all"));
+            return result.setMatched(key.equals(KEY_ALL));
         }
         // There's at least one installer at this point
         Set<String> installers = getInstallers(installSourceInfo);
@@ -62,7 +62,7 @@ public class InstallerOption extends FilterOption {
     }
 
     @NonNull
-    private static Set<String> getInstallers(InstallSourceInfoCompat installSourceInfo) {
+    private static Set<String> getInstallers(@NonNull InstallSourceInfoCompat installSourceInfo) {
         Set<String> installers = new LinkedHashSet<>();
         if (installSourceInfo.getInstallingPackageName() != null) {
             installers.add(installSourceInfo.getInstallingPackageName());

@@ -243,20 +243,24 @@
     <string-array name="finder_filters">
         <item>apk_size</item>
         <item>app_label</item>
+        <item>app_type</item>
         <item>backup</item>
         <item>bloatware</item>
         <item>cache_size</item>
+        <item>compile_sdk</item>
         <item>components</item>
         <item>data_size</item>
         <item>data_usage</item>
+        <item>freeze-unfreeze</item>
         <item>installed</item>
         <item>installer</item>
         <item>last_update</item>
         <item>min_sdk</item>
-        <!--item>permission</item-->
+        <item>permissions</item>
         <item>pkg_name</item>
         <item>running_apps</item>
         <item>screen_time</item>
+        <item>shared_uid</item>
         <item>signature</item>
         <item>target_sdk</item>
         <item>times_opened</item>

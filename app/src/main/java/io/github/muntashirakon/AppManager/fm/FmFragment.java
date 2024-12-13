@@ -32,7 +32,6 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
-import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.appcompat.widget.SearchView;
@@ -60,6 +59,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -184,8 +184,6 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
             }
         }
         mActivity = (FmActivity) requireActivity();
-        // Set title and subtitle
-        ActionBar actionBar = mActivity.getSupportActionBar();
         mSwipeRefresh = view.findViewById(R.id.swipe_refresh);
         mSwipeRefresh.setOnRefreshListener(this);
         UiUtils.applyWindowInsetsAsPadding(view.findViewById(R.id.path_container), false, true);
@@ -231,9 +229,14 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
         mRecyclerView = view.findViewById(R.id.list_item);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(mActivity));
         mAdapter = new FmAdapter(mModel, mActivity);
-        mAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+        mAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataChangedObserver() {
             @Override
             public void onChanged() {
+                if (mAdapter.isInSelectionMode()) {
+                    // Avoid setting a selection in selection mode (directory cannot be changed
+                    // in selection mode anyway).
+                    return;
+                }
                 if (scrollPosition.get() != RecyclerView.NO_POSITION) {
                     // Update scroll position
                     mRecyclerView.setSelection(scrollPosition.get());
@@ -271,9 +274,8 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
                 mEmptyView.setVisibility(View.GONE);
             }
             // Reset subtitle
-            if (actionBar != null) {
-                actionBar.setSubtitle(R.string.loading);
-            }
+            Optional.ofNullable(mActivity.getSupportActionBar()).ifPresent(actionBar ->
+                    actionBar.setSubtitle(R.string.loading));
             if (uri1 == null) {
                 return;
             }
@@ -306,13 +308,13 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
         mModel.getUriLiveData().observe(getViewLifecycleOwner(), uri1 -> {
             FmActivity.Options options1 = mModel.getOptions();
             String alternativeRootName = options1.isVfs ? options1.uri.getLastPathSegment() : null;
-            if (actionBar != null) {
+            Optional.ofNullable(mActivity.getSupportActionBar()).ifPresent(actionBar -> {
                 String title = uri1.getLastPathSegment();
                 if (TextUtils.isEmpty(title)) {
                     title = alternativeRootName != null ? alternativeRootName : "Root";
                 }
                 actionBar.setTitle(title);
-            }
+            });
             if (mSwipeRefresh != null) {
                 mSwipeRefresh.setRefreshing(true);
             }
@@ -321,9 +323,6 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
         });
         mModel.getFolderShortInfoLiveData().observe(getViewLifecycleOwner(), folderShortInfo -> {
             mFolderShortInfo = folderShortInfo;
-            if (actionBar == null) {
-                return;
-            }
             StringBuilder subtitle = new StringBuilder();
             // 1. Size
             if (folderShortInfo.size > 0) {
@@ -364,7 +363,9 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
                     fabGroup.show();
                 }
             }
-            actionBar.setSubtitle(subtitle);
+            Optional.ofNullable(mActivity.getSupportActionBar()).ifPresent(actionBar ->
+                    actionBar.setSubtitle(subtitle)
+            );
         });
         mModel.getDisplayPropertiesLiveData().observe(getViewLifecycleOwner(), uri1 -> {
             FilePropertiesDialogFragment dialogFragment = FilePropertiesDialogFragment.getInstance(uri1);
@@ -393,10 +394,7 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
     public void onStop() {
         super.onStop();
         if (mModel != null && mRecyclerView != null) {
-            View v = mRecyclerView.getChildAt(0);
-            if (v != null) {
-                Prefs.FileManager.setLastOpenedPath(mModel.getOptions(), mModel.getCurrentUri(), mRecyclerView.getChildAdapterPosition(v));
-            }
+            Prefs.FileManager.setLastOpenedPath(mModel.getOptions(), mModel.getCurrentUri(), getRecyclerViewFirstChildPosition());
         }
     }
 
@@ -586,6 +584,14 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
     @Override
     public void onRefresh() {
         if (mModel != null) mModel.reload();
+    }
+
+    public int getRecyclerViewFirstChildPosition() {
+        if (mRecyclerView != null) {
+            View v = mRecyclerView.getChildAt(0);
+            return mRecyclerView.getChildAdapterPosition(v);
+        }
+        return RecyclerView.NO_POSITION;
     }
 
     private void goToRawPath(@NonNull String p) {

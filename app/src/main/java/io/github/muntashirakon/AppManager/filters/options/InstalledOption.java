@@ -11,8 +11,9 @@ import io.github.muntashirakon.AppManager.filters.FilterableAppInfo;
 
 public class InstalledOption extends FilterOption {
     private final Map<String, Integer> mKeysWithType = new LinkedHashMap<String, Integer>() {{
-        put("all", TYPE_NONE);
+        put(KEY_ALL, TYPE_NONE);
         put("installed", TYPE_NONE);
+        put("uninstalled", TYPE_NONE);
         put("installed_before", TYPE_TIME_MILLIS);
         put("installed_after", TYPE_TIME_MILLIS);
     }};

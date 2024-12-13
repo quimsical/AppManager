@@ -15,6 +15,7 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.RemoteException;
 import android.os.UserHandleHidden;
+import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -24,6 +25,7 @@ import androidx.core.content.pm.PackageInfoCompat;
 import java.io.IOException;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -42,13 +44,14 @@ import io.github.muntashirakon.AppManager.compat.InstallSourceInfoCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.db.entity.Backup;
 import io.github.muntashirakon.AppManager.debloat.DebloatObject;
+import io.github.muntashirakon.AppManager.filters.options.AppTypeOption;
 import io.github.muntashirakon.AppManager.filters.options.ComponentsOption;
+import io.github.muntashirakon.AppManager.filters.options.FreezeOption;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentUtils;
 import io.github.muntashirakon.AppManager.ssaid.SsaidSettings;
 import io.github.muntashirakon.AppManager.types.PackageSizeInfo;
 import io.github.muntashirakon.AppManager.usage.AppUsageStatsManager;
 import io.github.muntashirakon.AppManager.usage.PackageUsageInfo;
-import io.github.muntashirakon.AppManager.usage.UsageUtils;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
@@ -57,6 +60,8 @@ import io.github.muntashirakon.AppManager.utils.PackageUtils;
 
 public class FilterableAppInfo {
     private final PackageInfo mPackageInfo;
+    @Nullable
+    private final PackageUsageInfo mPackageUsageInfo;
     private final ApplicationInfo mApplicationInfo;
     private final int mUserId;
     private final PackageManager mPm;
@@ -71,17 +76,19 @@ public class FilterableAppInfo {
     private String[] mSignatureSha256Checksums;
     private Map<ComponentInfo, Integer> mAllComponents;
     private Map<ComponentInfo, Integer> mTrackerComponents;
-    private String[] mUsedPermissions;
+    private List<String> mUsedPermissions;
     private Backup[] mBackups;
     private List<AppOpsManagerCompat.OpEntry> mAppOpEntries;
     @Nullable
     private PackageSizeInfo mPackageSizeInfo;
-    private PackageUsageInfo mPackageUsageInfo;
     private AppUsageStatsManager.DataUsage mDataUsage;
     private DebloatObject mBloatwareInfo;
+    private Integer mFreezeFlags = null;
+    private Integer mAppTypeFlags = null;
 
-    public FilterableAppInfo(@NonNull PackageInfo packageInfo) {
+    public FilterableAppInfo(@NonNull PackageInfo packageInfo, @Nullable PackageUsageInfo packageUsageInfo) {
         mPackageInfo = packageInfo;
+        mPackageUsageInfo = packageUsageInfo;
         mApplicationInfo = packageInfo.applicationInfo;
         mUserId = UserHandleHidden.getUserId(mApplicationInfo.uid);
         mPm = ContextUtils.getContext().getPackageManager();
@@ -210,7 +217,7 @@ public class FilterableAppInfo {
     }
 
     @NonNull
-    public String[] getAllPermissions() {
+    public List<String> getAllPermissions() {
         if (mUsedPermissions == null) {
             Set<String> usedPermissions = new HashSet<>();
             if (mPackageInfo.requestedPermissions != null) {
@@ -242,7 +249,7 @@ public class FilterableAppInfo {
                     }
                 }
             }
-            mUsedPermissions = usedPermissions.toArray(new String[0]);
+            mUsedPermissions = new ArrayList<>(usedPermissions);
         }
         return mUsedPermissions;
     }
@@ -260,6 +267,23 @@ public class FilterableAppInfo {
         return !isEnabled() || isSuspended() || isHidden();
     }
 
+    public int getFreezeFlags() {
+        if (mFreezeFlags != null) {
+            return mFreezeFlags;
+        }
+        mFreezeFlags = 0;
+        if (!isEnabled()) {
+            mFreezeFlags |= FreezeOption.FREEZE_TYPE_DISABLED;
+        }
+        if (isHidden()) {
+            mFreezeFlags |= FreezeOption.FREEZE_TYPE_HIDDEN;
+        }
+        if (isSuspended()) {
+            mFreezeFlags |= FreezeOption.FREEZE_TYPE_SUSPENDED;
+        }
+        return mFreezeFlags;
+    }
+
     public boolean isStopped() {
         return ApplicationInfoCompat.isStopped(mApplicationInfo);
     }
@@ -270,6 +294,60 @@ public class FilterableAppInfo {
 
     public boolean isDebuggable() {
         return (mApplicationInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    public int getAppTypeFlags() {
+        if (mAppTypeFlags != null) {
+            return mAppTypeFlags;
+        }
+        mAppTypeFlags = 0;
+        if (isSystemApp()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_SYSTEM;
+        } else {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_USER;
+        }
+        if (isUpdatedSystemApp()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_UPDATED_SYSTEM;
+        }
+        if (isPrivileged()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_PRIVILEGED;
+        }
+        if (dataOnlyApp()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_DATA_ONLY;
+        }
+        if (isStopped()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_STOPPED;
+        }
+        if (requestedLargeHeap()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_LARGE_HEAP;
+        }
+        if (isDebuggable()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_DEBUGGABLE;
+        }
+        if (isTestOnly()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_TEST_ONLY;
+        }
+        if (hasCode()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_HAS_CODE;
+        }
+        if (isPersistent()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_PERSISTENT;
+        }
+        if (backupAllowed()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_ALLOW_BACKUP;
+        }
+        if (installedInExternalStorage()) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_INSTALLED_IN_EXTERNAL;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (usesHttp()) {
+                mAppTypeFlags |= AppTypeOption.APP_TYPE_HTTP_ONLY;
+            }
+        }
+        if (!TextUtils.isEmpty(getSsaid())) {
+            mAppTypeFlags |= AppTypeOption.APP_TYPE_SSAID;
+        }
+        return mAppTypeFlags;
     }
 
     public boolean isSystemApp() {
@@ -383,28 +461,26 @@ public class FilterableAppInfo {
 
     public AppUsageStatsManager.DataUsage getDataUsage() {
         if (mDataUsage == null && isInstalled()) {
-            mDataUsage = AppUsageStatsManager.getDataUsageForPackage(ContextUtils.getContext(), mApplicationInfo.uid, UsageUtils.USAGE_WEEKLY);
-        } else mDataUsage = new AppUsageStatsManager.DataUsage(0, 0);
+            if (mPackageUsageInfo != null) {
+                mDataUsage = AppUsageStatsManager.DataUsage.fromDataUsage(mPackageUsageInfo.mobileData, mPackageUsageInfo.wifiData);
+            }
+        }
+        if (mDataUsage == null) {
+            mDataUsage = AppUsageStatsManager.DataUsage.EMPTY;
+        }
         return mDataUsage;
     }
 
-    private void fetchPackageUsageInfo() {
-        if (mPackageUsageInfo == null && isInstalled()) {
-            try {
-                mPackageUsageInfo = AppUsageStatsManager.getInstance().getUsageStatsForPackage(getPackageName(), UsageUtils.USAGE_WEEKLY, mUserId);
-            } catch (Exception ignore) {
-            }
-        }
-    }
-
     public int getTimesOpened() {
-        fetchPackageUsageInfo();
         return mPackageUsageInfo != null ? mPackageUsageInfo.timesOpened : 0;
     }
 
     public long getTotalScreenTime() {
-        fetchPackageUsageInfo();
-        return mPackageUsageInfo != null ? mPackageUsageInfo.screenTime : 0;
+        return mPackageUsageInfo != null ? mPackageUsageInfo.screenTime : 0L;
+    }
+
+    public long getLastUsedTime() {
+        return mPackageUsageInfo != null ? mPackageUsageInfo.lastUsageTime : 0L;
     }
 
     @Nullable

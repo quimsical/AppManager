@@ -10,20 +10,24 @@ public final class FilterOptions {
         switch (filterName) {
             case "apk_size": return new ApkSizeOption();
             case "app_label": return new AppLabelOption();
+            case "app_type": return new AppTypeOption();
             case "backup": return new BackupOption();
             case "bloatware": return new BloatwareOption();
             case "cache_size": return new CacheSizeOption();
+            case "compile_sdk": return new CompileSdkOption();
             case "components": return new ComponentsOption();
             case "data_size": return new DataSizeOption();
             case "data_usage": return new DataUsageOption();
+            case "freeze-unfreeze": return new FreezeOption();
             case "installed": return new InstalledOption();
             case "installer": return new InstallerOption();
             case "last_update": return new LastUpdateOption();
             case "min_sdk": return new MinSdkOption();
-            // case "permission": return new PermissionOption();
+            case "permissions": return new PermissionsOption();
             case "pkg_name": return new PackageNameOption();
             case "running_apps": return new RunningAppsOption();
             case "screen_time": return new ScreenTimeOption();
+            case "shared_uid": return new SharedUidOption();
             case "signature": return new SignatureOption();
             case "target_sdk": return new TargetSdkOption();
             case "times_opened": return new TimesOpenedOption();

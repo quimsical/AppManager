@@ -120,7 +120,7 @@ public abstract class FilterOption {
                     this.longValue = Long.parseLong(value);
                     break;
                 case TYPE_REGEX:
-                    this.regexValue = Pattern.compile(value);
+                    this.regexValue = Pattern.compile(Pattern.quote(value));
                 case TYPE_STR_MULTIPLE:
                     this.stringValues = value.split("\\n");
             }
@@ -168,6 +168,7 @@ public abstract class FilterOption {
         private List<Backup> mMatchedBackups;
         private Map<ComponentInfo, Integer> mMatchedComponents;
         private Map<ComponentInfo, Integer> mMatchedTrackers;
+        private List<String> mMatchedPermissions;
         private List<String> mMatchedSubjectLines;
 
         public TestResult setMatched(boolean matched) {
@@ -207,6 +208,16 @@ public abstract class FilterOption {
         @Nullable
         public Map<ComponentInfo, Integer> getMatchedTrackers() {
             return mMatchedTrackers;
+        }
+
+        public TestResult setMatchedPermissions(List<String> matchedPermissions) {
+            mMatchedPermissions = matchedPermissions;
+            return this;
+        }
+
+        @Nullable
+        public List<String> getMatchedPermissions() {
+            return mMatchedPermissions;
         }
 
         public TestResult setMatchedSubjectLines(List<String> matchedSubjectLines) {
