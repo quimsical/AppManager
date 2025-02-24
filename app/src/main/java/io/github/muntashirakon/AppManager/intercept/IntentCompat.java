@@ -33,6 +33,7 @@ import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.os.BundleCompat;
 import androidx.core.util.Pair;
 
 import java.util.ArrayList;
@@ -46,6 +47,24 @@ import io.github.muntashirakon.AppManager.fm.FmUtils;
 import io.github.muntashirakon.AppManager.utils.MotorolaUtils;
 
 public final class IntentCompat {
+    public static void putWrappedParcelableExtra(@NonNull Intent intent, @Nullable String name,
+                                                 @Nullable Parcelable parcelable) {
+        Bundle bundle = new Bundle();
+        bundle.putParcelable(name, parcelable);
+        intent.putExtra(name, bundle);
+    }
+
+    @Nullable
+    public static <T extends Parcelable> T getUnwrappedParcelableExtra(@NonNull Intent intent,
+                                                                       @Nullable String name,
+                                                                       @NonNull Class<T> clazz) {
+        Bundle bundle = intent.getBundleExtra(name);
+        if (bundle == null) {
+            return null;
+        }
+        return BundleCompat.getParcelable(bundle, name, clazz);
+    }
+
     /**
      * Retrieve extended data from the intent.
      *
@@ -66,7 +85,7 @@ public final class IntentCompat {
      *
      * @param name  The name of the desired item.
      * @param clazz The type of the items inside the array list. This is only verified when
-     *              unparceling.
+     *              parcelling.
      * @return the value of an item previously added with
      * putParcelableArrayListExtra(), or null if no
      * ArrayList<Parcelable> value was found.
@@ -246,7 +265,7 @@ public final class IntentCompat {
     }
 
     @Nullable
-    private static Pair<Integer, String> valueToParsableStringAndType(Object object) {
+    private static Pair<Integer, String> valueToParsableStringAndType(@Nullable Object object) {
         if (object == null) {
             return new Pair<>(TYPE_NULL, null);
         } else if (object instanceof String) {
@@ -306,7 +325,7 @@ public final class IntentCompat {
         } else if (object instanceof List) {
             @SuppressWarnings("rawtypes")
             List list = (List) object;
-            if (list.size() == 0) {
+            if (list.isEmpty()) {
                 // Type is lost forever, return null
                 // FIXME: Try to infer type using reflection
                 return new Pair<>(TYPE_NULL, null);
@@ -588,9 +607,12 @@ public final class IntentCompat {
                 sb.append(prefix).append(" CATEGORY\t").append(category).append("\n");
             }
         }
-        if (cn != null) sb.append(prefix).append(" COMPONENT\t").append(cn.flattenToString()).append("\n");
-        if (packageName != null) sb.append(prefix).append(" PACKAGE\t").append(packageName).append("\n");
-        if (flags != 0) sb.append(prefix).append(" FLAGS\t0x").append(Integer.toHexString(flags)).append("\n");
+        if (cn != null)
+            sb.append(prefix).append(" COMPONENT\t").append(cn.flattenToString()).append("\n");
+        if (packageName != null)
+            sb.append(prefix).append(" PACKAGE\t").append(packageName).append("\n");
+        if (flags != 0)
+            sb.append(prefix).append(" FLAGS\t0x").append(Integer.toHexString(flags)).append("\n");
         if (extras != null) {
             for (String key : extras.keySet()) {
                 Pair<Integer, String> typeAndString = valueToParsableStringAndType(extras.get(key));
@@ -789,8 +811,9 @@ public final class IntentCompat {
         }
     }
 
-    private static void toUriInner(Intent intent, StringBuilder uri, @Nullable String scheme, String defAction,
-                                   @Nullable String defPackage, int flags) {
+    private static void toUriInner(Intent intent, StringBuilder uri, @Nullable String scheme,
+                                   @Nullable String defAction, @Nullable String defPackage,
+                                   int flags) {
         if (scheme != null) {
             uri.append("scheme=").append(scheme).append(';');
         }

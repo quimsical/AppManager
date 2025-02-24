@@ -825,6 +825,7 @@ public final class PackageUtils {
             if (result.isVerifiedUsingV1Scheme()) sigSchemes.add("v1");
             if (result.isVerifiedUsingV2Scheme()) sigSchemes.add("v2");
             if (result.isVerifiedUsingV3Scheme()) sigSchemes.add("v3");
+            if (result.isVerifiedUsingV31Scheme()) sigSchemes.add("v3.1");
             if (result.isVerifiedUsingV4Scheme()) sigSchemes.add("v4");
             builder.append("\n").append(getPrimaryText(ctx, ctx.getResources()
                     .getQuantityString(R.plurals.app_signing_signature_schemes_pl, sigSchemes.size()) + LangUtils.getSeparatorString()));
@@ -868,5 +869,37 @@ public final class PackageUtils {
     public static String ensurePackageStagingDirectoryCommand() {
         String psd = PACKAGE_STAGING_DIRECTORY.getAbsolutePath();
         return String.format("( [ -d  %s ] || ( rm %s; mkdir %s && chmod 771 %s && chown 2000:2000 %s ) )", psd, psd, psd, psd, psd);
+    }
+
+    /**
+     * Check if the given package name is valid.
+     *
+     * @param packageName The name to check.
+     * @return Success if it's valid.
+     * @see <a href="https://cs.android.com/android/platform/superproject/main/+/main:frameworks/base/core/java/android/content/pm/parsing/FrameworkParsingPackageUtils.java;l=72;drc=1bc76ef01ec070d5155d99be0c495fd4ee60d074">FrameworkParsingPackageUtils.java</a>
+     */
+    public static boolean validateName(@NonNull String packageName) {
+        final int N = packageName.length();
+        boolean hasSep = false;
+        boolean front = true;
+        for (int i = 0; i < N; i++) {
+            final char c = packageName.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+                front = false;
+                continue;
+            }
+            if (!front) {
+                if ((c >= '0' && c <= '9') || c == '_') {
+                    continue;
+                }
+            }
+            if (c == '.') {
+                hasSep = true;
+                front = true;
+                continue;
+            }
+            return false;
+        }
+        return hasSep;
     }
 }

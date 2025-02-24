@@ -10,6 +10,7 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
+    <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission
         android:name="android.permission.ADJUST_RUNTIME_PERMISSIONS_POLICY"
@@ -19,6 +20,9 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission
         android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
+        android:name="android.permission.CHANGE_OVERLAY_PACKAGES"
         tools:ignore="ProtectedPermissions" />
     <uses-permission
         android:name="android.permission.CLEAR_APP_CACHE"
@@ -467,6 +471,15 @@
             android:label="@string/app_info"
             android:targetActivity=".details.AppDetailsActivity">
             <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data
+                    android:host="details"
+                    android:scheme="app-manager" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.SEND" />
 
                 <category android:name="android.intent.category.DEFAULT" />
@@ -660,6 +673,11 @@
             android:exported="false"
             android:launchMode="singleInstance"
             android:taskAffinity="" />
+        <activity
+            android:name=".history.ops.OpHistoryActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_history"
+            android:label="@string/op_history" />
         <activity
             android:name=".intercept.ActivityInterceptor"
             android:enabled="true"
@@ -998,8 +1016,10 @@
         <activity
             android:name=".details.ActivityLauncherShortcutActivity"
             android:excludeFromRecents="true"
+            android:noHistory="true"
             android:exported="false"
-            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:taskAffinity=".details.ActivityLauncherShortcutActivity"
             android:theme="@style/AppTheme.TransparentBackground" />
         <activity
             android:name=".apk.behavior.FreezeUnfreezeActivity"
@@ -1241,6 +1261,23 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/app_widget_info_screen_time" />
+        </receiver>
+        <receiver
+            android:name=".usage.DataUsageAppWidget"
+            android:exported="true"
+            android:label="@string/data_usage_msg">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE_OPTIONS" />
+                <action android:name="android.appwidget.action.APPWIDGET_DELETED" />
+                <action android:name="android.appwidget.action.APPWIDGET_DISABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_ENABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_RESTORED" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/app_widget_info_data_usage" />
         </receiver>
         <receiver
             android:name=".oneclickops.ClearCacheAppWidget"

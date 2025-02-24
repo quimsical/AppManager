@@ -2,11 +2,8 @@
 
 package io.github.muntashirakon.AppManager.backup;
 
-import static io.github.muntashirakon.AppManager.backup.BackupManager.DATA_PREFIX;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.KEYSTORE_PLACEHOLDER;
-import static io.github.muntashirakon.AppManager.backup.BackupManager.KEYSTORE_PREFIX;
 import static io.github.muntashirakon.AppManager.backup.BackupManager.MASTER_KEY;
-import static io.github.muntashirakon.AppManager.backup.BackupManager.SOURCE_PREFIX;
 import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.GET_SIGNING_CERTIFICATES;
 
 import android.app.AppOpsManager;
@@ -55,6 +52,7 @@ import io.github.muntashirakon.AppManager.rules.PseudoRules;
 import io.github.muntashirakon.AppManager.rules.RuleType;
 import io.github.muntashirakon.AppManager.rules.RulesImporter;
 import io.github.muntashirakon.AppManager.rules.struct.AppOpRule;
+import io.github.muntashirakon.AppManager.rules.struct.FreezeRule;
 import io.github.muntashirakon.AppManager.rules.struct.MagiskDenyListRule;
 import io.github.muntashirakon.AppManager.rules.struct.MagiskHideRule;
 import io.github.muntashirakon.AppManager.rules.struct.NetPolicyRule;
@@ -67,6 +65,7 @@ import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.ssaid.SsaidSettings;
 import io.github.muntashirakon.AppManager.uri.UriManager;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
+import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.TarUtils;
@@ -94,8 +93,11 @@ class RestoreOp implements Closeable {
     private final BackupFiles.BackupFile mBackupFile;
     @Nullable
     private PackageInfo mPackageInfo;
+    private int mUid;
     @NonNull
     private final Crypto mCrypto;
+    @NonNull
+    private final String mExtension;
     @NonNull
     private final BackupFiles.Checksum mChecksum;
     private final int mUserId;
@@ -120,6 +122,7 @@ class RestoreOp implements Closeable {
             throw new BackupException("Failed to read metadata. Possibly due to malformed json file.", e);
         }
         // Setup crypto
+        mExtension = CryptoUtils.getExtension(mMetadata.crypto);
         if (!CryptoUtils.isAvailable(mMetadata.crypto)) {
             throw new BackupException("Mode " + mMetadata.crypto + " is currently unavailable.");
         }
@@ -172,6 +175,7 @@ class RestoreOp implements Closeable {
         try {
             mPackageInfo = PackageManagerCompat.getPackageInfo(packageName, GET_SIGNING_CERTIFICATES
                     | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
+            mUid = Objects.requireNonNull(mPackageInfo.applicationInfo).uid;
         } catch (Exception ignore) {
         }
         mIsInstalled = mPackageInfo != null;
@@ -261,7 +265,7 @@ class RestoreOp implements Closeable {
         if (!mBackupFlags.backupApkFiles()) {
             throw new BackupException("APK restore is requested but backup doesn't contain any source files.");
         }
-        Path[] backupSourceFiles = getSourceFiles(mBackupPath);
+        Path[] backupSourceFiles = BackupUtils.getSourceFiles(mBackupPath, mExtension);
         if (backupSourceFiles.length == 0) {
             // No source backup found
             throw new BackupException("Source restore is requested but there are no source files.");
@@ -356,12 +360,24 @@ class RestoreOp implements Closeable {
                 public void onStartInstall(int sessionId, String packageName) {
                 }
 
+                // MIUI-begin: MIUI 12.5+ workaround
                 @Override
                 public void onAnotherAttemptInMiui(@Nullable ApkFile apkFile) {
                     // This works because the parent install method still remains active until a final status is
                     // received after all the attempts are finished, which is, then, returned to the parent.
                     packageInstaller.install(allApks, mPackageName, options);
                 }
+                // MIUI-end
+
+                // HyperOS-begin: HyperOS 2.0+ workaround
+                @Override
+                public void onSecondAttemptInHyperOsWithoutInstaller(@Nullable ApkFile apkFile) {
+                    // This works because the parent install method still remains active until a final status is
+                    // received after all the attempts are finished, which is, then, returned to the parent.
+                    options.setInstallerName("com.android.shell");
+                    packageInstaller.install(allApks, mPackageName, options);
+                }
+                // HyperOS-end
 
                 @Override
                 public void onFinishedInstall(int sessionId, String packageName, int result, @Nullable String blockingPackage, @Nullable String statusMessage) {
@@ -389,6 +405,7 @@ class RestoreOp implements Closeable {
             try {
                 mPackageInfo = PackageManagerCompat.getPackageInfo(mPackageName, GET_SIGNING_CERTIFICATES
                         | PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, mUserId);
+                mUid = Objects.requireNonNull(mPackageInfo.applicationInfo).uid;
                 mIsInstalled = true;
             } catch (Exception e) {
                 throw new BackupException("Apparently the install wasn't complete in the previous section.", e);
@@ -400,7 +417,7 @@ class RestoreOp implements Closeable {
         if (mPackageInfo == null) {
             throw new BackupException("KeyStore restore is requested but the app isn't installed.");
         }
-        Path[] keyStoreFiles = getKeyStoreFiles(mBackupPath);
+        Path[] keyStoreFiles = BackupUtils.getKeyStoreFiles(mBackupPath, mExtension);
         if (keyStoreFiles.length == 0) {
             throw new BackupException("KeyStore files should've existed but they didn't");
         }
@@ -443,11 +460,10 @@ class RestoreOp implements Closeable {
             throw new BackupException("Failed to restore the KeyStore files.", th);
         }
         // Rename files
-        int uid = mPackageInfo.applicationInfo.uid;
         List<String> keyStoreFileNames = KeyStoreUtils.getKeyStoreFiles(KEYSTORE_PLACEHOLDER, mUserId);
         for (String keyStoreFileName : keyStoreFileNames) {
             try {
-                String newFilename = Utils.replaceOnce(keyStoreFileName, String.valueOf(KEYSTORE_PLACEHOLDER), String.valueOf(uid));
+                String newFilename = Utils.replaceOnce(keyStoreFileName, String.valueOf(KEYSTORE_PLACEHOLDER), String.valueOf(mUid));
                 keyStorePath.findFile(keyStoreFileName).renameTo(newFilename);
                 Path targetFile = keyStorePath.findFile(newFilename);
                 // Restore file permission
@@ -471,7 +487,7 @@ class RestoreOp implements Closeable {
             // Verify integrity of the data backups
             String checksum;
             for (int i = 0; i < mMetadata.dataDirs.length; ++i) {
-                Path[] dataFiles = getDataFiles(mBackupPath, i);
+                Path[] dataFiles = BackupUtils.getDataFiles(mBackupPath, i, mExtension);
                 if (dataFiles.length == 0) {
                     throw new BackupException("Data restore is requested but there are no data files for index " + i + ".");
                 }
@@ -494,14 +510,14 @@ class RestoreOp implements Closeable {
             BackupDataDirectoryInfo dataDirectoryInfo = BackupDataDirectoryInfo.getInfo(dataSource, mUserId);
             Path dataSourceFile = Paths.get(dataSource);
 
-            Path[] dataFiles = getDataFiles(mBackupPath, i);
+            Path[] dataFiles = BackupUtils.getDataFiles(mBackupPath, i, mExtension);
             if (dataFiles.length == 0) {
                 throw new BackupException("Data restore is requested but there are no data files for index " + i + ".");
             }
             UidGidPair uidGidPair = dataSourceFile.getUidGid();
             if (uidGidPair == null) {
                 // Fallback to app UID
-                uidGidPair = new UidGidPair(mPackageInfo.applicationInfo.uid, mPackageInfo.applicationInfo.uid);
+                uidGidPair = new UidGidPair(mUid, mUid);
             }
             if (dataDirectoryInfo.isExternal()) {
                 // Skip if external data restore is not requested
@@ -548,7 +564,7 @@ class RestoreOp implements Closeable {
             }
             // Extract data to the data directory
             try {
-                String publicSourceDir = new File(mPackageInfo.applicationInfo.publicSourceDir).getParent();
+                String publicSourceDir = new File(Objects.requireNonNull(mPackageInfo.applicationInfo).publicSourceDir).getParent();
                 TarUtils.extract(mMetadata.tarType, dataFiles, dataSourceFile, null, BackupUtils
                         .getExcludeDirs(!mRequestedFlags.backupCache(), null), publicSourceDir);
             } catch (Throwable th) {
@@ -584,13 +600,13 @@ class RestoreOp implements Closeable {
                 switch (entry.type) {
                     case APP_OP:
                         if (canModifyAppOpMode) {
-                            appOpsManager.setMode(Integer.parseInt(entry.name), mPackageInfo.applicationInfo.uid,
-                                    mPackageName, ((AppOpRule) entry).getMode());
+                            appOpsManager.setMode(Integer.parseInt(entry.name), mUid, mPackageName,
+                                    ((AppOpRule) entry).getMode());
                         }
                         break;
                     case NET_POLICY:
                         if (canChangeNetPolicy) {
-                            NetworkPolicyManagerCompat.setUidPolicy(mPackageInfo.applicationInfo.uid,
+                            NetworkPolicyManagerCompat.setUidPolicy(mUid,
                                     ((NetPolicyRule) entry).getPolicies());
                         }
                         break;
@@ -598,8 +614,7 @@ class RestoreOp implements Closeable {
                         PermissionRule permissionRule = (PermissionRule) entry;
                         Permission permission = permissionRule.getPermission(true);
                         permission.setAppOpAllowed(permission.getAppOp() != AppOpsManagerCompat.OP_NONE && appOpsManager
-                                .checkOperation(permission.getAppOp(), mPackageInfo.applicationInfo.uid,
-                                        mPackageName) == AppOpsManager.MODE_ALLOWED);
+                                .checkOperation(permission.getAppOp(), mUid, mPackageName) == AppOpsManager.MODE_ALLOWED);
                         if (permissionRule.isGranted()) {
                             PermUtils.grantPermission(mPackageInfo, permission, appOpsManager, true, true);
                         } else {
@@ -646,10 +661,14 @@ class RestoreOp implements Closeable {
                         break;
                     case SSAID:
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            new SsaidSettings(mUserId).setSsaid(mPackageName, mPackageInfo.applicationInfo.uid,
+                            new SsaidSettings(mUserId).setSsaid(mPackageName, mUid,
                                     ((SsaidRule) entry).getSsaid());
                             mRequiresRestart = true;
                         }
+                        break;
+                    case FREEZE:
+                        int freezeType = ((FreezeRule) entry).getFreezeType();
+                        FreezeUtils.setFreezeMethod(mPackageName, freezeType);
                         break;
                 }
             } catch (Throwable e) {
@@ -743,29 +762,10 @@ class RestoreOp implements Closeable {
         }
     }
 
-    @NonNull
-    private Path[] getSourceFiles(@NonNull Path backupPath) {
-        String mode = CryptoUtils.getExtension(mMetadata.crypto);
-        return backupPath.listFiles((dir, name) -> name.startsWith(SOURCE_PREFIX) && name.endsWith(mode));
-    }
-
     private void deleteFiles(@NonNull Path[] files) {
         for (Path file : files) {
             file.delete();
         }
-    }
-
-    @NonNull
-    private Path[] getKeyStoreFiles(@NonNull Path backupPath) {
-        String mode = CryptoUtils.getExtension(mMetadata.crypto);
-        return backupPath.listFiles((dir, name) -> name.startsWith(KEYSTORE_PREFIX) && name.endsWith(mode));
-    }
-
-    @NonNull
-    private Path[] getDataFiles(@NonNull Path backupPath, int index) {
-        String mode = CryptoUtils.getExtension(mMetadata.crypto);
-        final String dataPrefix = DATA_PREFIX + index;
-        return backupPath.listFiles((dir, name) -> name.startsWith(dataPrefix) && name.endsWith(mode));
     }
 
     @NonNull

@@ -341,8 +341,13 @@ public final class PackageManagerCompat {
             return null;
         }
         LauncherApps launcherApps = (LauncherApps) context.getSystemService(Context.LAUNCHER_APPS_SERVICE);
-        if (!launcherApps.isPackageEnabled(packageName, userHandle)) {
-            // Package not enabled
+        try {
+            if (!launcherApps.isPackageEnabled(packageName, userHandle)) {
+                // Package not enabled
+                return null;
+            }
+        } catch (SecurityException e) {
+            Log.w(TAG, "Could not retrieve enable state of " + packageName + " for user "  + userHandle, e);
             return null;
         }
         List<LauncherActivityInfo> activityInfoList = launcherApps.getActivityList(packageName, userHandle);
@@ -447,7 +452,7 @@ public final class PackageManagerCompat {
             getPackageManager().setPackagesSuspendedAsUser(packageNames, suspend, null, null, (SuspendDialogInfo) null, callingPackage, userId);
         } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
             getPackageManager().setPackagesSuspendedAsUser(packageNames, suspend, null, null, (String) null, callingPackage, userId);
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        } else {
             getPackageManager().setPackagesSuspendedAsUser(packageNames, suspend, userId);
         }
         if (userId != UserHandleHidden.myUserId()) {
@@ -486,7 +491,7 @@ public final class PackageManagerCompat {
                 // Find using private flags
                 ApplicationInfo info = getApplicationInfo(packageName,
                         PackageManagerCompat.MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
-                return (ApplicationInfoCompat.getPrivateFlags(info) & ApplicationInfoCompat.PRIVATE_FLAG_HIDDEN) != 0;
+                return ApplicationInfoCompat.isHidden(info);
             } catch (PackageManager.NameNotFoundException ignore) {
             }
         }

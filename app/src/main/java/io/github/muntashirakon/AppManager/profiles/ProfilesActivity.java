@@ -25,7 +25,6 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -120,7 +119,7 @@ public class ProfilesActivity extends BaseActivity {
         mProgressIndicator = findViewById(R.id.progress_linear);
         mProgressIndicator.setVisibilityAfterHide(View.GONE);
         RecyclerView listView = findViewById(android.R.id.list);
-        listView.setLayoutManager(new LinearLayoutManager(this));
+        listView.setLayoutManager(UIUtils.getGridLayoutAt450Dp(this));
         listView.setEmptyView(findViewById(android.R.id.empty));
         UiUtils.applyWindowInsetsAsPaddingNoTop(listView);
         mAdapter = new ProfilesAdapter(this);
@@ -237,7 +236,7 @@ public class ProfilesActivity extends BaseActivity {
                 popupMenu.setOnMenuItemClickListener(item -> {
                     int id = item.getItemId();
                     if (id == R.id.action_apply) {
-                        Intent intent = ProfileApplierActivity.getShortcutIntent(mActivity, profile.profileId, null, null);
+                        Intent intent = ProfileApplierActivity.getApplierIntent(mActivity, profile.profileId);
                         mActivity.startActivity(intent);
                     } else if (id == R.id.action_delete) {
                         new MaterialAlertDialogBuilder(mActivity)

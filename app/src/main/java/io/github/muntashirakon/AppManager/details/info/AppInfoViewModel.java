@@ -49,6 +49,7 @@ import io.github.muntashirakon.AppManager.compat.DomainVerificationManagerCompat
 import io.github.muntashirakon.AppManager.compat.InstallSourceInfoCompat;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
+import io.github.muntashirakon.AppManager.compat.PackageInfoCompat2;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.SensorServiceCompat;
 import io.github.muntashirakon.AppManager.db.entity.Backup;
@@ -181,6 +182,7 @@ public class AppInfoViewModel extends AndroidViewModel {
             tagCloud.isDebuggable = (applicationInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
             tagCloud.isTestOnly = ApplicationInfoCompat.isTestOnly(applicationInfo);
             tagCloud.hasCode = (applicationInfo.flags & ApplicationInfo.FLAG_HAS_CODE) != 0;
+            tagCloud.isOverlay = PackageInfoCompat2.getOverlayTarget(packageInfo) != null;
             tagCloud.hasRequestedLargeHeap = (applicationInfo.flags & ApplicationInfo.FLAG_LARGE_HEAP) != 0;
             if (ThreadUtils.isInterrupted()) {
                 return;
@@ -221,14 +223,14 @@ public class AppInfoViewModel extends AndroidViewModel {
             List<DebloatObject> debloatObjects = StaticDataset.getDebloatObjects();
             for (DebloatObject debloatObject : debloatObjects) {
                 if (packageName.equals(debloatObject.packageName)) {
-                    tagCloud.isBloatware = true;
+                    tagCloud.bloatwareRemovalType = debloatObject.getRemoval();
                     break;
                 }
             }
             if (ThreadUtils.isInterrupted()) {
                 return;
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+            if (!isExternalApk && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
                     && SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_SENSORS)) {
                 tagCloud.sensorsEnabled = SensorServiceCompat.isSensorEnabled(packageName, userId);
             } else tagCloud.sensorsEnabled = true;
@@ -358,8 +360,8 @@ public class AppInfoViewModel extends AndroidViewModel {
                 if (hasUsageAccess) {
                     // Net statistics
                     AppUsageStatsManager.DataUsage dataUsage;
-                    dataUsage = AppUsageStatsManager.getDataUsageForPackage(getApplication(),
-                            applicationInfo.uid, UsageUtils.USAGE_LAST_BOOT);
+                    dataUsage = AppUsageStatsManager.getDataUsageForPackage(applicationInfo.uid,
+                            UsageUtils.USAGE_LAST_BOOT);
                     if (dataUsage.getTotal() == 0 && !ArrayUtils.contains(
                             packageInfo.requestedPermissions, Manifest.permission.INTERNET)) {
                         appInfo.dataUsage = null;
@@ -453,6 +455,7 @@ public class AppInfoViewModel extends AndroidViewModel {
         public boolean isDebuggable;
         public boolean isTestOnly;
         public boolean hasCode;
+        public boolean isOverlay;
         public boolean hasRequestedLargeHeap;
         public List<ActivityManager.RunningServiceInfo> runningServices;
         public List<MagiskProcess> magiskHiddenProcesses;
@@ -463,7 +466,8 @@ public class AppInfoViewModel extends AndroidViewModel {
         public boolean isAppSuspended;
         public boolean isMagiskHideEnabled;
         public boolean isMagiskDenyListEnabled;
-        public boolean isBloatware;
+        @DebloatObject.Removal
+        public int bloatwareRemovalType;
         public boolean sensorsEnabled;
         @Nullable
         public XposedModuleInfo xposedModuleInfo;

@@ -39,6 +39,8 @@ import io.github.muntashirakon.AppManager.intercept.IntentCompat;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.main.MainActivity;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
+import io.github.muntashirakon.AppManager.self.SelfUriManager;
+import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
@@ -55,8 +57,8 @@ public class AppDetailsActivity extends BaseActivity {
     @NonNull
     public static Intent getIntent(@NonNull Context context, @NonNull String packageName, @UserIdInt int userId) {
         Intent intent = new Intent(context, AppDetailsActivity.class);
-        intent.putExtra(AppDetailsActivity.EXTRA_PACKAGE_NAME, packageName);
-        intent.putExtra(AppDetailsActivity.EXTRA_USER_HANDLE, userId);
+        intent.putExtra(EXTRA_PACKAGE_NAME, packageName);
+        intent.putExtra(EXTRA_USER_HANDLE, userId);
         return intent;
     }
 
@@ -64,17 +66,17 @@ public class AppDetailsActivity extends BaseActivity {
     public static Intent getIntent(@NonNull Context context, @NonNull String packageName, @UserIdInt int userId,
                                    boolean backToMainPage) {
         Intent intent = new Intent(context, AppDetailsActivity.class);
-        intent.putExtra(AppDetailsActivity.EXTRA_PACKAGE_NAME, packageName);
-        intent.putExtra(AppDetailsActivity.EXTRA_USER_HANDLE, userId);
-        intent.putExtra(AppDetailsActivity.EXTRA_BACK_TO_MAIN, backToMainPage);
+        intent.putExtra(EXTRA_PACKAGE_NAME, packageName);
+        intent.putExtra(EXTRA_USER_HANDLE, userId);
+        intent.putExtra(EXTRA_BACK_TO_MAIN, backToMainPage);
         return intent;
     }
 
     @NonNull
     public static Intent getIntent(@NonNull Context context, @NonNull ApkSource apkSource, boolean backToMainPage) {
         Intent intent = new Intent(context, AppDetailsActivity.class);
-        intent.putExtra(AppDetailsActivity.EXTRA_APK_SOURCE, apkSource);
-        intent.putExtra(AppDetailsActivity.EXTRA_BACK_TO_MAIN, backToMainPage);
+        IntentCompat.putWrappedParcelableExtra(intent, EXTRA_APK_SOURCE, apkSource);
+        intent.putExtra(EXTRA_BACK_TO_MAIN, backToMainPage);
         return intent;
     }
 
@@ -91,7 +93,7 @@ public class AppDetailsActivity extends BaseActivity {
         } else {
             intent.setData(apkPath);
         }
-        intent.putExtra(AppDetailsActivity.EXTRA_BACK_TO_MAIN, backToMainPage);
+        intent.putExtra(EXTRA_BACK_TO_MAIN, backToMainPage);
         return intent;
     }
 
@@ -128,19 +130,18 @@ public class AppDetailsActivity extends BaseActivity {
             mUserId = ss.mUserId;
         } else {
             Intent intent = getIntent();
-            Uri uri = IntentCompat.getDataUri(intent);
             mBackToMainPage = intent.getBooleanExtra(EXTRA_BACK_TO_MAIN, mBackToMainPage);
-            // Package name needs to be sanitized since it's also a file
-            mPackageName = Paths.sanitizeFilename(intent.getStringExtra(EXTRA_PACKAGE_NAME));
-            mApkSource = uri != null
-                    ? ApkSource.getApkSource(uri, intent.getType())
-                    : IntentCompat.getParcelableExtra(intent, EXTRA_APK_SOURCE, ApkSource.class);
-            if (mPackageName == null && mApkSource == null) {
-                // Check for legacy argument
-                mPackageName = Paths.sanitizeFilename(intent.getStringExtra("pkg"));
+            UserPackagePair pair = SelfUriManager.getUserPackagePairFromUri(intent.getData());
+            if (pair != null) {
+                mPackageName = pair.getPackageName();
+                mApkSource = null;
+                mUserId = pair.getUserId();
+            } else {
+                mPackageName = getPackageNameFromExtras(intent);
+                mApkSource = getApkSource(intent);
+                mUserId = intent.getIntExtra(EXTRA_USER_HANDLE, UserHandleHidden.myUserId());
             }
             mApkType = intent.getType();
-            mUserId = intent.getIntExtra(EXTRA_USER_HANDLE, UserHandleHidden.myUserId());
         }
         model.setUserId(mUserId);
         // Initialize tabs
@@ -206,6 +207,29 @@ public class AppDetailsActivity extends BaseActivity {
                 loadTabs();
             }
         });
+    }
+
+    @Nullable
+    private String getPackageNameFromExtras(@NonNull Intent intent) {
+        String pkg = intent.getStringExtra(EXTRA_PACKAGE_NAME);
+        if (pkg == null) {
+            // Legacy argument, kept for compatibility
+            pkg = intent.getStringExtra("pkg");
+        }
+        if (pkg != null) {
+            // Package name needs to be sanitized since it's also a file
+            return Paths.sanitizeFilename(pkg);
+        }
+        return null;
+    }
+
+    @Nullable
+    private ApkSource getApkSource(@NonNull Intent intent) {
+        Uri uri = intent.getData();
+        if (uri != null) {
+            return ApkSource.getApkSource(uri, intent.getType());
+        }
+        return IntentCompat.getUnwrappedParcelableExtra(intent, EXTRA_APK_SOURCE, ApkSource.class);
     }
 
     static class SavedState implements Parcelable {
@@ -339,6 +363,12 @@ public class AppDetailsActivity extends BaseActivity {
                     fragment.setArguments(args);
                     return mTabFragments[position] = fragment;
                 }
+                case AppDetailsFragment.OVERLAYS:
+                    AppDetailsOverlaysFragment fragment = new AppDetailsOverlaysFragment();
+                    Bundle args = new Bundle();
+                    args.putInt(AppDetailsFragment.ARG_TYPE, position);
+                    fragment.setArguments(args);
+                    return mTabFragments[position] = fragment;
             }
             return mTabFragments[position];
         }

@@ -6,8 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
+import android.view.LayoutInflater;
 import android.view.MenuItem;
-import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.DrawableRes;
@@ -22,6 +22,7 @@ import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.accessibility.activity.LeadingActivityTrackerActivity;
 import io.github.muntashirakon.AppManager.editor.CodeEditorActivity;
 import io.github.muntashirakon.AppManager.fm.FmActivity;
+import io.github.muntashirakon.AppManager.history.ops.OpHistoryActivity;
 import io.github.muntashirakon.AppManager.intercept.ActivityInterceptor;
 import io.github.muntashirakon.AppManager.logcat.LogViewerActivity;
 import io.github.muntashirakon.AppManager.runner.TermActivity;
@@ -81,6 +82,12 @@ public class LabsActivity extends BaseActivity {
                         startActivity(intent);
                     });
         }
+        addAction(this, flowLayout, R.string.op_history, R.drawable.ic_history)
+                .setOnClickListener(v -> {
+                    Intent intent = new Intent(this, OpHistoryActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                });
     }
 
     @Override
@@ -93,13 +100,13 @@ public class LabsActivity extends BaseActivity {
     }
 
     @NonNull
-    private static MaterialButton addAction(@NonNull Context context, @NonNull ViewGroup layout,
+    private static MaterialButton addAction(@NonNull Context context, @NonNull ViewGroup parent,
                                             @StringRes int stringResId, @DrawableRes int iconResId) {
-        MaterialButton button = (MaterialButton) View.inflate(context, R.layout.item_app_info_action, null);
+        MaterialButton button = (MaterialButton) LayoutInflater.from(context).inflate(R.layout.item_app_info_action, parent, false);
         button.setBackgroundTintList(ColorStateList.valueOf(ColorCodes.getListItemColor1(context)));
         button.setText(stringResId);
         button.setIconResource(iconResId);
-        layout.addView(button);
+        parent.addView(button);
         return button;
     }
 }

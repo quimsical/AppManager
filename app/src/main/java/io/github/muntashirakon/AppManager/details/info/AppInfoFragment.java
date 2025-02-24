@@ -33,7 +33,6 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.RemoteException;
 import android.os.UserHandleHidden;
 import android.provider.Settings;
 import android.text.Spannable;
@@ -69,6 +68,7 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
@@ -85,6 +85,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Future;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
@@ -94,6 +95,7 @@ import io.github.muntashirakon.AppManager.accessibility.NoRootAccessibilityServi
 import io.github.muntashirakon.AppManager.apk.ApkFile;
 import io.github.muntashirakon.AppManager.apk.ApkSource;
 import io.github.muntashirakon.AppManager.apk.ApkUtils;
+import io.github.muntashirakon.AppManager.apk.behavior.FreezeUnfreeze;
 import io.github.muntashirakon.AppManager.apk.dexopt.DexOptDialog;
 import io.github.muntashirakon.AppManager.apk.behavior.FreezeUnfreezeShortcutInfo;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerActivity;
@@ -103,6 +105,7 @@ import io.github.muntashirakon.AppManager.apk.whatsnew.WhatsNewDialogFragment;
 import io.github.muntashirakon.AppManager.backup.dialog.BackupRestoreDialogFragment;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsManager;
 import io.github.muntashirakon.AppManager.batchops.BatchOpsService;
+import io.github.muntashirakon.AppManager.batchops.BatchQueueItem;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
 import io.github.muntashirakon.AppManager.compat.ApplicationInfoCompat;
 import io.github.muntashirakon.AppManager.compat.DeviceIdleManagerCompat;
@@ -110,6 +113,7 @@ import io.github.muntashirakon.AppManager.compat.DomainVerificationManagerCompat
 import io.github.muntashirakon.AppManager.compat.InstallSourceInfoCompat;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.NetworkPolicyManagerCompat;
+import io.github.muntashirakon.AppManager.compat.PackageInfoCompat2;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.SensorServiceCompat;
 import io.github.muntashirakon.AppManager.debloat.BloatwareDetailsDialog;
@@ -137,6 +141,7 @@ import io.github.muntashirakon.AppManager.scanner.ScannerActivity;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
+import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.sharedpref.SharedPrefsActivity;
 import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
 import io.github.muntashirakon.AppManager.ssaid.ChangeSsaidDialog;
@@ -300,6 +305,11 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             mAppLabel = appLabel;
             // Set Application Name, aka Label
             mLabelView.setText(mAppLabel);
+        });
+        mMainModel.getFreezeTypeLiveData().observe(getViewLifecycleOwner(), freezeType -> {
+            int freezeTypeN = Optional.ofNullable(freezeType)
+                    .orElse(Prefs.Blocking.getDefaultFreezingMethod());
+            showFreezeDialog(freezeTypeN, freezeType != null);
         });
         mIconView.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager) ContextUtils.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
@@ -820,6 +830,44 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         if (!tagCloud.hasCode) {
             tagItems.add(new TagItem().setTextRes(R.string.no_code));
         }
+        if (tagCloud.isOverlay) {
+            TagItem overlayTag = new TagItem();
+            tagItems.add(overlayTag);
+            overlayTag.setTextRes(R.string.title_overlay)
+                    .setOnClickListener(v -> {
+                        Context ctx = v.getContext();
+                        String target = Objects.requireNonNull(PackageInfoCompat2.getOverlayTarget(mPackageInfo));
+                        String targetName = PackageInfoCompat2.getTargetOverlayableName(mPackageInfo);
+                        String category = PackageInfoCompat2.getOverlayCategory(mPackageInfo);
+                        int priority = PackageInfoCompat2.getOverlayPriority(mPackageInfo);
+                        boolean isStatic = PackageInfoCompat2.isStaticOverlayPackage(mPackageInfo);
+                        SpannableStringBuilder spannable = new SpannableStringBuilder();
+                        if (targetName != null) {
+                            spannable.append(getStyledKeyValue(ctx, R.string.overlay_target, targetName))
+                                    .append("\n")
+                                    .append(getSmallerText(target));
+                        } else {
+                            spannable.append(getStyledKeyValue(ctx, R.string.overlay_target, target));
+                        }
+                        if (category != null) {
+                            spannable.append("\n")
+                                    .append(getSmallerText(getStyledKeyValue(ctx, R.string.overlay_category, category)));
+                        }
+                        if (!isStatic) {
+                            spannable.append("\n")
+                                    .append(getSmallerText(getStyledKeyValue(ctx, R.string.priority, String.valueOf(priority))));
+                        } // else static overlays have the highest priority
+                        new MaterialAlertDialogBuilder(ctx)
+                                .setTitle(R.string.title_overlay)
+                                .setMessage(spannable)
+                                .setNeutralButton(R.string.app_info, (dialog, which) -> {
+                                    Intent appDetailsIntent = AppDetailsActivity.getIntent(ctx, target, mUserId);
+                                    startActivity(appDetailsIntent);
+                                })
+                                .setNegativeButton(R.string.close, null)
+                                .show();
+                    });
+        }
         if (tagCloud.hasRequestedLargeHeap) {
             tagItems.add(new TagItem().setTextRes(R.string.requested_large_heap));
         }
@@ -914,11 +962,11 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                     .setNegativeButton(R.string.close, null)
                                     .show());
         }
-        if (tagCloud.isBloatware) {
+        if (tagCloud.bloatwareRemovalType != 0) {
             TagItem bloatwareTag = new TagItem();
             tagItems.add(bloatwareTag);
             bloatwareTag.setText("Bloatware")
-                    .setColor(ColorCodes.getBloatwareIndicatorColor(context))
+                    .setColor(ColorCodes.getBloatwareIndicatorColor(context, tagCloud.bloatwareRemovalType))
                     .setOnClickListener(v -> {
                         BloatwareDetailsDialog dialog = BloatwareDetailsDialog.getInstance(mPackageName);
                         dialog.show(getChildFragmentManager(), BloatwareDetailsDialog.TAG);
@@ -1071,14 +1119,13 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                                     });
                                                 });
                                             } else {
-                                                Intent intent = new Intent(mActivity, BatchOpsService.class);
                                                 ArrayList<Integer> userIds = new ArrayList<>(selectedItems.size());
                                                 for (int i = 0; i < selectedItems.size(); ++i) {
                                                     userIds.add(userId);
                                                 }
-                                                intent.putStringArrayListExtra(BatchOpsService.EXTRA_OP_PKG, selectedItems);
-                                                intent.putIntegerArrayListExtra(BatchOpsService.EXTRA_OP_USERS, userIds);
-                                                intent.putExtra(BatchOpsService.EXTRA_OP, BatchOpsManager.OP_UNINSTALL);
+                                                BatchQueueItem item = BatchQueueItem.getBatchOpQueue(
+                                                        BatchOpsManager.OP_UNINSTALL, selectedItems, userIds, null);
+                                                Intent intent = BatchOpsService.getIntent(mActivity, item);
                                                 ContextCompat.startForegroundService(mActivity, intent);
                                             }
                                         })
@@ -1921,15 +1968,53 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     @MainThread
     private void freeze(boolean freeze) {
         if (mMainModel == null) return;
+        if (freeze) {
+            mMainModel.loadFreezeType();
+        } else {
+            // Unfreeze
+            ThreadUtils.postOnBackgroundThread(this::doUnfreeze);
+        }
+    }
+
+    private void showFreezeDialog(int freezeType, boolean isCustom) {
+        View view = View.inflate(mActivity, R.layout.item_checkbox, null);
+        MaterialCheckBox checkBox = view.findViewById(R.id.checkbox);
+        checkBox.setText(R.string.remember_option_for_this_app);
+        checkBox.setChecked(isCustom);
+        FreezeUnfreeze.getFreezeDialog(mActivity, freezeType)
+                .setIcon(R.drawable.ic_snowflake)
+                .setTitle(R.string.freeze)
+                .setView(view)
+                .setPositiveButton(R.string.freeze, (dialog, which, selectedItem) -> {
+                    if (selectedItem == null) {
+                        return;
+                    }
+                    ThreadUtils.postOnBackgroundThread(() -> doFreeze(selectedItem, checkBox.isChecked()));
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    @WorkerThread
+    private void doFreeze(@FreezeUtils.FreezeType int freezeType, boolean remember) {
         try {
-            if (freeze) {
-                FreezeUtils.freeze(mPackageName, mUserId);
-            } else {
-                FreezeUtils.unfreeze(mPackageName, mUserId);
+            if (remember) {
+                FreezeUtils.setFreezeMethod(mPackageName, freezeType);
             }
-        } catch (RemoteException | SecurityException e) {
-            Log.e(TAG, e);
-            displayLongToast(freeze ? R.string.failed_to_freeze : R.string.failed_to_unfreeze, mAppLabel);
+            FreezeUtils.freeze(mPackageName, mUserId, freezeType);
+        } catch (Throwable th) {
+            Log.e(TAG, th);
+            ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.failed_to_freeze, mAppLabel));
+        }
+    }
+
+    @WorkerThread
+    private void doUnfreeze() {
+        try {
+            FreezeUtils.unfreeze(mPackageName, mUserId);
+        } catch (Throwable th) {
+            Log.e(TAG, th);
+            ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.failed_to_unfreeze, mAppLabel));
         }
     }
 
