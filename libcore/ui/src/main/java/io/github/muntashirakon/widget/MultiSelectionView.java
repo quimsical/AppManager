@@ -42,6 +42,7 @@ import java.util.Locale;
 
 import io.github.muntashirakon.multiselection.MultiSelectionActionsView;
 import io.github.muntashirakon.ui.R;
+import io.github.muntashirakon.util.AdapterUtils;
 import io.github.muntashirakon.util.UiUtils;
 
 @SuppressLint("RestrictedApi")
@@ -457,13 +458,18 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         public abstract long getItemId(int position);
 
         @UiThread
-        protected abstract void select(int position);
+        protected abstract boolean select(int position);
 
         @UiThread
-        protected abstract void deselect(int position);
+        protected abstract boolean deselect(int position);
 
         @AnyThread
         protected abstract boolean isSelected(int position);
+
+        @AnyThread
+        protected boolean isSelectable(int position) {
+            return true;
+        }
 
         /**
          * Cancel the selection process. This should clear all the selected items that may not be displayed in the
@@ -489,7 +495,9 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         @AnyThread
         public final boolean areAllSelected() {
             for (int position = 0; position < getItemCount(); ++position) {
-                if (!isSelected(position)) return false;
+                if (isSelectable(position) && !isSelected(position)) {
+                    return false;
+                }
             }
             return true;
         }
@@ -507,34 +515,48 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
         @UiThread
         @CallSuper
         public void toggleSelection(int position) {
+            if (!isSelectable(position)) {
+                return;
+            }
             if (isSelected(position)) {
-                deselect(position);
-                notifyItemChanged(position);
-                notifySelectionChange();
+                if (deselect(position)) {
+                    notifyItemChanged(position, AdapterUtils.STUB);
+                    notifySelectionChange();
+                }
             } else {
-                select(position);
-                notifySelectionChange();
-                notifyItemChanged(position);
+                if (select(position)) {
+                    notifySelectionChange();
+                    notifyItemChanged(position, AdapterUtils.STUB);
+                }
             }
         }
 
         @UiThread
         @CallSuper
         public void selectAll() {
+            int selStart = -1;
+            int selEnd = -1;
             for (int position = 0; position < getItemCount(); ++position) {
-                select(position);
+                if (isSelectable(position) && select(position)) {
+                    if (selStart == -1) {
+                        selStart = position;
+                    }
+                    selEnd = position;
+                }
             }
             notifySelectionChange();
-            notifyItemRangeChanged(0, getItemCount(), null);
+            int selSize = (selEnd - selStart) + 1;
+            if (selSize > 0) {
+                notifyItemRangeChanged(selStart, selSize, AdapterUtils.STUB);
+            }
         }
 
         @UiThread
         @CallSuper
         public void deselectAll() {
             for (int position = 0; position < getItemCount(); ++position) {
-                if (isSelected(position)) {
-                    deselect(position);
-                    notifyItemChanged(position);
+                if (isSelectable(position) && isSelected(position) && deselect(position)) {
+                    notifyItemChanged(position, AdapterUtils.STUB);
                 }
             }
             notifySelectionChange();
@@ -549,7 +571,7 @@ public class MultiSelectionView extends MaterialCardView implements OnApplyWindo
                 select(position);
             }
             notifySelectionChange();
-            notifyItemRangeChanged(beginPosition, endPosition - beginPosition + 1);
+            notifyItemRangeChanged(beginPosition, endPosition - beginPosition + 1, AdapterUtils.STUB);
         }
 
         @Override
