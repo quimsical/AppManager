@@ -28,7 +28,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +149,7 @@ public class AppInfoViewModel extends AndroidViewModel {
         ApplicationInfo applicationInfo = packageInfo.applicationInfo;
         TagCloud tagCloud = new TagCloud();
         try {
-            HashMap<String, RuleType> trackerComponents = ComponentUtils.getTrackerComponentsForPackage(packageInfo);
+            Map<String, RuleType> trackerComponents = ComponentUtils.getTrackerComponentsForPackage(packageInfo);
             tagCloud.trackerComponents = new ArrayList<>(trackerComponents.size());
             for (String component : trackerComponents.keySet()) {
                 ComponentRule componentRule = mMainModel.getComponentRule(component);
@@ -186,6 +185,13 @@ public class AppInfoViewModel extends AndroidViewModel {
             tagCloud.hasRequestedLargeHeap = (applicationInfo.flags & ApplicationInfo.FLAG_LARGE_HEAP) != 0;
             if (ThreadUtils.isInterrupted()) {
                 return;
+            }
+            tagCloud.isRunning = false;
+            for (ActivityManager.RunningAppProcessInfo info : ActivityManagerCompat.getRunningAppProcesses()) {
+                if (ArrayUtils.contains(info.pkgList, packageName)) {
+                    tagCloud.isRunning = true;
+                    break;
+                }
             }
             tagCloud.runningServices = ActivityManagerCompat.getRunningServices(packageName, userId);
             tagCloud.isForceStopped = ApplicationInfoCompat.isStopped(applicationInfo);
@@ -457,6 +463,7 @@ public class AppInfoViewModel extends AndroidViewModel {
         public boolean hasCode;
         public boolean isOverlay;
         public boolean hasRequestedLargeHeap;
+        public boolean isRunning;
         public List<ActivityManager.RunningServiceInfo> runningServices;
         public List<MagiskProcess> magiskHiddenProcesses;
         public List<MagiskProcess> magiskDeniedProcesses;

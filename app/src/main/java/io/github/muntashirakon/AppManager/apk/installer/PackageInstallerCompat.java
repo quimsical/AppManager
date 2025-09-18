@@ -20,6 +20,7 @@ import android.content.pm.IPackageInstaller;
 import android.content.pm.IPackageInstallerSession;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
+import android.content.pm.PackageInstaller.SessionParams;
 import android.content.pm.PackageInstallerHidden;
 import android.content.pm.PackageManager;
 import android.content.pm.VersionedPackage;
@@ -30,6 +31,7 @@ import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandleHidden;
+import android.provider.Settings;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
@@ -69,6 +71,7 @@ import io.github.muntashirakon.AppManager.types.UserPackagePair;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.BroadcastUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
+import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.HuaweiUtils;
 import io.github.muntashirakon.AppManager.utils.MiuiUtils;
@@ -399,14 +402,14 @@ public final class PackageInstallerCompat {
     public static final int INSTALL_BYPASS_LOW_TARGET_SDK_BLOCK = 0x01000000;
 
     /**
-     * Flag parameter for {@link PackageInstaller.SessionParams} to indicate that the
+     * Flag parameter for {@link SessionParams} to indicate that the
      * update ownership enforcement is requested.
      */
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     public static final int INSTALL_REQUEST_UPDATE_OWNERSHIP = 1 << 25;
 
     /**
-     * Flag parameter for {@link PackageInstaller.SessionParams} to indicate that this
+     * Flag parameter for {@link SessionParams} to indicate that this
      * session is from a managed user or profile.
      */
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
@@ -470,6 +473,8 @@ public final class PackageInstallerCompat {
      */
     @RequiresApi(Build.VERSION_CODES.P)
     public static final int DELETE_CHATTY = 0x80000000;
+
+    public static final String SETTINGS_VERIFIER_VERIFY_ADB_INSTALLS = "verifier_verify_adb_installs";
 
     public interface OnInstallListener {
         @WorkerThread
@@ -576,11 +581,14 @@ public final class PackageInstallerCompat {
     private PackageInstaller.Session mSession;
     // MIUI-added: Multiple attempts may be required
     int mAttempts = 1;
-    private final Context mContext = ContextUtils.getContext();
+    private final Context mContext;
     private final boolean mHasInstallPackagePermission;
+    private int mLastVerifyAdbInstallsResult;
 
     private PackageInstallerCompat() {
+        mContext = ContextUtils.getContext();
         mHasInstallPackagePermission = SelfPermissions.checkSelfOrRemotePermission(Manifest.permission.INSTALL_PACKAGES);
+        mLastVerifyAdbInstallsResult = -1;
     }
 
     public void setOnInstallListener(@Nullable OnInstallListener onInstallListener) {
@@ -634,11 +642,13 @@ public final class PackageInstallerCompat {
                 }
             });
             userId = allRequestedUsers[0];
+            String originatingPackage = options.isSetOriginatingPackage() ? options.getOriginatingPackage() : null;
+            Uri originatingUri = options.isSetOriginatingPackage() ? options.getOriginatingUri() : null;
             Log.d(TAG, "Install: opening session...");
             if (!openSession(userId, installFlags, options.getInstallerName(),
-                    options.getInstallLocation(), options.getOriginatingPackage(),
-                    options.getOriginatingUri(), options.getInstallScenario(),
-                    options.getPackageSource(), options.requestUpdateOwnership())) {
+                    options.getInstallLocation(), originatingPackage, originatingUri,
+                    options.getInstallScenario(), options.getPackageSource(),
+                    options.requestUpdateOwnership(), options.isDisableApkVerification())) {
                 return false;
             }
             List<ApkFile.Entry> selectedEntries = new ArrayList<>();
@@ -679,6 +689,7 @@ public final class PackageInstallerCompat {
             return commit(userId);
         } finally {
             unregisterReceiver();
+            restoreVerifySettings();
         }
     }
 
@@ -710,10 +721,12 @@ public final class PackageInstallerCompat {
                 }
             }
             userId = allRequestedUsers[0];
+            String originatingPackage = options.isSetOriginatingPackage() ? options.getOriginatingPackage() : null;
+            Uri originatingUri = options.isSetOriginatingPackage() ? options.getOriginatingUri() : null;
             if (!openSession(userId, installFlags, options.getInstallerName(),
-                    options.getInstallLocation(), options.getOriginatingPackage(),
-                    options.getOriginatingUri(), options.getInstallScenario(),
-                    options.getPackageSource(), options.requestUpdateOwnership())) {
+                    options.getInstallLocation(), originatingPackage, originatingUri,
+                    options.getInstallScenario(), options.getPackageSource(),
+                    options.requestUpdateOwnership(), options.isDisableApkVerification())) {
                 return false;
             }
             long totalSize = 0;
@@ -740,6 +753,7 @@ public final class PackageInstallerCompat {
             return commit(userId);
         } finally {
             unregisterReceiver();
+            restoreVerifySettings();
         }
     }
 
@@ -805,7 +819,7 @@ public final class PackageInstallerCompat {
                                 String installerName, int installLocation,
                                 @Nullable String originatingPackage, @Nullable Uri originatingUri,
                                 int installScenario, int packageSource,
-                                boolean requestUpdateOwnership) {
+                                boolean requestUpdateOwnership, boolean disableVerification) {
         // Changing package installer in stock Huawei with UID 2000 does not work
         boolean canChangeInstaller = mHasInstallPackagePermission && (!HuaweiUtils.isStockHuawei() || Users.getSelfOrRemoteUid() != Ops.SHELL_UID);
         String requestedInstallerPackageName = canChangeInstaller ? installerName : null;
@@ -821,7 +835,25 @@ public final class PackageInstallerCompat {
         // Clean old sessions
         cleanOldSessions();
         // Create install session
-        PackageInstaller.SessionParams sessionParams = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        SessionParams sessionParams = new SessionParams(SessionParams.MODE_FULL_INSTALL);
+        if (disableVerification) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                    && SelfPermissions.isSystemOrRootOrShell()) {
+                // This disables verification for this UID temporarily
+                ExUtils.exceptionAsIgnored(() ->
+                        mPackageInstaller.disableVerificationForUid(Users.getSelfOrRemoteUid()));
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                installFlags |= INSTALL_DISABLE_VERIFICATION;
+            }
+            // In addition, we may also want to use the traditional methods
+            if (SelfPermissions.isShell()) {
+                mLastVerifyAdbInstallsResult = Settings.Global.getInt(mContext.getContentResolver(), SETTINGS_VERIFIER_VERIFY_ADB_INSTALLS, 1);
+                if (mLastVerifyAdbInstallsResult != 0) {
+                    Settings.Global.putInt(mContext.getContentResolver(), SETTINGS_VERIFIER_VERIFY_ADB_INSTALLS, 0);
+                }
+            }
+        }
         Refine.<PackageInstallerHidden.SessionParams>unsafeCast(sessionParams).installFlags |= installFlags;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             Refine.<PackageInstallerHidden.SessionParams>unsafeCast(sessionParams).installerPackageName = requestedInstallerPackageName;
@@ -847,7 +879,7 @@ public final class PackageInstallerCompat {
         // Set install user action and install scenario
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // We hope system will not prompt an install confirmation
-            sessionParams.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+            sessionParams.setRequireUserAction(SessionParams.USER_ACTION_NOT_REQUIRED);
             sessionParams.setInstallScenario(installScenario);
         }
         // Set package source (shell uses PACKAGE_SOURCE_OTHER)
@@ -885,9 +917,22 @@ public final class PackageInstallerCompat {
         return true;
     }
 
+    private void restoreVerifySettings() {
+        if (mLastVerifyAdbInstallsResult == 1) {
+            int val = Settings.Global.getInt(mContext.getContentResolver(), SETTINGS_VERIFIER_VERIFY_ADB_INSTALLS, 1);
+            if (val != 1) {
+                // Restore value
+                Settings.Global.putInt(mContext.getContentResolver(), SETTINGS_VERIFIER_VERIFY_ADB_INSTALLS, 1);
+            }
+        }
+    }
+
     @InstallFlags
     private static int getInstallFlags(@UserIdInt int userId) {
-        int flags = INSTALL_ALLOW_TEST | INSTALL_REPLACE_EXISTING;
+        int flags = INSTALL_FROM_ADB | INSTALL_ALLOW_TEST | INSTALL_REPLACE_EXISTING;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            flags |= INSTALL_FULL_APP;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             flags |= INSTALL_REQUEST_DOWNGRADE | INSTALL_ALLOW_DOWNGRADE_API29;
         } else flags |= INSTALL_ALLOW_DOWNGRADE;

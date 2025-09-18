@@ -2,13 +2,12 @@
 
 package io.github.muntashirakon.AppManager.settings;
 
-import static io.github.muntashirakon.AppManager.backup.MetadataManager.TAR_TYPES;
+import static io.github.muntashirakon.AppManager.backup.BackupUtils.TAR_TYPES;
 
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -24,6 +23,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.apk.signing.SigSchemes;
@@ -42,6 +42,7 @@ import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.utils.AppPref;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
+import io.github.muntashirakon.AppManager.utils.FileUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.TarUtils;
 import io.github.muntashirakon.io.Path;
@@ -232,7 +233,7 @@ public final class Prefs {
             AppPref.set(AppPref.PrefKey.PREF_DEFAULT_BLOCKING_METHOD_STR, blockingMethod);
         }
 
-        @FreezeUtils.FreezeType
+        @FreezeUtils.FreezeMethod
         public static int getDefaultFreezingMethod() {
             int freezeType = AppPref.getInt(AppPref.PrefKey.PREF_FREEZE_TYPE_INT);
             if (freezeType == FreezeUtils.FREEZE_HIDE) {
@@ -251,7 +252,7 @@ public final class Prefs {
             return freezeType;
         }
 
-        public static void setDefaultFreezingMethod(@FreezeUtils.FreezeType int freezeType) {
+        public static void setDefaultFreezingMethod(@FreezeUtils.FreezeMethod int freezeType) {
             AppPref.set(AppPref.PrefKey.PREF_FREEZE_TYPE_INT, freezeType);
         }
     }
@@ -425,22 +426,25 @@ public final class Prefs {
             AppPref.set(AppPref.PrefKey.PREF_INSTALLER_INSTALLER_APP_STR, packageName);
         }
 
-        @Nullable
-        public static String getOriginatingPackage() {
-            return null;
+        public static boolean isSetOriginatingPackage() {
+            return AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_SET_ORIGIN_BOOL);
         }
 
         public static int getPackageSource() {
-            // Shell default
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                return PackageInstaller.PACKAGE_SOURCE_OTHER;
-            }
-            return 0;
+            return AppPref.getInt(AppPref.PrefKey.PREF_INSTALLER_DEFAULT_PKG_SOURCE_INT);
+        }
+
+        public static void setPackageSource(int source) {
+            AppPref.set(AppPref.PrefKey.PREF_INSTALLER_DEFAULT_PKG_SOURCE_INT, source);
         }
 
         public static boolean requestUpdateOwnership() {
-            // Shell default
-            return false;
+            // Shell default is false
+            return AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_UPDATE_OWNERSHIP_BOOL);
+        }
+
+        public static boolean isDisableApkVerification() {
+            return AppPref.getBoolean(AppPref.PrefKey.PREF_INSTALLER_DISABLE_VERIFICATION_BOOL);
         }
     }
 
@@ -638,7 +642,7 @@ public final class Prefs {
         public static Path getAppManagerDirectory() {
             Uri uri = getVolumePath();
             Path path;
-            if (uri.getScheme().equals(ContentResolver.SCHEME_FILE)) {
+            if (Objects.equals(uri.getScheme(), ContentResolver.SCHEME_FILE)) {
                 // Append AppManager
                 String newPath = uri.getPath() + File.separator + "AppManager";
                 path = Paths.get(newPath);
@@ -661,6 +665,12 @@ public final class Prefs {
 
         public static void setVolumePath(@NonNull String path) {
             AppPref.set(AppPref.PrefKey.PREF_BACKUP_VOLUME_STR, path);
+        }
+
+        @NonNull
+        public static Path getTempPath() {
+            // This path is intended for storing temporary data for backup/restore and similar operations
+            return Paths.get(FileUtils.getCachePath());
         }
     }
 

@@ -11,6 +11,7 @@ import androidx.annotation.Keep;
 
 import com.topjohnwu.superuser.Shell;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.lsposed.hiddenapibypass.HiddenApiBypass;
 
 import java.security.Security;
@@ -40,7 +41,9 @@ public class AppManager extends Application {
         Thread.setDefaultUncaughtExceptionHandler(new AMExceptionHandler(this));
         AppearanceUtils.init(this);
         TypefaceUtil.replaceFontsWithSystem(this);
+        Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME);
         Security.addProvider(new JavaKeyStoreProvider());
+        Security.addProvider(new BouncyCastleProvider());
     }
 
     @Keep
@@ -50,5 +53,25 @@ public class AppManager extends Application {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !Utils.isRoboUnitTest()) {
             HiddenApiBypass.addHiddenApiExemptions("L");
         }
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_RUNNING_CRITICAL) {
+            StaticDataset.cleanup();
+        }
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        StaticDataset.cleanup();
+    }
+
+    @Override
+    public void onTerminate() {
+        super.onTerminate();
+        StaticDataset.cleanup();
     }
 }

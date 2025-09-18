@@ -20,8 +20,6 @@ import static io.github.muntashirakon.AppManager.utils.Utils.openAsFolderInFM;
 
 import android.Manifest;
 import android.app.ActivityManager;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -153,9 +151,11 @@ import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.BetterActivityResult;
+import io.github.muntashirakon.AppManager.utils.ClipboardUtils;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
 import io.github.muntashirakon.AppManager.utils.DigestUtils;
+import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.FreezeUtils;
 import io.github.muntashirakon.AppManager.utils.IntentUtils;
 import io.github.muntashirakon.AppManager.utils.KeyStoreUtils;
@@ -312,35 +312,29 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             showFreezeDialog(freezeTypeN, freezeType != null);
         });
         mIconView.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) ContextUtils.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
             ThreadUtils.postOnBackgroundThread(() -> {
-                ClipData clipData = clipboard.getPrimaryClip();
-                if (clipData != null && clipData.getItemCount() > 0) {
-                    String data = clipData.getItemAt(0).coerceToText(ContextUtils.getContext()).toString().trim()
-                            .toLowerCase(Locale.ROOT);
-                    if (data.matches("[0-9a-f: \n]+")) {
-                        data = data.replaceAll("[: \n]+", "");
-                        SignerInfo signerInfo = PackageUtils.getSignerInfo(mPackageInfo, mIsExternalApk);
-                        if (signerInfo != null) {
-                            X509Certificate[] certs = signerInfo.getCurrentSignerCerts();
-                            if (certs != null && certs.length == 1) {
-                                try {
-                                    Pair<String, String>[] digests = DigestUtils.getDigests(certs[0].getEncoded());
-                                    for (Pair<String, String> digest : digests) {
-                                        if (digest.second.equals(data)) {
-                                            if (digest.first.equals(DigestUtils.MD5) || digest.first.equals(DigestUtils.SHA_1)) {
-                                                ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified_using_unreliable_hash));
-                                            } else
-                                                ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified));
-                                            return;
-                                        }
+                String data = ClipboardUtils.readHashValueFromClipboard(ContextUtils.getContext());
+                if (data != null) {
+                    SignerInfo signerInfo = PackageUtils.getSignerInfo(mPackageInfo, mIsExternalApk);
+                    if (signerInfo != null) {
+                        X509Certificate[] certs = signerInfo.getCurrentSignerCerts();
+                        if (certs != null && certs.length == 1) {
+                            try {
+                                Pair<String, String>[] digests = DigestUtils.getDigests(certs[0].getEncoded());
+                                for (Pair<String, String> digest : digests) {
+                                    if (digest.second.equals(data)) {
+                                        if (digest.first.equals(DigestUtils.MD5) || digest.first.equals(DigestUtils.SHA_1)) {
+                                            ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified_using_unreliable_hash));
+                                        } else
+                                            ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.verified));
+                                        return;
                                     }
-                                } catch (CertificateEncodingException ignore) {
                                 }
+                            } catch (CertificateEncodingException ignore) {
                             }
                         }
-                        ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.not_verified));
                     }
+                    ThreadUtils.postOnMainThread(() -> displayLongToast(R.string.not_verified));
                 }
             });
         });
@@ -405,14 +399,14 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             runInTermuxMenu.setVisible(isDebuggable);
         }
         if (batteryOptMenu != null) {
-            batteryOptMenu.setVisible(SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.DEVICE_POWER));
+            batteryOptMenu.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
         }
         if (sensorsMenu != null) {
             sensorsMenu.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
                     && SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_SENSORS));
         }
         if (netPolicyMenu != null) {
-            netPolicyMenu.setVisible(SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_NETWORK_POLICY));
+            netPolicyMenu.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.N);
         }
         if (installMenu != null) {
             installMenu.setVisible(Users.getUsersIds().length > 1 && SelfPermissions.canInstallExistingPackages());
@@ -524,8 +518,12 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                             }
                         })
                         .show();
-            } else {
-                Log.e(TAG, "No DUMP permission.");
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    startActivity(IntentUtils.getBatteryOptSettings(mPackageName));
+                } catch (Throwable th) {
+                    UIUtils.displayShortToast("No DEVICE_POWER permission.");
+                }
             }
         } else if (itemId == R.id.action_sensor) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_SENSORS)) {
@@ -565,6 +563,16 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         } else if (itemId == R.id.action_net_policy) {
             if (!UserHandleHidden.isApp(mApplicationInfo.uid)) {
                 UIUtils.displayLongToast(R.string.netpolicy_cannot_be_modified_for_core_apps);
+                return true;
+            }
+            if (!SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_NETWORK_POLICY)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    try {
+                        startActivity(IntentUtils.getNetPolicySettings(mPackageName));
+                    } catch (Throwable th) {
+                        UIUtils.displayShortToast("No MANAGE_NETWORK_POLICY permission.");
+                    }
+                }
                 return true;
             }
             ArrayMap<Integer, String> netPolicyMap = NetworkPolicyManagerCompat.getAllReadablePolicies(ContextUtils.getContext());
@@ -898,11 +906,12 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                             ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.failed));
                                         }
                                     }));
-                        } else {
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                             builder.setPositiveButton(R.string.app_settings, (dialog, which) -> {
                                 try {
-                                    startActivity(IntentUtils.getAppDetailsSettings(mPackageName));
-                                } catch (Throwable ignore) {
+                                    startActivity(IntentUtils.getSettings(Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, mPackageName));
+                                } catch (Throwable th) {
+                                    ExUtils.exceptionAsIgnored(() -> startActivity(IntentUtils.getAppDetailsSettings(mPackageName)));
                                 }
                             });
                         }
@@ -916,6 +925,11 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                     .setColor(ColorCodes.getComponentRunningIndicatorColor(context))
                     .setOnClickListener(v ->
                             displayRunningServices(tagCloud.runningServices, v.getContext()));
+        } else if (tagCloud.isRunning) {
+            TagItem runningTag = new TagItem();
+            tagItems.add(runningTag);
+            runningTag.setTextRes(R.string.running)
+                    .setColor(ColorCodes.getComponentRunningIndicatorColor(context));
         }
         if (tagCloud.isForceStopped) {
             tagItems.add(new TagItem()
@@ -1017,6 +1031,9 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                             }
                         })
                         .show());
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                batteryOptTag.setOnClickListener(v -> ExUtils.exceptionAsIgnored(() ->
+                        startActivity(IntentUtils.getBatteryOptSettings(mPackageName))));
             }
         }
         if (!tagCloud.sensorsEnabled) {
@@ -1125,7 +1142,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                                                 }
                                                 BatchQueueItem item = BatchQueueItem.getBatchOpQueue(
                                                         BatchOpsManager.OP_UNINSTALL, selectedItems, userIds, null);
-                                                Intent intent = BatchOpsService.getIntent(mActivity, item);
+                                                Intent intent = BatchOpsService.getServiceIntent(mActivity, item);
                                                 ContextCompat.startForegroundService(mActivity, intent);
                                             }
                                         })
@@ -1200,7 +1217,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         builder = getMagiskProcessDialog(mMagiskHiddenProcesses, (dialog, which, mp, isChecked) ->
                 ThreadUtils.postOnBackgroundThread(() -> {
                     mp.setEnabled(isChecked);
-                    if (MagiskHide.apply(mp)) {
+                    if (MagiskHide.apply(mp, true)) {
                         try (ComponentsBlocker cb = ComponentsBlocker.getMutableInstance(mPackageName, mUserId)) {
                             cb.setMagiskHide(mp);
                             mMainModel.getTagsAlteredLiveData().postValue(true);
@@ -1222,7 +1239,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         builder = getMagiskProcessDialog(mMagiskDeniedProcesses, (dialog, which, mp, isChecked) ->
                 ThreadUtils.postOnBackgroundThread(() -> {
                     mp.setEnabled(isChecked);
-                    if (MagiskDenyList.apply(mp)) {
+                    if (MagiskDenyList.apply(mp, true)) {
                         try (ComponentsBlocker cb = ComponentsBlocker.getMutableInstance(mPackageName, mUserId)) {
                             cb.setMagiskDenyList(mp);
                             mMainModel.getTagsAlteredLiveData().postValue(true);
@@ -1698,33 +1715,47 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             mListItems.add(ListItem.newGroupStart(getString(R.string.paths_and_directories)));
             // Source directory (apk path)
             if (appInfo.sourceDir != null) {
-                mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.source_dir), appInfo.sourceDir,
-                        openAsFolderInFM(requireContext(), appInfo.sourceDir)));
+                ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.source_dir),
+                        appInfo.sourceDir, openAsFolderInFM(requireContext(), appInfo.sourceDir));
+                listItem.setActionContentDescription(R.string.open);
+                mListItems.add(listItem);
             }
             // Data dir
             if (appInfo.dataDir != null) {
-                mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.data_dir), appInfo.dataDir,
-                        openAsFolderInFM(requireContext(), appInfo.dataDir)));
+                ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.data_dir),
+                        appInfo.dataDir, openAsFolderInFM(requireContext(), appInfo.dataDir));
+                listItem.setActionContentDescription(R.string.open);
+                mListItems.add(listItem);
             }
             // Device-protected data dir
             if (appInfo.dataDeDir != null) {
-                mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.dev_protected_data_dir), appInfo.dataDeDir,
-                        openAsFolderInFM(requireContext(), appInfo.dataDeDir)));
+                ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.dev_protected_data_dir),
+                        appInfo.dataDeDir, openAsFolderInFM(requireContext(), appInfo.dataDeDir));
+                listItem.setActionContentDescription(R.string.open);
+                mListItems.add(listItem);
             }
             // External data dirs
             if (appInfo.extDataDirs.size() == 1) {
-                mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.external_data_dir), appInfo.extDataDirs.get(0),
-                        openAsFolderInFM(requireContext(), appInfo.extDataDirs.get(0))));
+                ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.external_data_dir),
+                        appInfo.extDataDirs.get(0), openAsFolderInFM(requireContext(),
+                                appInfo.extDataDirs.get(0)));
+                listItem.setActionContentDescription(R.string.open);
+                mListItems.add(listItem);
             } else {
                 for (int i = 0; i < appInfo.extDataDirs.size(); ++i) {
-                    mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.external_multiple_data_dir, i),
-                            appInfo.extDataDirs.get(i), openAsFolderInFM(requireContext(), appInfo.extDataDirs.get(i))));
+                    ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.external_multiple_data_dir, i),
+                            appInfo.extDataDirs.get(i), openAsFolderInFM(requireContext(),
+                                    appInfo.extDataDirs.get(i)));
+                    listItem.setActionContentDescription(R.string.open);
+                    mListItems.add(listItem);
                 }
             }
             // Native JNI library dir
             if (appInfo.jniDir != null) {
-                mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.native_library_dir), appInfo.jniDir,
-                        openAsFolderInFM(requireContext(), appInfo.jniDir)));
+                ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.native_library_dir), appInfo.jniDir,
+                        openAsFolderInFM(requireContext(), appInfo.jniDir));
+                listItem.setActionContentDescription(R.string.open);
+                mListItems.add(listItem);
             }
         }
     }
@@ -1735,7 +1766,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
             // Set more info
             mListItems.add(ListItem.newGroupStart(getString(R.string.more_info)));
 
-            // Set installer version info
+            // Set installed version info
             if (mIsExternalApk && mInstalledPackageInfo != null) {
                 ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.installed_version),
                         getString(R.string.version_name_with_code, mInstalledPackageInfo.versionName,
@@ -1745,6 +1776,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                             mActivity.startActivity(intent);
                         });
                 listItem.setActionIcon(io.github.muntashirakon.ui.R.drawable.ic_information);
+                listItem.setActionContentDescription(R.string.app_info);
                 mListItems.add(listItem);
             }
 
@@ -1786,6 +1818,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         getString(R.string.installer_app), appInfo.installerApp,
                         v -> displayInstallerDialog(Objects.requireNonNull(appInfo.installSource)));
                 installerItem.setActionIcon(R.drawable.ic_information_circle);
+                installerItem.setActionContentDescription(R.string.more_info);
                 mListItems.add(installerItem);
             }
             mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.user_id), String.format(Locale.getDefault(), "%d",
@@ -1812,8 +1845,10 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 final ComponentName launchComponentName = appInfo.mainActivity.getComponent();
                 if (launchComponentName != null) {
                     final String mainActivity = launchComponentName.getClassName();
-                    mListItems.add(ListItem.newSelectableRegularItem(getString(R.string.main_activity), mainActivity,
-                            view -> startActivity(appInfo.mainActivity)));
+                    ListItem listItem = ListItem.newSelectableRegularItem(getString(R.string.main_activity),
+                            mainActivity, view -> startActivity(appInfo.mainActivity));
+                    listItem.setActionContentDescription(R.string.open);
+                    mListItems.add(listItem);
                 }
             }
         }
@@ -1996,10 +2031,12 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
     }
 
     @WorkerThread
-    private void doFreeze(@FreezeUtils.FreezeType int freezeType, boolean remember) {
+    private void doFreeze(@FreezeUtils.FreezeMethod int freezeType, boolean remember) {
         try {
             if (remember) {
-                FreezeUtils.setFreezeMethod(mPackageName, freezeType);
+                FreezeUtils.storeFreezeMethod(mPackageName, freezeType);
+            } else {
+                FreezeUtils.deleteFreezeMethod(mPackageName);
             }
             FreezeUtils.freeze(mPackageName, mUserId, freezeType);
         } catch (Throwable th) {

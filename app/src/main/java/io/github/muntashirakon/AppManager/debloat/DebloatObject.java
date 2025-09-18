@@ -28,7 +28,7 @@ import io.github.muntashirakon.AppManager.db.utils.AppDb;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 
 public class DebloatObject {
-    @IntDef({REMOVAL_SAFE, REMOVAL_REPLACE, REMOVAL_CAUTION})
+    @IntDef({REMOVAL_SAFE, REMOVAL_REPLACE, REMOVAL_CAUTION, REMOVAL_UNSAFE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Removal {
     }
@@ -36,6 +36,7 @@ public class DebloatObject {
     public static final int REMOVAL_SAFE = 1;
     public static final int REMOVAL_REPLACE = 1 << 1;
     public static final int REMOVAL_CAUTION = 1 << 2;
+    public static final int REMOVAL_UNSAFE = 1 << 3;
 
     @SerializedName("id")
     public String packageName;
@@ -68,6 +69,8 @@ public class DebloatObject {
     @Nullable
     private String mSuggestionId;
 
+    private int mId;
+
     @Nullable
     private Drawable mIcon;
     @Nullable
@@ -79,6 +82,14 @@ public class DebloatObject {
     private Boolean mSystemApp = null;
     @Nullable
     private List<SuggestionObject> mSuggestions;
+
+    public void setId(int id) {
+        mId = id;
+    }
+
+    public int getId() {
+        return mId;
+    }
 
     @NonNull
     public String[] getDependencies() {
@@ -100,6 +111,8 @@ public class DebloatObject {
                 return REMOVAL_REPLACE;
             case "caution":
                 return REMOVAL_CAUTION;
+            case "unsafe":
+                return REMOVAL_UNSAFE;
         }
     }
 
@@ -134,6 +147,11 @@ public class DebloatObject {
     @Nullable
     public CharSequence getLabel() {
         return mLabel != null ? mLabel : mInternalLabel;
+    }
+    @NonNull
+    public CharSequence getLabelOrPackageName() {
+        CharSequence label = mLabel != null ? mLabel : mInternalLabel;
+        return label != null ? label : packageName;
     }
 
     @Nullable
