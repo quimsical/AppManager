@@ -3,8 +3,7 @@
 package io.github.muntashirakon.AppManager.main;
 
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
+import android.text.TextUtils;
 import android.view.View;
 
 import androidx.annotation.IntDef;
@@ -34,8 +33,8 @@ import io.github.muntashirakon.AppManager.users.UserInfo;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.ArrayUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
+import io.github.muntashirakon.adapters.SelectedArrayAdapter;
 import io.github.muntashirakon.dialog.SearchableMultiChoiceDialogBuilder;
-import io.github.muntashirakon.adapters.AnyFilterArrayAdapter;
 
 public class MainListOptions extends ListOptions {
     public static final String TAG = MainListOptions.class.getSimpleName();
@@ -88,6 +87,7 @@ public class MainListOptions extends ListOptions {
             FILTER_USER_APPS,
             FILTER_SYSTEM_APPS,
             FILTER_FROZEN_APPS,
+            FILTER_UNFROZEN_APPS,
             FILTER_APPS_WITH_RULES,
             FILTER_APPS_WITH_ACTIVITIES,
             FILTER_APPS_WITH_BACKUPS,
@@ -121,6 +121,7 @@ public class MainListOptions extends ListOptions {
     public static final int FILTER_APPS_WITH_SAF = 1 << 12;
     public static final int FILTER_APPS_WITH_SSAID = 1 << 13;
     public static final int FILTER_STOPPED_APPS = 1 << 14;
+    public static final int FILTER_UNFROZEN_APPS = 1 << 15;
 
     // For now, just generate FilterItem
     @NonNull
@@ -137,6 +138,11 @@ public class MainListOptions extends ListOptions {
         if ((flags & FILTER_FROZEN_APPS) != 0) {
             FreezeOption option = new FreezeOption();
             option.setKeyValue("frozen", null);
+            filterItem.addFilterOption(option);
+        }
+        if ((flags & FILTER_UNFROZEN_APPS) != 0) {
+            FreezeOption option = new FreezeOption();
+            option.setKeyValue("unfrozen", null);
             filterItem.addFilterOption(option);
         }
         if ((flags & FILTER_APPS_WITH_RULES) != 0) {
@@ -196,47 +202,46 @@ public class MainListOptions extends ListOptions {
     }
 
     private final List<String> mProfileNames = new ArrayList<>();
-    private final TextWatcher mProfileInputWatcher = new TextWatcher() {
-        @Override
-        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-        }
-
-        @Override
-        public void onTextChanged(CharSequence s, int start, int before, int count) {
-        }
-
-        @Override
-        public void afterTextChanged(Editable s) {
-            MainActivity activity = (MainActivity) requireActivity();
-            if (activity.viewModel == null) {
-                return;
-            }
-            if (s != null) {
-                String profileName = s.toString().trim();
-                if (mProfileNames.contains(profileName)) {
-                    activity.viewModel.setFilterProfileName(profileName);
-                    return;
-                }
-            }
-            activity.viewModel.setFilterProfileName(null);
-        }
-    };
     private Future<?> mProfileSuggestionsResult;
+    @Nullable
+    private SelectedArrayAdapter<String> mAdapter;
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         MainActivity activity = (MainActivity) requireActivity();
-        profileNameInput.addTextChangedListener(mProfileInputWatcher);
+        profileNameSpinner.setOnItemClickListener((parent, view1, position, id) -> {
+            if (mAdapter == null || activity.viewModel == null) {
+                return;
+            }
+            if (position == 0) {
+                // No profiles
+                activity.viewModel.setFilterProfileName(null);
+            } else {
+                activity.viewModel.setFilterProfileName(mAdapter.getItem(position));
+            }
+        });
         mProfileSuggestionsResult = ThreadUtils.postOnBackgroundThread(() -> {
             mProfileNames.clear();
+            mProfileNames.add(getString(R.string.no_profiles));
             mProfileNames.addAll(ProfileManager.getProfileNames());
+            mAdapter = new SelectedArrayAdapter<>(activity,
+                    io.github.muntashirakon.ui.R.layout.auto_complete_dropdown_item_small,
+                    mProfileNames);
             if (isDetached() || ThreadUtils.isInterrupted()) return;
             activity.runOnUiThread(() -> {
-                profileNameInput.setAdapter(new AnyFilterArrayAdapter<>(activity,
-                        io.github.muntashirakon.ui.R.layout.auto_complete_dropdown_item_small, mProfileNames));
+                profileNameSpinner.setAdapter(mAdapter);
                 if (activity.viewModel != null) {
-                    profileNameInput.setText(activity.viewModel.getFilterProfileName());
+                    String selectedProfile = activity.viewModel.getFilterProfileName();
+                    if (TextUtils.isEmpty(selectedProfile)) {
+                        profileNameSpinner.setSelection(0);
+                    } else {
+                        int i = mProfileNames.indexOf(selectedProfile);
+                        if (i < 0) {
+                           i = 0;
+                        }
+                        profileNameSpinner.setSelection(i);
+                    }
                 }
             });
         });
@@ -323,6 +328,7 @@ public class MainListOptions extends ListOptions {
             put(FILTER_USER_APPS, R.string.filter_user_apps);
             put(FILTER_SYSTEM_APPS, R.string.filter_system_apps);
             put(FILTER_FROZEN_APPS, R.string.filter_frozen_apps);
+            put(FILTER_UNFROZEN_APPS, R.string.filter_unfrozen_apps);
             put(FILTER_STOPPED_APPS, R.string.filter_force_stopped_apps);
             put(FILTER_INSTALLED_APPS, R.string.installed_apps);
             put(FILTER_UNINSTALLED_APPS, R.string.uninstalled_apps);
