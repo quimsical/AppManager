@@ -2,6 +2,8 @@
 
 package io.github.muntashirakon.AppManager.sharedpref;
 
+import static io.github.muntashirakon.util.AdapterUtils.PAYLOAD_HIGHLIGHT_CHANGED;
+
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -11,16 +13,15 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Filter;
-import android.widget.Filterable;
 import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
-import androidx.appcompat.widget.SearchView;
 import androidx.fragment.app.DialogFragment;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.DiffUtil;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -30,10 +31,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.intercept.IntentCompat;
+import io.github.muntashirakon.AppManager.misc.SearchViewDebouncer;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
 import io.github.muntashirakon.io.Paths;
@@ -41,8 +44,7 @@ import io.github.muntashirakon.util.AdapterUtils;
 import io.github.muntashirakon.util.UiUtils;
 import io.github.muntashirakon.widget.RecyclerView;
 
-public class SharedPrefsActivity extends BaseActivity implements
-        SearchView.OnQueryTextListener, EditPrefItemFragment.InterfaceCommunicator {
+public class SharedPrefsActivity extends BaseActivity implements EditPrefItemFragment.InterfaceCommunicator {
     public static final String EXTRA_PREF_LOCATION = "loc";
     public static final String EXTRA_PREF_LABEL = "label";  // Optional
 
@@ -50,6 +52,7 @@ public class SharedPrefsActivity extends BaseActivity implements
 
     private SharedPrefsListingAdapter mAdapter;
     private LinearProgressIndicator mProgressIndicator;
+    private SearchViewDebouncer mSearchDebouncer;
     private SharedPrefsViewModel mViewModel;
     private boolean mWriteAndExit = false;
     private final OnBackPressedCallback mOnBackPressedCallback = new OnBackPressedCallback(false) {
@@ -96,7 +99,12 @@ public class SharedPrefsActivity extends BaseActivity implements
             actionBar.setTitle(appLabel);
             actionBar.setSubtitle(mViewModel.getSharedPrefFilename());
             actionBar.setDisplayShowCustomEnabled(true);
-            UIUtils.setupSearchView(actionBar, this);
+            mSearchDebouncer = new SearchViewDebouncer(SearchViewDebouncer.DELAY_STANDARD);
+            mSearchDebouncer.bind(UIUtils.setupSearchView(actionBar), query -> {
+                if (mAdapter != null) {
+                    mAdapter.setFilterConstraint(query.toLowerCase(Locale.ROOT));
+                }
+            });
         }
         mProgressIndicator = findViewById(R.id.progress_linear);
         mProgressIndicator.setVisibilityAfterHide(View.GONE);
@@ -210,19 +218,16 @@ public class SharedPrefsActivity extends BaseActivity implements
     protected void onResume() {
         super.onResume();
         if (mAdapter != null && !TextUtils.isEmpty(mAdapter.mConstraint)) {
-            mAdapter.getFilter().filter(mAdapter.mConstraint);
+            mAdapter.setFilterConstraint(mAdapter.mConstraint);
         }
     }
 
     @Override
-    public boolean onQueryTextSubmit(String query) {
-        return false;
-    }
-
-    @Override
-    public boolean onQueryTextChange(String newText) {
-        if (mAdapter != null) mAdapter.getFilter().filter(newText.toLowerCase(Locale.ROOT));
-        return true;
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mSearchDebouncer != null) {
+            mSearchDebouncer.unbind();
+        }
     }
 
     private void displayEditor(@NonNull String prefName) {
@@ -237,15 +242,117 @@ public class SharedPrefsActivity extends BaseActivity implements
         dialogFragment.show(getSupportFragmentManager(), EditPrefItemFragment.TAG);
     }
 
-    static class SharedPrefsListingAdapter extends RecyclerView.Adapter<SharedPrefsListingAdapter.ViewHolder> implements Filterable {
+    static class SharedPrefsListingAdapter extends RecyclerView.ListAdapter<SharedPrefsListingAdapter.SharedPrefPair, SharedPrefsListingAdapter.ViewHolder> {
         private final SharedPrefsActivity mActivity;
-        private Filter mFilter;
-        private String mConstraint;
-        private String[] mDefaultList;
-        private String[] mAdapterList;
-        private Map<String, Object> mAdapterMap;
-
         private final int mQueryStringHighlightColor;
+        private final List<SharedPrefPair> mMasterList = new ArrayList<>();
+        @Nullable
+        private String mConstraint;
+        private boolean isStartingSearch = false;
+        private boolean isClearingSearch = false;
+
+        static class SharedPrefPair {
+            @NonNull
+            final String key;
+            @Nullable
+            final Object value;
+
+            SharedPrefPair(@NonNull String key, @Nullable Object value) {
+                this.key = key;
+                this.value = value;
+            }
+        }
+
+        private static final DiffUtil.ItemCallback<SharedPrefPair> DIFF_CALLBACK = new DiffUtil.ItemCallback<SharedPrefPair>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull SharedPrefPair oldItem, @NonNull SharedPrefPair newItem) {
+                return Objects.equals(oldItem.key, newItem.key);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull SharedPrefPair oldItem, @NonNull SharedPrefPair newItem) {
+                // Value is secondary
+                return Objects.equals(oldItem.value, newItem.value);
+            }
+        };
+
+        SharedPrefsListingAdapter(@NonNull SharedPrefsActivity activity) {
+            super(DIFF_CALLBACK);
+            mActivity = activity;
+            mQueryStringHighlightColor = ColorCodes.getQueryStringHighlightColor(activity);
+        }
+
+        void setDefaultList(@NonNull Map<String, Object> list) {
+            mMasterList.clear();
+            for (Map.Entry<String, Object> entry : list.entrySet()) {
+                mMasterList.add(new SharedPrefPair(entry.getKey(), entry.getValue()));
+            }
+            isStartingSearch = false;
+            isClearingSearch = false;
+            dispatchFilteredList();
+        }
+
+        void setFilterConstraint(@Nullable String constraint) {
+            String oldConstraint = mConstraint;
+            mConstraint = TextUtils.isEmpty(constraint) ? null : constraint.toLowerCase(Locale.ROOT);
+            isStartingSearch = AdapterUtils.isStartingSearch(oldConstraint, mConstraint);
+            isClearingSearch = AdapterUtils.isClearingSearch(oldConstraint, mConstraint);
+            dispatchFilteredList();
+            if (!Objects.equals(oldConstraint, mConstraint)) {
+                notifyItemRangeChanged(0, getItemCount(), PAYLOAD_HIGHLIGHT_CHANGED);
+            }
+        }
+
+        private void dispatchFilteredList() {
+            if (mConstraint == null || mConstraint.isEmpty()) {
+                submitListWithScrollState(new ArrayList<>(mMasterList), isStartingSearch, isClearingSearch);
+                return;
+            }
+
+            List<SharedPrefPair> filteredList = new ArrayList<>();
+            for (SharedPrefPair pair : mMasterList) {
+                if (pair.key.toLowerCase(Locale.ROOT).contains(mConstraint)) {
+                    filteredList.add(pair);
+                }
+            }
+            submitListWithScrollState(filteredList, isStartingSearch, isClearingSearch);
+        }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(io.github.muntashirakon.ui.R.layout.m3_preference, parent, false);
+            return new ViewHolder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position, @NonNull List<Object> payloads) {
+            if (!payloads.isEmpty()) {
+                for (Object payload : payloads) {
+                    if (Objects.equals(payload, PAYLOAD_HIGHLIGHT_CHANGED)) {
+                        updateTextHighlights(holder, getItem(position));
+                        return;
+                    }
+                }
+            }
+            super.onBindViewHolder(holder, position, payloads);
+        }
+
+        private void updateTextHighlights(@NonNull ViewHolder holder, @NonNull SharedPrefPair item) {
+            // Highlight searched query
+            holder.itemName.setText(UIUtils.getHighlightedText(item.key, mConstraint, mQueryStringHighlightColor));
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            SharedPrefPair pair = getItem(position);
+            // Highlight searched query
+            holder.itemName.setText(UIUtils.getHighlightedText(pair.key, mConstraint, mQueryStringHighlightColor));
+            String strValue = (pair.value != null) ? pair.value.toString() : "";
+            holder.itemValue.setText(strValue.length() > REASONABLE_STR_SIZE ?
+                    strValue.substring(0, REASONABLE_STR_SIZE) : strValue);
+            holder.itemView.setOnClickListener(v -> mActivity.displayEditor(pair.key));
+        }
 
         static class ViewHolder extends RecyclerView.ViewHolder {
             TextView itemName;
@@ -257,96 +364,6 @@ public class SharedPrefsActivity extends BaseActivity implements
                 itemValue = itemView.findViewById(android.R.id.summary);
                 itemView.findViewById(R.id.icon_frame).setVisibility(View.GONE);
             }
-        }
-
-        SharedPrefsListingAdapter(@NonNull SharedPrefsActivity activity) {
-            mActivity = activity;
-            mQueryStringHighlightColor = ColorCodes.getQueryStringHighlightColor(activity);
-        }
-
-        void setDefaultList(@NonNull Map<String, Object> list) {
-            mDefaultList = list.keySet().toArray(new String[0]);
-            mAdapterMap = list;
-            if (!TextUtils.isEmpty(mConstraint)) {
-                getFilter().filter(mConstraint);
-            } else {
-                int previousCount = mAdapterList != null ? mAdapterList.length : 0;
-                mAdapterList = mDefaultList;
-                AdapterUtils.notifyDataSetChanged(this, previousCount, mAdapterList.length);
-            }
-        }
-
-        @Override
-        public int getItemCount() {
-            return mAdapterList == null ? 0 : mAdapterList.length;
-        }
-
-        @NonNull
-        @Override
-        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(io.github.muntashirakon.ui.R.layout.m3_preference, parent, false);
-            return new ViewHolder(v);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            String prefName = mAdapterList[position];
-            if (mConstraint != null && prefName.toLowerCase(Locale.ROOT).contains(mConstraint)) {
-                // Highlight searched query
-                holder.itemName.setText(UIUtils.getHighlightedText(prefName, mConstraint, mQueryStringHighlightColor));
-            } else {
-                holder.itemName.setText(prefName);
-            }
-            Object value = mAdapterMap.get(prefName);
-            String strValue = (value != null) ? value.toString() : "";
-            holder.itemValue.setText(strValue.length() > REASONABLE_STR_SIZE ?
-                    strValue.substring(0, REASONABLE_STR_SIZE) : strValue);
-            holder.itemView.setOnClickListener(v -> mActivity.displayEditor(prefName));
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
-        }
-
-        @Override
-        public Filter getFilter() {
-            if (mFilter == null)
-                mFilter = new Filter() {
-                    @Override
-                    protected FilterResults performFiltering(CharSequence charSequence) {
-                        String constraint = charSequence.toString().toLowerCase(Locale.ROOT);
-                        mConstraint = constraint;
-                        FilterResults filterResults = new FilterResults();
-                        if (constraint.isEmpty()) {
-                            filterResults.count = 0;
-                            filterResults.values = null;
-                            return filterResults;
-                        }
-
-                        List<String> list = new ArrayList<>(mDefaultList.length);
-                        for (String item : mDefaultList) {
-                            if (item.toLowerCase(Locale.ROOT).contains(constraint))
-                                list.add(item);
-                        }
-
-                        filterResults.count = list.size();
-                        filterResults.values = list.toArray(new String[0]);
-                        return filterResults;
-                    }
-
-                    @Override
-                    protected void publishResults(CharSequence charSequence, FilterResults filterResults) {
-                        int previousCount = mAdapterList != null ? mAdapterList.length : 0;
-                        if (filterResults.values == null) {
-                            mAdapterList = mDefaultList;
-                        } else {
-                            mAdapterList = (String[]) filterResults.values;
-                        }
-                        AdapterUtils.notifyDataSetChanged(SharedPrefsListingAdapter.this, previousCount, mAdapterList.length);
-                    }
-                };
-            return mFilter;
         }
     }
 }

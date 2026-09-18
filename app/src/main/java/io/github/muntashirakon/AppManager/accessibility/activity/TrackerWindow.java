@@ -29,9 +29,14 @@ import com.google.android.material.imageview.ShapeableImageView;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicLong;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
@@ -55,6 +60,10 @@ public class TrackerWindow implements View.OnTouchListener {
     private final TextInputTextView mClassNameView;
     private final TextInputTextView mClassHierarchyView;
     private final MaterialButton mPlayPauseButton;
+    private final ExecutorService mTrackerExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService mActivityQueryExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicLong mUpdateGeneration = new AtomicLong();
+    private final Map<String, String> mActivityNames = new HashMap<>();
     private final Point mWindowSize = new Point(0, 0);
     private final Point mWindowPosition = new Point(0, 0);
     private final Point mPressPosition = new Point(0, 0);
@@ -64,6 +73,19 @@ public class TrackerWindow implements View.OnTouchListener {
     private boolean mViewAttached = false;
     @Nullable
     private Future<?> mClassHierarchyResult;
+    @Nullable
+    private Future<?> mActivityQueryResult;
+    @Nullable
+    private String mCurrentPackageName;
+    private boolean mActivityQueryScheduled;
+    private boolean mActivityQueryDirty;
+    private boolean mActivityCacheInitialized;
+    private long mLastActivityQueryEnd;
+
+    private static final long ACTIVITY_QUERY_DEBOUNCE_MILLIS = 300;
+    private static final long ACTIVITY_QUERY_INTERVAL_MILLIS = 1_000;
+    private static final long ACTIVITY_INITIAL_LOOKBACK_MILLIS = 24 * 60 * 60 * 1_000L;
+    private final Runnable mActivityQueryRunnable = this::runActivityQuery;
 
     @SuppressLint("ClickableViewAccessibility")
     public TrackerWindow(@NonNull Context context) {
@@ -183,34 +205,49 @@ public class TrackerWindow implements View.OnTouchListener {
             mViewAttached = true;
             mWindowManager.addView(mView, mWindowLayoutParams);
         }
-        if (!mPaused) {
-            @Nullable
-            CharSequence packageName = event.getPackageName();
-            if (packageName != null && BuildConfig.APPLICATION_ID.contentEquals(packageName)) {
-                // On some devices, this window always gets the focus
-                CharSequence className = event.getClassName();
-                if (className != null && "android.widget.EditText".contentEquals(className)) {
-                    // For some reason, only this class is focused
-                    if (event.getSource() == null) {
-                        // No class hierarchy. This is the intended event
-                        return;
-                    }
-                }
-            }
-            if (mClassHierarchyResult != null) {
-                mClassHierarchyResult.cancel(true);
-            }
-            mPackageNameView.setText(packageName);
-            mClassNameView.setText(event.getClassName());
-            mClassHierarchyResult = ThreadUtils.postOnBackgroundThread(() -> {
-                CharSequence classHierarchy = TextUtils.join("\n", getClassHierarchy(event));
-                String activityName = getActivityName(event);
-                ThreadUtils.postOnMainThread(() -> {
-                    mActivityNameView.setText(activityName);
-                    mClassHierarchyView.setText(classHierarchy);
-                });
-            });
+        if (mPaused) {
+            return;
         }
+        @Nullable
+        CharSequence packageName = event.getPackageName();
+        @Nullable
+        CharSequence className = event.getClassName();
+        if (packageName != null && BuildConfig.APPLICATION_ID.contentEquals(packageName)) {
+            // On some devices, this window always gets the focus
+            if (className != null && "android.widget.EditText".contentEquals(className)) {
+                // For some reason, only this class is focused
+                AccessibilityNodeInfo source = event.getSource();
+                if (source == null) {
+                    // No class hierarchy. This is the intended event
+                    return;
+                }
+                source.recycle();
+            }
+        }
+        if (mClassHierarchyResult != null) {
+            mClassHierarchyResult.cancel(true);
+            if (mTrackerExecutor instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) mTrackerExecutor).remove((Runnable) mClassHierarchyResult);
+            }
+        }
+        long updateGeneration = mUpdateGeneration.incrementAndGet();
+        mCurrentPackageName = packageName != null ? packageName.toString() : null;
+        mPackageNameView.setText(packageName);
+        updateActivityNameView();
+        mClassNameView.setText(className);
+        mClassHierarchyResult = mTrackerExecutor.submit(() -> {
+            CharSequence classHierarchy = TextUtils.join("\n", getClassHierarchy(event));
+            if (ThreadUtils.isInterrupted()) {
+                return;
+            }
+            ThreadUtils.postOnMainThread(() -> {
+                if (mUpdateGeneration.get() != updateGeneration) {
+                    return;
+                }
+                mClassHierarchyView.setText(classHierarchy);
+            });
+        });
+        requestActivityQuery();
     }
 
     public void dismiss() {
@@ -218,7 +255,14 @@ public class TrackerWindow implements View.OnTouchListener {
         mViewAttached = false;
         if (mClassHierarchyResult != null) {
             mClassHierarchyResult.cancel(true);
+            if (mTrackerExecutor instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) mTrackerExecutor).remove((Runnable) mClassHierarchyResult);
+            }
         }
+        mUpdateGeneration.incrementAndGet();
+        mTrackerExecutor.shutdownNow();
+        ThreadUtils.getUiThreadHandler().removeCallbacks(mActivityQueryRunnable);
+        mActivityQueryExecutor.shutdownNow();
         try {
             mWindowManager.removeView(mView);
         } catch (Exception ignore) {
@@ -264,39 +308,92 @@ public class TrackerWindow implements View.OnTouchListener {
         Utils.copyToClipboard(mView.getContext(), label, content);
     }
 
+    private void requestActivityQuery() {
+        mActivityQueryDirty = true;
+        if (mActivityQueryScheduled || (mActivityQueryResult != null && !mActivityQueryResult.isDone())) {
+            return;
+        }
+        long delay = Math.max(0, mLastActivityQueryEnd + ACTIVITY_QUERY_INTERVAL_MILLIS
+                - System.currentTimeMillis());
+        mActivityQueryScheduled = true;
+        ThreadUtils.getUiThreadHandler().postDelayed(mActivityQueryRunnable,
+                Math.max(delay, ACTIVITY_QUERY_DEBOUNCE_MILLIS));
+    }
+
+    private void runActivityQuery() {
+        mActivityQueryScheduled = false;
+        if (!mActivityQueryDirty || !mViewAttached) {
+            return;
+        }
+        mActivityQueryDirty = false;
+        long endTime = System.currentTimeMillis();
+        long beginTime = mActivityCacheInitialized ? mLastActivityQueryEnd
+                : endTime - ACTIVITY_INITIAL_LOOKBACK_MILLIS;
+        mActivityQueryResult = mActivityQueryExecutor.submit(() -> {
+            Map<String, ActivityEvent> latestActivities = getLatestActivities(beginTime, endTime);
+            ThreadUtils.postOnMainThread(() -> {
+                mActivityQueryResult = null;
+                if (!mViewAttached) {
+                    return;
+                }
+                if (latestActivities != null) {
+                    for (Map.Entry<String, ActivityEvent> entry : latestActivities.entrySet()) {
+                        mActivityNames.put(entry.getKey(), entry.getValue().activityName);
+                    }
+                    mActivityCacheInitialized = true;
+                    mLastActivityQueryEnd = endTime;
+                } else {
+                    // Preserve the cache and retry after a later event.
+                    mActivityQueryDirty = true;
+                }
+                updateActivityNameView();
+                if (mActivityQueryDirty) {
+                    requestActivityQuery();
+                }
+            });
+        });
+    }
+
     @Nullable
-    public String getActivityName(@NonNull AccessibilityEvent event) {
-        if (event.getPackageName() == null) {
+    private static Map<String, ActivityEvent> getLatestActivities(long beginTime, long endTime) {
+        UsageEvents queryEvents = UsageStatsManagerCompat.queryEvents(beginTime, endTime,
+                UserHandleHidden.myUserId());
+        if (queryEvents == null) {
             return null;
         }
-        String packageName = event.getPackageName().toString();
+        Map<String, ActivityEvent> latestActivities = new HashMap<>();
         UsageEvents.Event usageEvent = new UsageEvents.Event();
-        long currentTimeMillis = System.currentTimeMillis();
-        long timeDiff = 5_000;
-        int tries = 0;
-        do {
-            UsageEvents queryEvents = UsageStatsManagerCompat.queryEvents(currentTimeMillis - timeDiff,
-                    currentTimeMillis, UserHandleHidden.myUserId());
-            if (queryEvents == null) {
+        while (queryEvents.hasNextEvent()) {
+            queryEvents.getNextEvent(usageEvent);
+            if (usageEvent.getEventType() != UsageEvents.Event.ACTIVITY_RESUMED
+                    || usageEvent.getPackageName() == null || usageEvent.getClassName() == null) {
+                continue;
+            }
+            String packageName = usageEvent.getPackageName();
+            ActivityEvent previous = latestActivities.get(packageName);
+            if (previous == null || previous.timestamp < usageEvent.getTimeStamp()) {
+                latestActivities.put(packageName,
+                        new ActivityEvent(usageEvent.getClassName(), usageEvent.getTimeStamp()));
+            }
+            if (ThreadUtils.isInterrupted()) {
                 return null;
             }
-            long lastTime = 0L;
-            String activityName = null;
-            while (queryEvents.hasNextEvent()) {
-                queryEvents.getNextEvent(usageEvent);
-                if (usageEvent.getEventType() == UsageEvents.Event.ACTIVITY_RESUMED
-                        && Objects.equals(packageName, usageEvent.getPackageName())
-                        && lastTime < usageEvent.getTimeStamp()) {
-                    lastTime = usageEvent.getTimeStamp();
-                    activityName = usageEvent.getClassName();
-                }
-            }
-            if (activityName != null) {
-                return activityName;
-            }
-            timeDiff *= 60;
-        } while ((++tries) != 3);
-        return null;
+        }
+        return latestActivities;
+    }
+
+    private void updateActivityNameView() {
+        mActivityNameView.setText(mCurrentPackageName == null ? null : mActivityNames.get(mCurrentPackageName));
+    }
+
+    private static final class ActivityEvent {
+        private final String activityName;
+        private final long timestamp;
+
+        private ActivityEvent(@NonNull String activityName, long timestamp) {
+            this.activityName = activityName;
+            this.timestamp = timestamp;
+        }
     }
 
     @NonNull

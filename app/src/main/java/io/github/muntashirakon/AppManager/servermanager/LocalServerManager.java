@@ -12,14 +12,19 @@ import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
 import java.io.BufferedReader;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.muntashirakon.AppManager.adb.AdbConnectionManager;
 import io.github.muntashirakon.AppManager.logs.Log;
@@ -39,6 +44,8 @@ import io.github.muntashirakon.io.IoUtils;
 // Copyright 2016 Zheng Li
 class LocalServerManager {
     private static final String TAG = "LocalServerManager";
+    private static final int MAX_SERVER_START_ATTEMPTS = 2;
+    private static final long SERVER_RETRY_DELAY_MILLIS = 150;
 
     @SuppressLint("StaticFieldLeak")
     private static LocalServerManager sLocalServerManager;
@@ -81,21 +88,54 @@ class LocalServerManager {
             if (mSession == null || !mSession.isRunning()) {
                 try {
                     mSession = createSession();
+                } catch (SocketTimeoutException e) {
+                    Log.i(TAG, "Server is running but not responsive. Stopping the server...");
+                    closeSession();
+                    try {
+                        stopServer();
+                    } catch (Exception ex) {
+                        Log.w(TAG, "Could not stop the unresponsive server, continuing recovery", ex);
+                    }
                 } catch (Exception e) {
+                    closeSession();
                     if (!Ops.isDirectRoot() && !Ops.isAdb()) {
                         // Do not bother attempting to create a new session
-                        throw new IOException("Could not create session", e);
+                        throw ServerConnectionFailure.from(e, false);
                     }
                 }
                 if (mSession == null) {
-                    try {
-                        startServer();
-                    } catch (AdbPairingRequiredException e) {
-                        throw e;
-                    } catch (Exception e) {
-                        throw new IOException("Could not start server", e);
+                    ServerConnectionFailure lastFailure = null;
+                    for (int attempt = 1; attempt <= MAX_SERVER_START_ATTEMPTS; ++attempt) {
+                        try {
+                            startServer();
+                        } catch (AdbPairingRequiredException e) {
+                            throw e;
+                        } catch (Exception e) {
+                            lastFailure = ServerConnectionFailure.from(e, true);
+                            closeSession();
+                            Log.w(TAG, "Server start/handshake attempt %d/%d failed",
+                                    attempt, MAX_SERVER_START_ATTEMPTS, e);
+                            if (attempt < MAX_SERVER_START_ATTEMPTS) {
+                                SystemClock.sleep(SERVER_RETRY_DELAY_MILLIS);
+                            }
+                            continue;
+                        }
+                        try {
+                            mSession = createSession();
+                            return mSession;
+                        } catch (Exception e) {
+                            lastFailure = ServerConnectionFailure.from(e, false);
+                            closeSession();
+                            Log.w(TAG, "Server handshake attempt %d/%d failed",
+                                    attempt, MAX_SERVER_START_ATTEMPTS, e);
+                            if (attempt < MAX_SERVER_START_ATTEMPTS) {
+                                SystemClock.sleep(SERVER_RETRY_DELAY_MILLIS);
+                            }
+                        }
                     }
-                    mSession = createSession();
+                    throw new ServerConnectionFailure("Could not start server after "
+                            + MAX_SERVER_START_ATTEMPTS + " attempts ("
+                            + lastFailure.getReason() + ")", lastFailure.getReason(), lastFailure);
                 }
             }
             return mSession;
@@ -105,6 +145,24 @@ class LocalServerManager {
     @AnyThread
     public boolean isRunning() {
         return mSession != null && mSession.isRunning();
+    }
+
+    @WorkerThread
+    boolean checkServerHealth() {
+        synchronized (mLock) {
+            if (mSession != null && mSession.isRunning()) {
+                return true;
+            }
+            closeSession();
+            try {
+                mSession = createSession();
+                return true;
+            } catch (IOException e) {
+                closeSession();
+                Log.d(TAG, "Server health check failed: %s", e.getMessage());
+                return false;
+            }
+        }
     }
 
     /**
@@ -117,12 +175,10 @@ class LocalServerManager {
     }
 
     /**
-     * Stop ADB and then close client session
+     * Close the client session.
      */
     void stop() {
-        IoUtils.closeQuietly(mAdbStream);
         IoUtils.closeQuietly(mSession);
-        mAdbStream = null;
         mSession = null;
     }
 
@@ -169,10 +225,17 @@ class LocalServerManager {
             getSession().getDataTransmission().sendAndReceiveMessage(ParcelableUtil.marshall(baseCaller));
         } catch (Exception e) {
             // Since the server is closed abruptly, this should always produce error
-            Log.w(TAG, "closeBgServer: Error", e);
+            if (isExpectedDisconnect(e)) {
+                Log.d(TAG, "closeBgServer: server session already disconnected");
+            } else {
+                Log.w(TAG, "closeBgServer: Error", e);
+            }
         }
+        // The close command terminates the server-side client loop. Do not retain the old
+        // session while checking whether the server is still accepting connections.
+        closeSession();
         // Check if the server is still active
-        if (LocalServer.alive(mContext)) {
+        if (LocalServer.checkServerHealth(mContext)) {
             // Server still active, need to run killall am_local_server
             try {
                 stopServer();
@@ -182,63 +245,90 @@ class LocalServerManager {
         }
     }
 
-    @Nullable
-    private volatile AdbStream mAdbStream;
-    private volatile CountDownLatch mAdbConnectionWatcher = new CountDownLatch(1);
-    private volatile boolean mAdbServerStarted;
-    private final Runnable mAdbOutputThread = () -> {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(Objects.requireNonNull(mAdbStream).openInputStream()))) {
-            String s;
-            while ((s = reader.readLine()) != null) {
-                Log.d(TAG, "RESPONSE: %s", s);
-                if (s.startsWith("Success!")) {
-                    mAdbServerStarted = true;
-                    mAdbConnectionWatcher.countDown();
-                    break;
-                } else if (s.startsWith("Error!")) {
-                    mAdbServerStarted = false;
-                    mAdbConnectionWatcher.countDown();
-                    break;
-                }
-            }
-        } catch (Throwable e) {
-            Log.e(TAG, "useAdbStartServer: unable to read from shell.", e);
-        }
-    };
+    private static boolean isExpectedDisconnect(@NonNull Throwable error) {
+        return error instanceof EOFException
+                || error instanceof SocketTimeoutException
+                || (error instanceof java.net.SocketException
+                && (error.getMessage() == null
+                || error.getMessage().contains("closed")
+                || error.getMessage().contains("Broken pipe")));
+    }
 
     @WorkerThread
     private void useAdbStartServer() throws Exception {
-        if (mAdbStream == null || Objects.requireNonNull(mAdbStream).isClosed()) {
-            // ADB shell not running
-            String adbHost = ServerConfig.getAdbHost(mContext);
-            int adbPort = ServerConfig.getAdbPort();
-            AdbConnectionManager manager = AdbConnectionManager.getInstance();
-            Log.d(TAG, "useAdbStartServer: Connecting using host=%s, port=%d", adbHost, adbPort);
-            manager.setTimeout(10, TimeUnit.SECONDS);
-            if (!manager.isConnected() && !manager.connect(adbHost, adbPort)) {
-                throw new IOException("Could not connect to ADB.");
-            }
-
-            Log.d(TAG, "useAdbStartServer: Opening shell...");
-            mAdbStream = manager.openStream("shell:");
-            mAdbConnectionWatcher = new CountDownLatch(1);
-            mAdbServerStarted = false;
-            new Thread(mAdbOutputThread).start();
-        }
-        Log.d(TAG, "useAdbStartServer: Shell opened.");
-
-        try (OutputStream os = Objects.requireNonNull(mAdbStream).openOutputStream()) {
-            os.write("id\n".getBytes());
+        try (AdbStream adbStream = openAdbShell();
+             InputStream is = adbStream.openInputStream();
+             OutputStream os = adbStream.openOutputStream()) {
             // ADB may require a fallback method
-            String command = ServerConfig.getServerRunnerAdbCommand();
+            String command = ServerConfig.getServerRunnerCommand();
             Log.d(TAG, "useAdbStartServer: %s", command);
-            os.write((command + "\n").getBytes());
-        }
-
-        if (!mAdbConnectionWatcher.await(1, TimeUnit.MINUTES) || !mAdbServerStarted) {
-            throw new Exception("Server wasn't started.");
+            executeAdbCommand(is, os, command, "Success!", 1, TimeUnit.MINUTES);
         }
         Log.d(TAG, "useAdbStartServer: Server has started.");
+    }
+
+    @WorkerThread
+    @NonNull
+    private AdbStream openAdbShell() throws Exception {
+        String adbHost = ServerConfig.getAdbHost(mContext);
+        int adbPort = ServerConfig.getAdbPort();
+        AdbConnectionManager manager = AdbConnectionManager.getInstance();
+        Log.d(TAG, "Connecting to ADB using host=%s, port=%d", adbHost, adbPort);
+        manager.setTimeout(10, TimeUnit.SECONDS);
+        // Wireless debugging can select a different port when it is re-enabled.
+        manager.disconnect();
+        if (!manager.connect(adbHost, adbPort)) {
+            throw new IOException("Could not connect to ADB.");
+        }
+        Log.d(TAG, "Opening ADB shell...");
+        return manager.openStream("shell:");
+    }
+
+    @WorkerThread
+    static void executeAdbCommand(@NonNull InputStream inputStream,
+                                  @NonNull OutputStream outputStream,
+                                  @NonNull String command,
+                                  @NonNull String successPrefix,
+                                  long timeout,
+                                  @NonNull TimeUnit timeoutUnit) throws IOException, InterruptedException {
+        CountDownLatch commandWatcher = new CountDownLatch(1);
+        AtomicBoolean commandSucceeded = new AtomicBoolean(false);
+        AtomicReference<Throwable> readFailure = new AtomicReference<>();
+        Thread outputThread = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+                String response;
+                while ((response = reader.readLine()) != null) {
+                    Log.d(TAG, "RESPONSE: %s", response);
+                    if (response.startsWith(successPrefix)) {
+                        commandSucceeded.set(true);
+                        break;
+                    }
+                    if (response.startsWith("Error!")) {
+                        readFailure.set(new IOException(response));
+                        break;
+                    }
+                }
+            } catch (Throwable e) {
+                readFailure.set(e);
+            } finally {
+                commandWatcher.countDown();
+            }
+        }, "am-adb-command-output");
+        outputThread.start();
+        try {
+            outputStream.write("id\n".getBytes(StandardCharsets.UTF_8));
+            outputStream.write((command + "\n").getBytes(StandardCharsets.UTF_8));
+            outputStream.flush();
+            if (!commandWatcher.await(timeout, timeoutUnit)) {
+                throw new SocketTimeoutException("Timed out waiting for ADB command: " + command);
+            }
+            if (!commandSucceeded.get()) {
+                Throwable failure = readFailure.get();
+                throw new IOException("ADB command did not produce " + successPrefix, failure);
+            }
+        } finally {
+            outputThread.interrupt();
+        }
     }
 
     @WorkerThread
@@ -246,7 +336,7 @@ class LocalServerManager {
         if (!Ops.hasRoot()) {
             throw new Exception("Root access denied");
         }
-        String command = ServerConfig.getServerRunnerCommand(0);
+        String command = ServerConfig.getServerRunnerCommand();
         // + "\n" + "supolicy --live 'allow qti_init_shell zygote_exec file execute'";
         Log.d(TAG, "useRootStartServer: %s", command);
         Runner.Result result = Runner.runCommand(command);
@@ -278,37 +368,15 @@ class LocalServerManager {
     @WorkerThread
     @NoOps(used = true)
     private void stopServer() throws Exception {
-        String command = "killall " + Constants.SERVER_NAME;
+        String command = "killall " + Constants.SERVER_NAME + "; echo Stopped!";
         if (Ops.isAdb()) {
-            if (mAdbStream == null || Objects.requireNonNull(mAdbStream).isClosed()) {
-                // ADB shell not running
-                String adbHost = ServerConfig.getAdbHost(mContext);
-                int adbPort = ServerConfig.getAdbPort();
-                AdbConnectionManager manager = AdbConnectionManager.getInstance();
-                Log.d(TAG, "stopServer (ADB): Connecting using host=%s, port=%d", adbHost, adbPort);
-                manager.setTimeout(10, TimeUnit.SECONDS);
-                if (!manager.isConnected() && !manager.connect(adbHost, adbPort)) {
-                    throw new IOException("Could not connect to ADB.");
-                }
-
-                Log.d(TAG, "stopServer (ADB): Opening shell...");
-                mAdbStream = manager.openStream("shell:");
-                mAdbConnectionWatcher = new CountDownLatch(1);
-                mAdbServerStarted = false;
-                new Thread(mAdbOutputThread).start();
-            }
-            Log.d(TAG, "stopServer (ADB): Shell opened.");
-
-            try (OutputStream os = Objects.requireNonNull(mAdbStream).openOutputStream()) {
-                os.write("id\n".getBytes());
+            try (AdbStream adbStream = openAdbShell();
+                 InputStream is = adbStream.openInputStream();
+                 OutputStream os = adbStream.openOutputStream()) {
                 Log.d(TAG, "stopServer (ADB): %s", command);
-                os.write((command + "\n").getBytes());
+                executeAdbCommand(is, os, command, "Stopped!", 1, TimeUnit.MINUTES);
             }
-
-            if (!mAdbConnectionWatcher.await(1, TimeUnit.MINUTES) || !mAdbServerStarted) {
-                throw new Exception("Server wasn't stopped.");
-            }
-            Log.d(TAG, "useAdbStartServer: Server has stopped.");
+            Log.d(TAG, "stopServer (ADB): Server has stopped.");
         } else if (Ops.isDirectRoot()) {
             if (!Ops.hasRoot()) {
                 throw new Exception("Root access denied");
@@ -317,10 +385,10 @@ class LocalServerManager {
             Runner.Result result = Runner.runCommand(command);
             Log.d(TAG, "stopServer (root): %s", result.getOutput());
             if (!result.isSuccessful()) {
-                throw new Exception("Could not start server.");
+                throw new Exception("Could not stop server.");
             }
             SystemClock.sleep(3000);
-            Log.e(TAG, "useRootStartServer: Server has started.");
+            Log.d(TAG, "stopServer (root): Server has stopped.");
         } else throw new Exception("Neither root nor ADB mode is enabled.");
     }
 
@@ -341,10 +409,7 @@ class LocalServerManager {
         String host = ServerConfig.getLocalServerHost(mContext);
         int port = ServerConfig.getLocalServerPort();
         Socket socket = new Socket(host, port);
-        socket.setSoTimeout(30_000);
-        // NOTE: (CWE-319) No need for SSL since it only runs on a random port in localhost with specific authorization.
-        // TODO: 5/8/23 We could use an SSL server with a randomly generated certificate per session without requiring
-        //  any other authorization methods. This session is independent of the application.
+        socket.setSoTimeout(10_000);
         OutputStream os = socket.getOutputStream();
         InputStream is = socket.getInputStream();
         DataTransmission transfer = new DataTransmission(os, is, false);

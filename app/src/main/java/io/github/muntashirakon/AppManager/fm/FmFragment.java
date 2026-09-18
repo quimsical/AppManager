@@ -96,6 +96,21 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
     public static final String ARG_POSITION = "pos";
 
     @NonNull
+    private static TextUtils.TruncateAt getFilenameEllipsize(@NonNull String ellipsize) {
+        switch (ellipsize) {
+            case Prefs.FileManager.FILENAME_ELLIPSIZE_START:
+                return TextUtils.TruncateAt.START;
+            case Prefs.FileManager.FILENAME_ELLIPSIZE_END:
+                return TextUtils.TruncateAt.END;
+            case Prefs.FileManager.FILENAME_ELLIPSIZE_MARQUEE:
+                return TextUtils.TruncateAt.MARQUEE;
+            case Prefs.FileManager.FILENAME_ELLIPSIZE_MIDDLE:
+            default:
+                return TextUtils.TruncateAt.MIDDLE;
+        }
+    }
+
+    @NonNull
     public static FmFragment getNewInstance(@NonNull FmActivity.Options options,
                                             @Nullable Integer position) {
         FmFragment fragment = new FmFragment();
@@ -245,6 +260,7 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
         mRecyclerView = view.findViewById(R.id.list_item);
         mRecyclerView.setLayoutManager(UIUtils.getGridLayoutAt450Dp(mActivity));
         mAdapter = new FmAdapter(mModel, mActivity);
+        mAdapter.setFilenameEllipsize(getFilenameEllipsize(Prefs.FileManager.getFilenameEllipsize()));
         mAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataChangedObserver() {
             @Override
             public void onChanged() {
@@ -412,8 +428,13 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
     @Override
     public void onStop() {
         super.onStop();
-        if (mModel != null && mRecyclerView != null) {
-            Prefs.FileManager.setLastOpenedPath(mModel.getOptions(), mModel.getCurrentUri(), getRecyclerViewFirstChildPosition());
+        if (mModel != null && mRecyclerView != null && mModel.getOptions() != null
+                && mModel.getCurrentUri() != null) {
+            int position = getRecyclerViewFirstChildPosition();
+            if (position == RecyclerView.NO_POSITION) {
+                position = 0;
+            }
+            Prefs.FileManager.setLastOpenedPath(mModel.getOptions(), mModel.getCurrentUri(), position);
         }
     }
 
@@ -465,7 +486,7 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
     public boolean onMenuItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_refresh) {
-            mModel.reload();
+            refreshScreen();
             return true;
         } else if (id == R.id.action_shortcut) {
             Uri uri = mPathListAdapter.getCurrentUri();
@@ -593,13 +614,24 @@ public class FmFragment extends Fragment implements MenuProvider, SearchView.OnQ
 
     @Override
     public void onRefresh() {
-        if (mModel != null) mModel.reload();
+        refreshScreen();
+    }
+
+    private void refreshScreen() {
+        if (mModel != null) {
+            if (mAdapter != null) {
+                mAdapter.setFilenameEllipsize(getFilenameEllipsize(Prefs.FileManager.getFilenameEllipsize()));
+            }
+            mModel.reload();
+        }
     }
 
     public int getRecyclerViewFirstChildPosition() {
         if (mRecyclerView != null) {
             View v = mRecyclerView.getChildAt(0);
-            return mRecyclerView.getChildAdapterPosition(v);
+            if (v != null) {
+                return mRecyclerView.getChildAdapterPosition(v);
+            }
         }
         return RecyclerView.NO_POSITION;
     }

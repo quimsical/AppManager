@@ -199,11 +199,10 @@ public class AppDetailsAppOpItem extends AppDetailsItem<Integer> {
     public void setAppOp(@NonNull PackageInfo packageInfo, @NonNull AppOpsManagerCompat appOpsManager,
                          @AppOpsManagerCompat.Mode int mode) throws PermissionException {
         if (hasModifiablePermission && permission != null) {
-            boolean isAllowed = false;
+            boolean isAllowed = mode == AppOpsManager.MODE_ALLOWED;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                isAllowed = getMode() == AppOpsManager.MODE_FOREGROUND;
+                isAllowed |= mode == AppOpsManager.MODE_FOREGROUND;
             }
-            isAllowed |= getMode() == AppOpsManager.MODE_ALLOWED;
             if (isAllowed) {
                 PermUtils.grantPermission(packageInfo, permission, appOpsManager, true, true);
             } else {

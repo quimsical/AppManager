@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Process;
 import android.provider.Settings;
+import android.util.Log;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
@@ -30,6 +31,7 @@ import io.github.muntashirakon.AppManager.settings.Prefs;
 
 public final class NotificationUtils {
     private static final String HIGH_PRIORITY_CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.HIGH_PRIORITY";
+    private static final String CRASH_CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.CRASH";
     private static final String INSTALL_CONFIRM_CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.INSTALL_CONFIRM";
     private static final String FREEZE_UNFREEZE_CHANNEL_ID = BuildConfig.APPLICATION_ID + ".channel.FREEZE_UNFREEZE";
 
@@ -85,6 +87,12 @@ public final class NotificationUtils {
                 .setPriority(NotificationCompat.PRIORITY_HIGH);
     }
 
+    @NonNull
+    public static NotificationCompat.Builder getCrashNotificationBuilder(@NonNull Context context) {
+        return new NotificationCompat.Builder(context, CRASH_CHANNEL_ID)
+                .setPriority(NotificationCompat.PRIORITY_HIGH);
+    }
+
     public static void displayHighPriorityNotification(@NonNull Context context, Notification notification) {
         displayHighPriorityNotification(context, builder -> notification);
     }
@@ -95,6 +103,20 @@ public final class NotificationUtils {
         int notificationId = nextNotificationId(notificationTag);
         displayNotification(context, HIGH_PRIORITY_CHANNEL_ID, "Alerts",
                 NotificationManagerCompat.IMPORTANCE_HIGH, notificationTag , notificationId, notification);
+    }
+
+    public static void displayCrashNotification(@NonNull Context context,
+                                                 @NonNull Notification notification) {
+        NotificationManagerCompat manager = NotificationManagerCompat.from(context);
+        manager.createNotificationChannel(new NotificationChannelCompat.Builder(
+                        CRASH_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
+                .setName("Crash reports")
+                .build());
+        if (SelfPermissions.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)) {
+            manager.notify("crash", 1, notification);
+        } else {
+            Log.e("NotificationUtils", "Crash notification permission is not granted");
+        }
     }
 
     public static void displayFreezeUnfreezeNotification(@NonNull Context context,

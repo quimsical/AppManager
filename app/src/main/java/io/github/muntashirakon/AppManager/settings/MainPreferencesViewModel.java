@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.signing.Signer;
@@ -57,13 +59,13 @@ public class MainPreferencesViewModel extends AndroidViewModel implements Ops.Ad
     private final MutableLiveData<Changelog> mChangeLog = new SingleLiveEvent<>();
     private final MutableLiveData<DeviceInfo2> mDeviceInfo = new SingleLiveEvent<>();
     private final MutableLiveData<String> mCustomCommand0 = new SingleLiveEvent<>();
-    private final MutableLiveData<String> mCustomCommand1 = new SingleLiveEvent<>();
     private final MutableLiveData<Integer> mModeOfOpsStatus = new SingleLiveEvent<>();
     private final MutableLiveData<Boolean> mOperationCompletedLiveData = new SingleLiveEvent<>();
     private final MutableLiveData<ArrayMap<String, Uri>> mStorageVolumesLiveData = new SingleLiveEvent<>();
     private final MutableLiveData<String> mSigningKeySha256HashLiveData = new SingleLiveEvent<>();
     private final MutableLiveData<List<Pair<String, CharSequence>>> mPackageNameLabelPairLiveData = new SingleLiveEvent<>();
     private final ExecutorService mExecutor = Executors.newFixedThreadPool(1);
+    private final AtomicBoolean mModeOperationPending = new AtomicBoolean(false);
 
     public MainPreferencesViewModel(@NonNull Application application) {
         super(application);
@@ -122,20 +124,14 @@ public class MainPreferencesViewModel extends AndroidViewModel implements Ops.Ad
         return mCustomCommand0;
     }
 
-    public MutableLiveData<String> getCustomCommand1() {
-        return mCustomCommand1;
-    }
-
     public void loadCustomCommands() {
         mExecutor.submit(() -> {
             try {
                 ServerConfig.init(getApplication());
-                mCustomCommand0.postValue(ServerConfig.getServerRunnerCommand(0));
-                mCustomCommand1.postValue(ServerConfig.getServerRunnerCommand(1));
+                mCustomCommand0.postValue(ServerConfig.getServerRunnerCommand());
             } catch (Throwable e) {
                 e.printStackTrace();
                 mCustomCommand0.postValue(null);
-                mCustomCommand1.postValue(null);
             }
         });
     }
@@ -144,11 +140,12 @@ public class MainPreferencesViewModel extends AndroidViewModel implements Ops.Ad
         return mModeOfOpsStatus;
     }
 
+    public boolean isModeOperationPending() {
+        return mModeOperationPending.get();
+    }
+
     public void setModeOfOps() {
-        mExecutor.submit(() -> {
-            int status = Ops.init(getApplication(), true);
-            mModeOfOpsStatus.postValue(status);
-        });
+        submitModeOperation(() -> Ops.init(getApplication(), true));
     }
 
     public LiveData<Boolean> getOperationCompletedLiveData() {
@@ -250,31 +247,62 @@ public class MainPreferencesViewModel extends AndroidViewModel implements Ops.Ad
 
     @RequiresApi(Build.VERSION_CODES.R)
     public void autoConnectWirelessDebugging() {
-        mExecutor.submit(() -> {
-            int status = Ops.autoConnectWirelessDebugging(getApplication());
-            mModeOfOpsStatus.postValue(status);
-        });
+        submitModeOperation(() -> Ops.autoConnectWirelessDebugging(getApplication()));
     }
 
     @Override
     public void connectAdb(int port) {
-        mExecutor.submit(() -> {
-            int status = Ops.connectAdb(getApplication(), port, Ops.STATUS_FAILURE);
-            mModeOfOpsStatus.postValue(status);
-        });
+        submitModeOperation(() -> Ops.connectAdb(getApplication(), port, Ops.STATUS_FAILURE));
     }
 
     @Override
     @RequiresApi(Build.VERSION_CODES.R)
     public void pairAdb() {
-        mExecutor.submit(() -> {
-            int status = Ops.pairAdb(getApplication());
-            mModeOfOpsStatus.postValue(status);
-        });
+        submitModeOperation(() -> Ops.pairAdb(getApplication()));
     }
 
     @Override
     public void onStatusReceived(int status) {
         mModeOfOpsStatus.postValue(status);
+    }
+
+    private void submitModeOperation(@NonNull ModeOperation operation) {
+        if (!mModeOperationPending.compareAndSet(false, true)) {
+            // Already running
+            return;
+        }
+        try {
+            mExecutor.execute(() -> {
+                int status;
+                try {
+                    status = operation.run();
+                } catch (Throwable e) {
+                    e.printStackTrace();
+                    Ops.fallbackToNoRoot(getApplication());
+                    status = Ops.STATUS_FAILURE;
+                }
+                int finalStatus = status;
+                ThreadUtils.postOnMainThread(() -> {
+                    // Need to use setValue() because the guard needs to be updated as soon as the
+                    // status is passed to the UI.
+                    mModeOperationPending.set(false);
+                    mModeOfOpsStatus.setValue(finalStatus);
+                });
+            });
+        } catch (RejectedExecutionException e) {
+            mModeOperationPending.set(false);
+            mModeOfOpsStatus.postValue(Ops.STATUS_FAILURE);
+        }
+    }
+
+    @Override
+    protected void onCleared() {
+        mExecutor.shutdownNow();
+        super.onCleared();
+    }
+
+    private interface ModeOperation {
+        @Ops.Status
+        int run();
     }
 }

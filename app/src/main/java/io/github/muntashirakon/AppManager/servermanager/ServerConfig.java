@@ -6,6 +6,8 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.Environment;
+import android.os.UserHandleHidden;
 import android.provider.Settings;
 import android.text.TextUtils;
 
@@ -18,10 +20,10 @@ import java.io.File;
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.security.SecureRandom;
+import java.util.Locale;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
 import io.github.muntashirakon.AppManager.R;
-import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.misc.NoOps;
 import io.github.muntashirakon.AppManager.server.common.Constants;
 import io.github.muntashirakon.AppManager.settings.Prefs;
@@ -33,63 +35,78 @@ public final class ServerConfig {
     public static final String TAG = ServerConfig.class.getSimpleName();
 
     public static final int DEFAULT_ADB_PORT = 5555;
-    static final String SERVER_RUNNER_EXEC_NAME = "run_server.sh";
     private static final String LOCAL_TOKEN = "l_token";
-    private static final File[] SERVER_RUNNER_EXEC = new File[2];
-    private static final File[] SERVER_RUNNER_JAR = new File[2];
     private static final SharedPreferences sPreferences = ContextUtils.getContext()
             .getSharedPreferences("server_config", Context.MODE_PRIVATE);
-    private static volatile boolean sInitialised = false;
 
     @WorkerThread
     @NoOps
     public static void init(@NonNull Context context) throws IOException {
-        if (sInitialised) {
-            return;
+        // Setup paths
+        boolean force = BuildConfig.DEBUG;
+        try {
+            File externalCachePath = FileUtils.getExternalCachePath(context);
+            File externalCacheAmJar = new File(externalCachePath, Constants.JAR_NAME);
+            File externalCacheMainJar = new File(externalCachePath, Constants.MAIN_JAR_NAME);
+            AssetsUtils.copyFile(context, Constants.JAR_NAME, externalCacheAmJar, force);
+            AssetsUtils.copyFile(context, Constants.MAIN_JAR_NAME, externalCacheMainJar, force);
+            FileUtils.chmod644(externalCacheAmJar);
+            FileUtils.chmod644(externalCacheMainJar);
+        } catch (Exception e) {
+            throw new IllegalStateException("External directory unavailable.", e);
         }
 
-        // Setup paths
-        File externalCachePath = FileUtils.getExternalCachePath(context);
-        File externalMediaPath = FileUtils.getExternalMediaPath(context);
-        File deStorage = ContextUtils.getDeContext(context).getCacheDir();
-        SERVER_RUNNER_EXEC[0] = new File(externalCachePath, SERVER_RUNNER_EXEC_NAME);
-        SERVER_RUNNER_EXEC[1] = new File(deStorage, SERVER_RUNNER_EXEC_NAME);
-        SERVER_RUNNER_JAR[0] = new File(externalCachePath, Constants.JAR_NAME);
-        SERVER_RUNNER_JAR[1] = new File(deStorage, Constants.JAR_NAME);
-        // Copy JAR
-        boolean force = BuildConfig.DEBUG;
-        AssetsUtils.copyFile(context, Constants.JAR_NAME, SERVER_RUNNER_JAR[0], force);
-        AssetsUtils.copyFile(context, Constants.JAR_NAME, SERVER_RUNNER_JAR[1], force);
-        // Write script
-        AssetsUtils.writeServerExecScript(context, SERVER_RUNNER_EXEC[0], SERVER_RUNNER_JAR[0].getAbsolutePath());
-        AssetsUtils.writeServerExecScript(context, SERVER_RUNNER_EXEC[1], SERVER_RUNNER_JAR[1].getAbsolutePath());
-        // Update permission
-        FileUtils.chmod711(deStorage);
-        FileUtils.chmod644(SERVER_RUNNER_JAR[1]);
-        FileUtils.chmod644(SERVER_RUNNER_EXEC[1]);
+        try {
+            File amPath = getAppManagerStoragePath();
+            File externalAmJar = new File(amPath, Constants.JAR_NAME);
+            File externalMainJar = new File(amPath, Constants.MAIN_JAR_NAME);
+            AssetsUtils.copyFile(context, Constants.JAR_NAME, externalAmJar, force);
+            AssetsUtils.copyFile(context, Constants.MAIN_JAR_NAME, externalMainJar, force);
+            FileUtils.chmod644(externalAmJar);
+            FileUtils.chmod644(externalMainJar);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
-        sInitialised = true;
+    @NonNull
+    public static File getAppManagerStoragePath() throws SecurityException {
+        File externalStorage = Environment.getExternalStorageDirectory();
+        File appManagerDir = new File(externalStorage, "AppManager");
+        if (!appManagerDir.exists()) {
+            appManagerDir.mkdirs();
+        }
+        return appManagerDir;
     }
 
     @AnyThread
     @NonNull
-    public static File getDestJarFile() {
-        // For compatibility only
-        return SERVER_RUNNER_JAR[0];
-    }
+    public static String getServerRunnerCommand() throws IndexOutOfBoundsException {
+        // Fetch the extracted directory
+        String libDir = ContextUtils.getContext().getApplicationInfo().nativeLibraryDir;
+        File executable = new File(libDir, "librun_server.so");
 
-    @AnyThread
-    @NonNull
-    public static String getServerRunnerCommand(int index) throws IndexOutOfBoundsException {
-        Log.e(TAG, "Classpath: %s", SERVER_RUNNER_JAR[index]);
-        Log.e(TAG, "Exec path: %s", SERVER_RUNNER_EXEC[index]);
-        return "sh " + SERVER_RUNNER_EXEC[index] + " " + getLocalServerPort() + " " + getLocalToken();
-    }
+        if (executable.exists()) {
+            int port = getLocalServerPort();
+            String token = getLocalToken();
+            String amJarName = Constants.JAR_NAME;
+            String mainJarName = Constants.MAIN_JAR_NAME;
+            String appId = BuildConfig.APPLICATION_ID;
+            int currentUserId = UserHandleHidden.myUserId();
+            int debug = BuildConfig.DEBUG ? 1 : 0;
 
-    @AnyThread
-    @NonNull
-    public static String getServerRunnerAdbCommand() throws IndexOutOfBoundsException {
-        return getServerRunnerCommand(0) + " || " + getServerRunnerCommand(1);
+            return String.format(Locale.ROOT, "%s %d %s %s %s %s %d %d",
+                    executable.getAbsolutePath(),
+                    port,
+                    token,
+                    amJarName,
+                    mainJarName,
+                    appId,
+                    currentUserId,
+                    debug
+            );
+        }
+        throw new UnsupportedOperationException(executable.getAbsolutePath() + " does not exists!");
     }
 
     /**
@@ -114,16 +131,24 @@ public final class ServerConfig {
     }
 
     @AnyThread
-    @IntRange(from = 0, to = 65535)
+    @IntRange(from = 1, to = 65535)
     @NoOps
     public static int getAdbPort() {
-        return sPreferences.getInt("adb_port", DEFAULT_ADB_PORT);
+        int port = sPreferences.getInt("adb_port", DEFAULT_ADB_PORT);
+        return isValidAdbPort(port) ? port : DEFAULT_ADB_PORT;
     }
 
     @AnyThread
     @NoOps
-    public static void setAdbPort(@IntRange(from = 0, to = 65535) int port) {
+    public static void setAdbPort(@IntRange(from = 1, to = 65535) int port) {
+        if (!isValidAdbPort(port)) {
+            throw new IllegalArgumentException("Invalid ADB port: " + port);
+        }
         sPreferences.edit().putInt("adb_port", port).apply();
+    }
+
+    public static boolean isValidAdbPort(int port) {
+        return port >= 1 && port <= 65535;
     }
 
     @AnyThread

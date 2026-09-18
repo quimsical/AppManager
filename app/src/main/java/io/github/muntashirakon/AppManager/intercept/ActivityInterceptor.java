@@ -32,9 +32,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
 import androidx.collection.LruCache;
-import androidx.collection.SimpleArrayMap;
 import androidx.collection.SparseArrayCompat;
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
@@ -60,6 +61,7 @@ import io.github.muntashirakon.AppManager.compat.IntegerCompat;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.crypto.auth.AuthManager;
+import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.runner.RunnerUtils;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
@@ -68,7 +70,6 @@ import io.github.muntashirakon.AppManager.settings.Ops;
 import io.github.muntashirakon.AppManager.shortcut.CreateShortcutDialogFragment;
 import io.github.muntashirakon.AppManager.utils.ClipboardUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
-import io.github.muntashirakon.util.AdapterUtils;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.Utils;
@@ -81,6 +82,7 @@ import io.github.muntashirakon.widget.MaterialAutoCompleteTextView;
 // Copyright 2012 Intrications
 public class ActivityInterceptor extends BaseActivity {
     public static final String TAG = ActivityInterceptor.class.getSimpleName();
+    public static final String ALIAS_BROWSER = BuildConfig.APPLICATION_ID + ".intercept.BrowserInterceptor";
 
     public static final String EXTRA_PACKAGE_NAME = BuildConfig.APPLICATION_ID + ".intent.extra.PACKAGE_NAME";
     public static final String EXTRA_CLASS_NAME = BuildConfig.APPLICATION_ID + ".intent.extra.CLASS_NAME";
@@ -292,6 +294,8 @@ public class ActivityInterceptor extends BaseActivity {
     private ComponentName mRequestedComponent;
 
     private boolean mUseRoot;
+    @Nullable
+    private MaterialCheckBox mUseRootCheckBox;
     private int mUserHandle;
 
     @Nullable
@@ -472,19 +476,12 @@ public class ActivityInterceptor extends BaseActivity {
         }
     }
 
-    @NonNull
-    private SimpleArrayMap<String, Object> getExtras() {
-        Bundle intentBundle;
-        if (mMutableIntent == null || (intentBundle = mMutableIntent.getExtras()) == null) {
-            return new SimpleArrayMap<>(0);
+    @Nullable
+    private Bundle getExtras() {
+        if (mMutableIntent != null) {
+            return mMutableIntent.getExtras();
         }
-        SimpleArrayMap<String, Object> extras = new SimpleArrayMap<>();
-        for (String extraKey : intentBundle.keySet()) {
-            Object extraValue = intentBundle.get(extraKey);
-            if (extraValue == null) continue;
-            extras.put(extraKey, extraValue);
-        }
-        return extras;
+        return null;
     }
 
     /**
@@ -585,15 +582,16 @@ public class ActivityInterceptor extends BaseActivity {
         mUserIdEdit.setEnabled(SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.INTERACT_ACROSS_USERS)
                 || SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.INTERACT_ACROSS_USERS_FULL));
         // Setup root
-        MaterialCheckBox useRootCheckBox = findViewById(R.id.use_root);
-        useRootCheckBox.setChecked(mUseRoot);
-        useRootCheckBox.setVisibility(Ops.isWorkingUidRoot() ? View.VISIBLE : View.GONE);
-        useRootCheckBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+        mUseRootCheckBox = findViewById(R.id.use_root);
+        mUseRootCheckBox.setChecked(mUseRoot);
+        updateUseRootVisibility();
+        mUseRootCheckBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (mUseRoot != isChecked) {
                 mUseRoot = isChecked;
                 refreshUI();
             }
         });
+        LocalServices.state().observe(this, ignored -> updateUseRootVisibility());
         // Setup identifier
         TextInputLayout idLayout = findViewById(R.id.type_id_layout);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -710,6 +708,12 @@ public class ActivityInterceptor extends BaseActivity {
             mAreTextWatchersActive = true;
             refreshUI();
         });
+    }
+
+    private void updateUseRootVisibility() {
+        if (mUseRootCheckBox != null) {
+            mUseRootCheckBox.setVisibility(Ops.isWorkingUidRoot() ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void setupTextWatchers() {
@@ -1109,16 +1113,28 @@ public class ActivityInterceptor extends BaseActivity {
         return -1;
     }
 
-    private static class CategoriesRecyclerViewAdapter extends RecyclerView.Adapter<CategoriesRecyclerViewAdapter.ViewHolder> {
-        private final List<String> mCategories = new ArrayList<>();
+    private static class CategoriesRecyclerViewAdapter extends ListAdapter<String, CategoriesRecyclerViewAdapter.ViewHolder> {
         private final ActivityInterceptor mActivity;
 
+        private static final DiffUtil.ItemCallback<String> DIFF_CALLBACK = new DiffUtil.ItemCallback<String>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull String oldItem, @NonNull String newItem) {
+                return Objects.equals(oldItem, newItem);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull String oldItem, @NonNull String newItem) {
+                return true;
+            }
+        };
+
         public CategoriesRecyclerViewAdapter(ActivityInterceptor activity) {
+            super(DIFF_CALLBACK);
             mActivity = activity;
         }
 
         public void setDefaultList(@Nullable Collection<String> categories) {
-            AdapterUtils.notifyDataSetChanged(this, mCategories, categories != null ? new ArrayList<>(categories) : null);
+            submitList(categories != null ? new ArrayList<>(categories) : null);
         }
 
         @NonNull
@@ -1130,7 +1146,7 @@ public class ActivityInterceptor extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            String category = mCategories.get(position);
+            String category = getItem(position);
             holder.title.setText(category);
             holder.title.setTextIsSelectable(true);
             holder.actionIcon.setOnClickListener(v -> {
@@ -1142,11 +1158,6 @@ public class ActivityInterceptor extends BaseActivity {
                     mActivity.showResetIntentButton(true);
                 }
             });
-        }
-
-        @Override
-        public int getItemCount() {
-            return mCategories.size();
         }
 
         static class ViewHolder extends RecyclerView.ViewHolder {
@@ -1162,16 +1173,28 @@ public class ActivityInterceptor extends BaseActivity {
         }
     }
 
-    private static class FlagsRecyclerViewAdapter extends RecyclerView.Adapter<FlagsRecyclerViewAdapter.ViewHolder> {
-        private final List<String> mFlags = new ArrayList<>();
+    private static class FlagsRecyclerViewAdapter extends ListAdapter<String, FlagsRecyclerViewAdapter.ViewHolder> {
         private final ActivityInterceptor mActivity;
 
+        private static final DiffUtil.ItemCallback<String> DIFF_CALLBACK = new DiffUtil.ItemCallback<String>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull String oldItem, @NonNull String newItem) {
+                return Objects.equals(oldItem, newItem);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull String oldItem, @NonNull String newItem) {
+                return true;
+            }
+        };
+
         public FlagsRecyclerViewAdapter(ActivityInterceptor activity) {
+            super(DIFF_CALLBACK);
             mActivity = activity;
         }
 
         public void setDefaultList(@Nullable List<String> flags) {
-            AdapterUtils.notifyDataSetChanged(this, mFlags, flags);
+            submitList(flags != null ? new ArrayList<>(flags) : null);
         }
 
         @NonNull
@@ -1183,7 +1206,7 @@ public class ActivityInterceptor extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            String flagName = mFlags.get(position);
+            String flagName = getItem(position);
             holder.title.setText(flagName);
             holder.title.setTextIsSelectable(true);
             holder.actionIcon.setOnClickListener(v -> {
@@ -1198,11 +1221,6 @@ public class ActivityInterceptor extends BaseActivity {
             });
         }
 
-        @Override
-        public int getItemCount() {
-            return mFlags.size();
-        }
-
         static class ViewHolder extends RecyclerView.ViewHolder {
             TextView title;
             MaterialButton actionIcon;
@@ -1216,16 +1234,51 @@ public class ActivityInterceptor extends BaseActivity {
         }
     }
 
-    private static class ExtrasRecyclerViewAdapter extends RecyclerView.Adapter<ExtrasRecyclerViewAdapter.ViewHolder> {
-        private final SimpleArrayMap<String, Object> mExtras = new SimpleArrayMap<>(0);
+    private static class ExtrasRecyclerViewAdapter extends ListAdapter<ExtrasRecyclerViewAdapter.ExtraPair, ExtrasRecyclerViewAdapter.ViewHolder> {
         private final ActivityInterceptor mActivity;
 
+        static class ExtraPair {
+            @NonNull
+            final String key;
+            @NonNull
+            final Object value;
+
+            ExtraPair(@NonNull String key, @NonNull Object value) {
+                this.key = key;
+                this.value = value;
+            }
+        }
+
+        private static final DiffUtil.ItemCallback<ExtraPair> DIFF_CALLBACK = new DiffUtil.ItemCallback<ExtraPair>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull ExtraPair oldItem, @NonNull ExtraPair newItem) {
+                return Objects.equals(oldItem.key, newItem.key);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull ExtraPair oldItem, @NonNull ExtraPair newItem) {
+                return Objects.equals(oldItem.value, newItem.value);
+            }
+        };
+
         public ExtrasRecyclerViewAdapter(ActivityInterceptor activity) {
+            super(DIFF_CALLBACK);
             mActivity = activity;
         }
 
-        public void setDefaultList(@Nullable SimpleArrayMap<String, Object> extras) {
-            AdapterUtils.notifyDataSetChanged(this, mExtras, extras);
+        public void setDefaultList(@Nullable Bundle extras) {
+            if (extras == null || extras.isEmpty()) {
+                submitList(null);
+                return;
+            }
+            List<ExtraPair> pairs = new ArrayList<>(extras.size());
+            for (String key : extras.keySet()) {
+                Object value = extras.get(key);
+                if (value != null) {
+                    pairs.add(new ExtraPair(key, value));
+                }
+            }
+            submitList(pairs);
         }
 
         @NonNull
@@ -1237,8 +1290,9 @@ public class ActivityInterceptor extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            String key = mExtras.keyAt(position);
-            Object value = mExtras.valueAt(position);
+            ExtraPair pair = getItem(position);
+            String key = pair.key;
+            Object value = pair.value;
             holder.title.setText(key);
             holder.title.setTextIsSelectable(true);
             holder.subtitle.setText(value.toString());
@@ -1248,19 +1302,10 @@ public class ActivityInterceptor extends BaseActivity {
                 if (mActivity.mMutableIntent != null) {
                     mActivity.mMutableIntent.removeExtra(key);
                     mActivity.showTextViewIntentData(null);
-                    int pos = mExtras.indexOfKey(key);
-                    if (pos >= 0) {
-                        mExtras.removeAt(pos);
-                        notifyItemRemoved(pos);
-                    }
+                    setDefaultList(mActivity.mMutableIntent.getExtras());
                     mActivity.showResetIntentButton(true);
                 }
             });
-        }
-
-        @Override
-        public int getItemCount() {
-            return mExtras.size();
         }
 
         static class ViewHolder extends RecyclerView.ViewHolder {
@@ -1282,18 +1327,42 @@ public class ActivityInterceptor extends BaseActivity {
         }
     }
 
-    private static class MatchingActivitiesRecyclerViewAdapter extends RecyclerView.Adapter<MatchingActivitiesRecyclerViewAdapter.ViewHolder> {
-        private final List<ResolveInfo> mMatchingActivities = new ArrayList<>();
+    private static class MatchingActivitiesRecyclerViewAdapter extends ListAdapter<ResolveInfo, MatchingActivitiesRecyclerViewAdapter.ViewHolder> {
         private final PackageManager mPm;
         private final ActivityInterceptor mActivity;
 
-        public MatchingActivitiesRecyclerViewAdapter(ActivityInterceptor activity) {
+        private static final DiffUtil.ItemCallback<ResolveInfo> DIFF_CALLBACK = new DiffUtil.ItemCallback<ResolveInfo>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull ResolveInfo oldItem, @NonNull ResolveInfo newItem) {
+                ActivityInfo oldInfo = oldItem.activityInfo;
+                ActivityInfo newInfo = newItem.activityInfo;
+                if (oldInfo == null || newInfo == null) {
+                    return false;
+                }
+                return Objects.equals(oldInfo.packageName, newInfo.packageName)
+                        && Objects.equals(oldInfo.name, newInfo.name);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull ResolveInfo oldItem, @NonNull ResolveInfo newItem) {
+                ActivityInfo oldInfo = oldItem.activityInfo;
+                ActivityInfo newInfo = newItem.activityInfo;
+                if (oldInfo == null || newInfo == null) {
+                    return false;
+                }
+                return Objects.equals(oldInfo.enabled, newInfo.enabled)
+                        && oldInfo.exported == newInfo.exported;
+            }
+        };
+
+        public MatchingActivitiesRecyclerViewAdapter(@NonNull ActivityInterceptor activity) {
+            super(DIFF_CALLBACK);
             mActivity = activity;
             mPm = activity.getPackageManager();
         }
 
         public void setDefaultList(@Nullable List<ResolveInfo> matchingActivities) {
-            AdapterUtils.notifyDataSetChanged(this, mMatchingActivities, matchingActivities);
+            submitList(matchingActivities != null ? new ArrayList<>(matchingActivities) : null);
         }
 
         @NonNull
@@ -1305,7 +1374,7 @@ public class ActivityInterceptor extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            ResolveInfo resolveInfo = mMatchingActivities.get(position);
+            ResolveInfo resolveInfo = getItem(position);
             ActivityInfo info = resolveInfo.activityInfo;
             holder.title.setText(info.loadLabel(mPm));
             String activityName = info.name;
@@ -1314,19 +1383,17 @@ public class ActivityInterceptor extends BaseActivity {
             holder.subtitle.setTextIsSelectable(true);
             String tag = info.packageName + "_" + activityName;
             holder.icon.setTag(tag);
+            holder.icon.setImageDrawable(null);
             ImageLoader.getInstance().displayImage(tag, info, holder.icon);
             holder.actionIcon.setOnClickListener(v -> {
                 UiUtils.fixFocus(holder.actionIcon);
-                Intent intent = new Intent(mActivity.mMutableIntent);
-                intent.setClassName(info.packageName, activityName);
-                IntentCompat.removeFlags(intent, Intent.FLAG_ACTIVITY_FORWARD_RESULT);
-                mActivity.launchIntent(intent, false);
+                if (mActivity.mMutableIntent != null) {
+                    Intent intent = new Intent(mActivity.mMutableIntent);
+                    intent.setClassName(info.packageName, activityName);
+                    IntentCompat.removeFlags(intent, Intent.FLAG_ACTIVITY_FORWARD_RESULT);
+                    mActivity.launchIntent(intent, false);
+                }
             });
-        }
-
-        @Override
-        public int getItemCount() {
-            return mMatchingActivities.size();
         }
 
         static class ViewHolder extends RecyclerView.ViewHolder {

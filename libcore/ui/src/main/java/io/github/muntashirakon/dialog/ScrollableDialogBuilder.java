@@ -159,6 +159,12 @@ public class ScrollableDialogBuilder {
         return this;
     }
 
+    public ScrollableDialogBuilder setOnDismissListener(
+            @Nullable android.content.DialogInterface.OnDismissListener listener) {
+        mBuilder.setOnDismissListener(listener);
+        return this;
+    }
+
     @NonNull
     public AlertDialog create() {
         return mBuilder.create();

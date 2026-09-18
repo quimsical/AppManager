@@ -140,6 +140,7 @@ public class AdvancedPreferences extends PreferenceFragment {
                     .setPositiveButton(R.string.save, (dialog, which, inputText, isChecked) -> {
                         if (inputText != null && TextUtils.isDigitsOnly(inputText)) {
                             int c = Integer.decode(inputText.toString());
+                            // TODO: 10/18/25 If the port number is different, restart the local server with this new port if possible.
                             Prefs.Misc.setAdbLocalServerPort(c);
                             adbLsPort.setSummary(String.valueOf(c));
                         }
@@ -162,8 +163,6 @@ public class AdvancedPreferences extends PreferenceFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setEnterTransition(new MaterialSharedAxis(MaterialSharedAxis.Z, true));
-        setReturnTransition(new MaterialSharedAxis(MaterialSharedAxis.Z, false));
     }
 
     @Override

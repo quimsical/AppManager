@@ -23,8 +23,11 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.widget.SearchView;
 import androidx.collection.ArrayMap;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -65,6 +68,7 @@ import io.github.muntashirakon.AppManager.filters.FinderActivity;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
 import io.github.muntashirakon.AppManager.misc.HelpActivity;
 import io.github.muntashirakon.AppManager.misc.LabsActivity;
+import io.github.muntashirakon.AppManager.misc.SearchViewDebouncer;
 import io.github.muntashirakon.AppManager.oneclickops.OneClickOpsActivity;
 import io.github.muntashirakon.AppManager.profiles.AddToProfileDialogFragment;
 import io.github.muntashirakon.AppManager.profiles.ProfilesActivity;
@@ -90,8 +94,8 @@ import io.github.muntashirakon.util.UiUtils;
 import io.github.muntashirakon.widget.MultiSelectionView;
 import io.github.muntashirakon.widget.SwipeRefreshLayout;
 
-public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQueryTextListener,
-        SwipeRefreshLayout.OnRefreshListener, MultiSelectionActionsView.OnItemSelectedListener,
+public class MainActivity extends BaseActivity implements SwipeRefreshLayout.OnRefreshListener,
+        MultiSelectionActionsView.OnItemSelectedListener,
         MultiSelectionView.OnSelectionModeChangeListener {
     private static final String PACKAGE_NAME_APK_UPDATER = "com.apkupdater";
     private static final String ACTIVITY_NAME_APK_UPDATER = "com.apkupdater.activity.MainActivity";
@@ -102,6 +106,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
 
     private MainRecyclerAdapter mAdapter;
     private AdvancedSearchView mSearchView;
+    private SearchViewDebouncer mSearchDebouncer;
     private LinearProgressIndicator mProgressIndicator;
     private SwipeRefreshLayout mSwipeRefresh;
     private MultiSelectionView mMultiSelectionView;
@@ -202,20 +207,17 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         if (actionBar != null) {
             actionBar.setDisplayShowCustomEnabled(true);
             actionBar.setDisplayOptions(0, ActionBar.DISPLAY_SHOW_TITLE);
-            AdvancedSearchView searchView = new AdvancedSearchView(actionBar.getThemedContext());
-            searchView.setId(R.id.action_search);
-            searchView.setOnQueryTextListener(this);
+            mSearchView = new AdvancedSearchView(actionBar.getThemedContext());
+            mSearchView.setId(R.id.action_search);
             // Set layout params
             ActionBar.LayoutParams layoutParams = new ActionBar.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             layoutParams.gravity = Gravity.CENTER;
-            actionBar.setCustomView(searchView, layoutParams);
-            mSearchView = searchView;
+            actionBar.setCustomView(mSearchView, layoutParams);
             mSearchView.setIconifiedByDefault(false);
-            mSearchView.setOnFocusChangeListener((v, hasFocus) -> {
-                if (!hasFocus) {
-                    UiUtils.hideKeyboard(v);
-                }
+            mSearchDebouncer = new SearchViewDebouncer(SearchViewDebouncer.DELAY_STANDARD);
+            mSearchDebouncer.bindAdvanced(mSearchView, (query, type) -> {
+                if (viewModel != null) viewModel.setSearchQuery(query, type);
             });
             // Check for market://search/?q=<query>
             Uri marketUri = getIntent().getData();
@@ -267,7 +269,9 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
 
         // Set observer
         viewModel.getApplicationItems().observe(this, applicationItems -> {
-            if (mAdapter != null) mAdapter.setDefaultList(applicationItems);
+            if (mAdapter != null) {
+                mAdapter.setDefaultList(applicationItems);
+            }
             showProgressIndicator(false);
         });
         viewModel.getOperationStatus().observe(this, status -> {
@@ -443,7 +447,8 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
             DexOptDialog dialog = DexOptDialog.getInstance(viewModel.getSelectedPackages().keySet().toArray(new String[0]));
             dialog.show(getSupportFragmentManager(), DexOptDialog.TAG);
         } else if (id == R.id.action_export_blocking_rules) {
-            final String fileName = "app_manager_rules_export-" + DateUtils.formatDateTime(this, System.currentTimeMillis()) + ".am.tsv";
+            final String fileName = "app_manager_rules_export-"
+                    + DateUtils.formatDateTimeForFilename(this, System.currentTimeMillis()) + ".am.tsv";
             mBatchExportRules.launch(fileName);
         } else if (id == R.id.action_export_app_list) {
             List<Integer> exportTypes = Arrays.asList(ListExporter.EXPORT_TYPE_CSV,
@@ -456,7 +461,8 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                         if (!isChecked) {
                             return;
                         }
-                        String filename = "app_manager_app_list-" + DateUtils.formatLongDateTime(this, System.currentTimeMillis()) + ".am";
+                        String filename = "app_manager_app_list-"
+                                + DateUtils.formatLongDateTimeForFilename(this, System.currentTimeMillis()) + ".am";
                         switch (item1) {
                             case ListExporter.EXPORT_TYPE_CSV:
                                 mExportAppListCsv.launch(filename + ".csv");
@@ -524,6 +530,8 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
         }
     }
 
+    private boolean mImsVisibleBeforeLeave = false;
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -532,14 +540,36 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
             mBatchOpsHandler.updateConstraints();
             mMultiSelectionView.updateCounter(false);
         }
+        if (mSearchView != null) {
+            mSearchView.post(() -> {
+                if (mImsVisibleBeforeLeave) {
+                    mSearchView.requestFocus();
+                    UiUtils.showKeyboard(mSearchView);
+                }
+            });
+        }
         ContextCompat.registerReceiver(this, mBatchOpsBroadCastReceiver,
                 new IntentFilter(BatchOpsService.ACTION_BATCH_OPS_COMPLETED), ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
     protected void onPause() {
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(getWindow().getDecorView());
+        mImsVisibleBeforeLeave = insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
+        View focusedView = getCurrentFocus();
+        if (focusedView instanceof SearchView.SearchAutoComplete) {
+            focusedView.clearFocus();
+        }
         super.onPause();
         unregisterReceiver(mBatchOpsBroadCastReceiver);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mSearchDebouncer != null) {
+            mSearchDebouncer.unbind();
+        }
     }
 
     private void displayChangelogIfRequired() {
@@ -570,7 +600,7 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
                             recyclerView.setLayoutManager(new LinearLayoutManager(recyclerView.getContext()));
                             ChangelogRecyclerAdapter adapter = new ChangelogRecyclerAdapter();
                             recyclerView.setAdapter(adapter);
-                            adapter.setAdapterList(changelog.getChangelogItems());
+                            adapter.submitList(changelog.getChangelogItems());
                             new AlertDialogBuilder(this, true)
                                     .setTitle(R.string.changelog)
                                     .setView(recyclerView)
@@ -626,16 +656,5 @@ public class MainActivity extends BaseActivity implements AdvancedSearchView.OnQ
     void showProgressIndicator(boolean show) {
         if (show) mProgressIndicator.show();
         else mProgressIndicator.hide();
-    }
-
-    @Override
-    public boolean onQueryTextChange(String searchQuery, @AdvancedSearchView.SearchType int type) {
-        if (viewModel != null) viewModel.setSearchQuery(searchQuery, type);
-        return true;
-    }
-
-    @Override
-    public boolean onQueryTextSubmit(String query, int type) {
-        return false;
     }
 }

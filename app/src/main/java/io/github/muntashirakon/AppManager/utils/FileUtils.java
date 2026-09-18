@@ -13,8 +13,10 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.system.StructStat;
 
 import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
@@ -33,6 +35,8 @@ import java.util.zip.ZipEntry;
 
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.progress.ProgressHandler;
+import io.github.muntashirakon.AppManager.runner.Runner;
+import io.github.muntashirakon.AppManager.runner.RunnerUtils;
 import io.github.muntashirakon.AppManager.self.filecache.FileCache;
 import io.github.muntashirakon.io.FileSystemManager;
 import io.github.muntashirakon.io.IoUtils;
@@ -119,24 +123,28 @@ public final class FileUtils {
             throws IOException {
         try (InputStream in = from.openInputStream();
              OutputStream out = to.openOutputStream()) {
-            return copy(in, out, from.length(), progressHandler);
+            return copy(in, out, from.length(), 0, progressHandler);
         }
     }
 
     /**
-     * Copy the contents of one stream to another.
+     * Copy the contents of one stream to another as part of a larger copy operation.
      *
-     * @param totalSize Total size of the stream. Only used for handling progress. Set {@code -1} if unknown.
+     * @param totalSize     Total size of the larger operation in bytes.
+     * @param completedSize Number of bytes completed before this stream.
      */
     @AnyThread
     public static long copy(@NonNull InputStream in, @NonNull OutputStream out, long totalSize,
-                            @Nullable ProgressHandler progressHandler) throws IOException {
-        float lastProgress = progressHandler != null ? progressHandler.getLastProgress() : 0;
-        return IoUtils.copy(in, out, ThreadUtils.getBackgroundThreadExecutor(), progress -> {
-            if (progressHandler != null) {
-                progressHandler.postUpdate(100, lastProgress + (progress * 100f / totalSize));
+                            long completedSize, @Nullable ProgressHandler progressHandler) throws IOException {
+        long copiedSize = IoUtils.copy(in, out, Runnable::run, progress -> {
+            if (progressHandler != null && totalSize > 0) {
+                progressHandler.postUpdate(100, (completedSize + progress) * 100f / totalSize);
             }
         });
+        if (progressHandler != null && totalSize > 0) {
+            progressHandler.postUpdate(100, (completedSize + copiedSize) * 100f / totalSize);
+        }
+        return copiedSize;
     }
 
     @WorkerThread
@@ -169,18 +177,12 @@ public final class FileUtils {
     @AnyThread
     @NonNull
     public static File getExternalCachePath(@NonNull Context context) throws FileNotFoundException {
-        return getBestExternalPath(context.getExternalCacheDirs());
+        return getBestExternalDataSubdir(context.getExternalCacheDirs());
     }
 
     @AnyThread
     @NonNull
-    public static File getExternalMediaPath(@NonNull Context context) throws FileNotFoundException {
-        return getBestExternalPath(context.getExternalMediaDirs());
-    }
-
-    @AnyThread
-    @NonNull
-    public static File getBestExternalPath(@Nullable File[] extDirs) throws FileNotFoundException {
+    public static File getBestExternalDataSubdir(@Nullable File[] extDirs) throws FileNotFoundException {
         if (extDirs == null) {
             throw new FileNotFoundException("Shared storage unavailable.");
         }
@@ -192,6 +194,11 @@ public final class FileUtils {
                 continue;
             }
             if (!(extDir.exists() || extDir.mkdirs())) {
+                // Try to recreate this with root
+                if (RunnerUtils.isRootGiven() && forceCreateExternalDataSubDir(extDir)) {
+                    Log.i(TAG, "Root created %s", extDir);
+                    return extDir;
+                }
                 lastReason = extDir + ": permission denied.";
                 Log.w(TAG, "Could not use %s.", extDir);
                 continue;
@@ -205,6 +212,50 @@ public final class FileUtils {
             return extDir;
         }
         throw new FileNotFoundException(lastReason != null ? lastReason : "No available shared storage found.");
+    }
+
+    public static boolean forceCreateExternalDataSubDir(@NonNull File dir) {
+        File parentFile = Objects.requireNonNull(dir.getParentFile());
+        String parent = parentFile.getAbsolutePath();
+        String target = dir.getAbsolutePath();
+        String chownTarget;
+        boolean createParent = !parentFile.exists();
+        if (createParent) {
+            // Some rooted Android ROMs cannot create the package directory under Android/data.
+            int uid = Process.myUid();
+            chownTarget = uid + ":" + uid;
+        } else {
+            try {
+                StructStat parentStat = Os.stat(parent);
+                chownTarget = parentStat.st_uid + ":" + parentStat.st_gid;
+            } catch (ErrnoException e) {
+                // Fallback to shell
+                Runner.Result result = Runner.runCommand(new String[]{"stat", "-c", "%u:%g", parent});
+                String output = result.getOutput();
+                if (result.isSuccessful() && !output.isEmpty()) {
+                    chownTarget = output.trim();
+                } else {
+                    // Didn't work
+                    Log.w(TAG, "Could not retrieve UID:GID from " + parent);
+                    return false;
+                }
+            }
+        }
+
+        // If the package directory is absent, fix the whole newly-created hierarchy so the app
+        // can traverse it. Otherwise preserve the package directory's existing metadata.
+        String metadataTarget = createParent ? parent : target;
+        if (!Runner.runCommand(new String[]{"mkdir", "-p", target}).isSuccessful()
+                || !Runner.runCommand(new String[]{"chmod", "-R", "770", metadataTarget}).isSuccessful()
+                || !Runner.runCommand(new String[]{"chown", "-R", chownTarget, metadataTarget}).isSuccessful()) {
+            return false;
+        }
+        if (!Runner.runCommand(new String[]{"restorecon", "-R", metadataTarget}).isSuccessful()) {
+            // Emulated storage may reject restorecon even though vold/FUSE already supplies the
+            // correct label
+            Log.w(TAG, "Could not restore SELinux context for %s", metadataTarget);
+        }
+        return true;
     }
 
     @AnyThread

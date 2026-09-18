@@ -3,6 +3,7 @@
 package io.github.muntashirakon.AppManager.misc;
 
 import android.app.Application;
+import android.content.DialogInterface;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -34,6 +35,23 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
     public static final String TAG = ListOptions.class.getSimpleName();
 
     public interface ListOptionActions {
+        default boolean supportsFolderOnly() {
+            return false;
+        }
+
+        default void onOptionsOpened() {
+        }
+
+        default void onOptionsClosed() {
+        }
+
+        default boolean isFolderOnly() {
+            return false;
+        }
+
+        default void setFolderOnly(boolean folderOnly) {
+        }
+
         default void setReverseSort(boolean reverseSort) {
         }
 
@@ -67,9 +85,12 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
     }
 
     private TextView mSortText;
+    private View mSortHeader;
     private ChipGroup mSortGroup;
     private MaterialCheckBox mReverseSort;
+    private MaterialCheckBox mFolderOnly;
     private TextView mFilterText;
+    private View mFilterHeader;
     private ChipGroup mFilterOptions;
     private TextView mOptionsText;
     private LinearLayoutCompat mOptionsView;
@@ -100,9 +121,12 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
         super.onViewCreated(view, savedInstanceState);
         mListOptionsViewModel = new ViewModelProvider(this).get(ListOptionsViewModel.class);
         mSortText = view.findViewById(R.id.sort_text);
+        mSortHeader = view.findViewById(R.id.sort_header);
         mSortGroup = view.findViewById(R.id.sort_options);
         mReverseSort = view.findViewById(R.id.reverse_sort);
+        mFolderOnly = view.findViewById(R.id.folder_only);
         mFilterText = view.findViewById(R.id.filter_text);
+        mFilterHeader = view.findViewById(R.id.filter_header);
         mFilterOptions = view.findViewById(R.id.filter_options);
         mOptionsText = view.findViewById(R.id.options_text);
         mOptionsView = view.findViewById(R.id.options);
@@ -150,9 +174,18 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
     }
 
     private void init(boolean reinit) {
+        if (reinit) {
+            mSortGroup.removeAllViews();
+            mFilterOptions.removeAllViews();
+            mOptionsView.removeAllViews();
+        }
+        ListOptionActions actions = requireListOptionActions();
+        actions.onOptionsOpened();
+
         // Enable sorting
         LinkedHashMap<Integer, Integer> sortIdLocaleMap = getSortIdLocaleMap();
         boolean sortingEnabled = sortIdLocaleMap != null;
+        mSortHeader.setVisibility(sortingEnabled ? View.VISIBLE : View.GONE);
         mSortText.setVisibility(sortingEnabled ? View.VISIBLE : View.GONE);
         mSortGroup.setVisibility(sortingEnabled ? View.VISIBLE : View.GONE);
         mReverseSort.setVisibility(sortingEnabled ? View.VISIBLE : View.GONE);
@@ -163,17 +196,34 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
                 mSortGroup.addView(getRadioChip(sortId, sortStringRes), i);
                 ++i;
             }
-            mSortGroup.check(requireListOptionActions().getSortBy());
+            mSortGroup.check(actions.getSortBy());
             mSortGroup.setOnCheckedStateChangeListener((group, checkedIds) ->
                     requireListOptionActions().setSortBy(mSortGroup.getCheckedChipId()));
-            mReverseSort.setChecked(requireListOptionActions().isReverseSort());
+            mReverseSort.setChecked(actions.isReverseSort());
             mReverseSort.setOnCheckedChangeListener((buttonView, isChecked) ->
                     requireListOptionActions().setReverseSort(isChecked));
+            boolean folderOnlyEnabled = actions.supportsFolderOnly();
+            mFolderOnly.setVisibility(folderOnlyEnabled ? View.VISIBLE : View.GONE);
+            if (folderOnlyEnabled) {
+                mFolderOnly.setChecked(actions.isFolderOnly());
+                mFolderOnly.setOnCheckedChangeListener((buttonView, isChecked) ->
+                {
+                    actions.setFolderOnly(isChecked);
+                    if (!isChecked) {
+                        // Unchecking the scope restores the global sorting options
+                        mSortGroup.check(actions.getSortBy());
+                        mReverseSort.setChecked(actions.isReverseSort());
+                    }
+                });
+            }
+        } else {
+            mFolderOnly.setVisibility(View.GONE);
         }
 
         // Enable filtering
         LinkedHashMap<Integer, Integer> filterFlagLocaleMap = getFilterFlagLocaleMap();
         boolean filteringEnabled = filterFlagLocaleMap != null;
+        mFilterHeader.setVisibility(filteringEnabled ? View.VISIBLE : View.GONE);
         mFilterText.setVisibility(filteringEnabled ? View.VISIBLE : View.GONE);
         mFilterOptions.setVisibility(filteringEnabled ? View.VISIBLE : View.GONE);
         if (filteringEnabled) {
@@ -218,6 +268,17 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
         } else if (optionsEnabled && mOptionsView.getChildCount() > 0) {
             mOptionsView.getChildAt(0).requestFocus();
         }
+    }
+
+    @Override
+    public void onDismiss(@NonNull DialogInterface dialog) {
+        if (mListOptionsViewModel != null) {
+            ListOptionActions actions = mListOptionsViewModel.getListOptionActions();
+            if (actions != null) {
+                actions.onOptionsClosed();
+            }
+        }
+        super.onDismiss(dialog);
     }
 
     @NonNull

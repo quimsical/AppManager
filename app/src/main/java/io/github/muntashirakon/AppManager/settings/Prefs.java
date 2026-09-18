@@ -23,15 +23,22 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
+import io.github.muntashirakon.AppManager.apk.installer.InstallerOptions;
 import io.github.muntashirakon.AppManager.apk.signing.SigSchemes;
 import io.github.muntashirakon.AppManager.apk.signing.Signer;
 import io.github.muntashirakon.AppManager.backup.BackupFlags;
 import io.github.muntashirakon.AppManager.backup.CryptoUtils;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.details.AppDetailsFragment;
+import io.github.muntashirakon.AppManager.details.AppDetailsTab;
+import io.github.muntashirakon.AppManager.details.AppDetailsTabs;
 import io.github.muntashirakon.AppManager.fm.FmActivity;
 import io.github.muntashirakon.AppManager.fm.FmListOptions;
 import io.github.muntashirakon.AppManager.logcat.helper.LogcatHelper;
@@ -55,6 +62,105 @@ import io.github.muntashirakon.io.Paths;
 // changes to the settings are not immediately reflected unless the settings page is opened from the page itself.
 public final class Prefs {
     public static final class AppDetailsPage {
+        private static final int TAB_ID_MASK = AppDetailsTabs.getAllTabFlags();
+
+        @NonNull
+        public static List<Integer> getTabOrder() {
+            String serializedOrder = AppPref.getString(AppPref.PrefKey.PREF_APP_DETAILS_TABS_ORDER_STR);
+            List<Integer> order = new ArrayList<>();
+            Set<Integer> seen = new HashSet<>();
+            for (String value : serializedOrder.split(",")) {
+                try {
+                    int id = Integer.parseInt(value.trim());
+                    if (AppDetailsTabs.isKnownTabId(id) && seen.add(id)) {
+                        order.add(id);
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            // Handle newly added tabs if any
+            for (AppDetailsTab tab : AppDetailsTabs.getDefaultTabs()) {
+                if (seen.add(tab.getId())) order.add(tab.getId());
+            }
+            String normalizedOrder = serializeTabOrder(order);
+            if (!normalizedOrder.equals(serializedOrder)) {
+                AppPref.set(AppPref.PrefKey.PREF_APP_DETAILS_TABS_ORDER_STR, normalizedOrder);
+            }
+            return order;
+        }
+
+        public static void setTabOrder(@NonNull List<Integer> order) {
+            List<Integer> normalizedOrder = new ArrayList<>();
+            Set<Integer> seen = new HashSet<>();
+            for (Integer id : order) {
+                if (id != null && AppDetailsTabs.isKnownTabId(id) && seen.add(id)) {
+                    normalizedOrder.add(id);
+                }
+            }
+            // Handle newly added tabs if any
+            for (AppDetailsTab tab : AppDetailsTabs.getDefaultTabs()) {
+                if (seen.add(tab.getId())) normalizedOrder.add(tab.getId());
+            }
+            AppPref.set(AppPref.PrefKey.PREF_APP_DETAILS_TABS_ORDER_STR, serializeTabOrder(normalizedOrder));
+        }
+
+        public static int getEnabledTabFlags() {
+            int enabledTabs = AppPref.getInt(AppPref.PrefKey.PREF_APP_DETAILS_TABS_ENABLED_INT) & TAB_ID_MASK;
+            if (enabledTabs == 0) {
+                enabledTabs = 1 << AppDetailsFragment.APP_INFO;
+                AppPref.set(AppPref.PrefKey.PREF_APP_DETAILS_TABS_ENABLED_INT, enabledTabs);
+            }
+            return enabledTabs;
+        }
+
+        public static void setEnabledTabFlags(int enabledTabs) {
+            enabledTabs &= TAB_ID_MASK;
+            if (enabledTabs == 0) enabledTabs = 1 << AppDetailsFragment.APP_INFO;
+            AppPref.set(AppPref.PrefKey.PREF_APP_DETAILS_TABS_ENABLED_INT, enabledTabs);
+            int startTab = getInitialTab();
+            if ((enabledTabs & (1 << startTab)) == 0) {
+                setInitialTab(findFirstEnabledTab(enabledTabs));
+            }
+        }
+
+        public static boolean isTabEnabled(@AppDetailsFragment.Property int id) {
+            return (getEnabledTabFlags() & (1 << id)) != 0;
+        }
+
+        @AppDetailsFragment.Property
+        public static int getInitialTab() {
+            int startTab = AppPref.getInt(AppPref.PrefKey.PREF_APP_DETAILS_TABS_START_INT);
+            if (!AppDetailsTabs.isKnownTabId(startTab) || !isTabEnabled(startTab)) {
+                startTab = findFirstEnabledTab(getEnabledTabFlags());
+                AppPref.set(AppPref.PrefKey.PREF_APP_DETAILS_TABS_START_INT, startTab);
+            }
+            return startTab;
+        }
+
+        public static void setInitialTab(@AppDetailsFragment.Property int id) {
+            if (!AppDetailsTabs.isKnownTabId(id) || !isTabEnabled(id)) {
+                id = findFirstEnabledTab(getEnabledTabFlags());
+            }
+            AppPref.set(AppPref.PrefKey.PREF_APP_DETAILS_TABS_START_INT, id);
+        }
+
+        private static int findFirstEnabledTab(int enabledTabs) {
+            for (AppDetailsTab tab : AppDetailsTabs.getDefaultTabs()) {
+                if ((enabledTabs & (1 << tab.getId())) != 0) return tab.getId();
+            }
+            return AppDetailsFragment.APP_INFO;
+        }
+
+        @NonNull
+        private static String serializeTabOrder(@NonNull List<Integer> order) {
+            StringBuilder serializedOrder = new StringBuilder();
+            for (int i = 0; i < order.size(); ++i) {
+                if (i > 0) serializedOrder.append(',');
+                serializedOrder.append(order.get(i));
+            }
+            return serializedOrder.toString();
+        }
+
         public static boolean displayDefaultAppOps() {
             return AppPref.getBoolean(AppPref.PrefKey.PREF_APP_OP_SHOW_DEFAULT_BOOL);
         }
@@ -288,6 +394,29 @@ public final class Prefs {
     }
 
     public static final class FileManager {
+        public static final String FILENAME_ELLIPSIZE_START = "start";
+        public static final String FILENAME_ELLIPSIZE_END = "end";
+        public static final String FILENAME_ELLIPSIZE_MIDDLE = "middle";
+        public static final String FILENAME_ELLIPSIZE_MARQUEE = "marquee";
+
+        @NonNull
+        public static String getFilenameEllipsize() {
+            String ellipsize = AppPref.getString(AppPref.PrefKey.PREF_FM_FILENAME_ELLIPSIZE_STR);
+            switch (ellipsize) {
+                case FILENAME_ELLIPSIZE_START:
+                case FILENAME_ELLIPSIZE_END:
+                case FILENAME_ELLIPSIZE_MIDDLE:
+                case FILENAME_ELLIPSIZE_MARQUEE:
+                    return ellipsize;
+                default:
+                    return FILENAME_ELLIPSIZE_MIDDLE;
+            }
+        }
+
+        public static void setFilenameEllipsize(@NonNull String ellipsize) {
+            AppPref.set(AppPref.PrefKey.PREF_FM_FILENAME_ELLIPSIZE_STR, ellipsize);
+        }
+
         public static boolean displayInLauncher() {
             ComponentName componentName = new ComponentName(BuildConfig.APPLICATION_ID, FmActivity.LAUNCHER_ALIAS);
             int state = ContextUtils.getContext().getPackageManager().getComponentEnabledSetting(componentName);
@@ -407,11 +536,13 @@ public final class Prefs {
         }
 
         public static int getInstallLocation() {
-            return AppPref.getInt(AppPref.PrefKey.PREF_INSTALLER_INSTALL_LOCATION_INT);
+            return InstallerOptions.normalizeInstallLocation(
+                    AppPref.getInt(AppPref.PrefKey.PREF_INSTALLER_INSTALL_LOCATION_INT));
         }
 
         public static void setInstallLocation(int installLocation) {
-            AppPref.set(AppPref.PrefKey.PREF_INSTALLER_INSTALL_LOCATION_INT, installLocation);
+            AppPref.set(AppPref.PrefKey.PREF_INSTALLER_INSTALL_LOCATION_INT,
+                    InstallerOptions.normalizeInstallLocation(installLocation));
         }
 
         @NonNull
@@ -431,11 +562,13 @@ public final class Prefs {
         }
 
         public static int getPackageSource() {
-            return AppPref.getInt(AppPref.PrefKey.PREF_INSTALLER_DEFAULT_PKG_SOURCE_INT);
+            return InstallerOptions.normalizePackageSource(
+                    AppPref.getInt(AppPref.PrefKey.PREF_INSTALLER_DEFAULT_PKG_SOURCE_INT));
         }
 
         public static void setPackageSource(int source) {
-            AppPref.set(AppPref.PrefKey.PREF_INSTALLER_DEFAULT_PKG_SOURCE_INT, source);
+            AppPref.set(AppPref.PrefKey.PREF_INSTALLER_DEFAULT_PKG_SOURCE_INT,
+                    InstallerOptions.normalizePackageSource(source));
         }
 
         public static boolean requestUpdateOwnership() {

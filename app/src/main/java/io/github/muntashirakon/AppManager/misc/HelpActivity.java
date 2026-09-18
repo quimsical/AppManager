@@ -32,11 +32,12 @@ import io.github.muntashirakon.AppManager.utils.appearance.AppearanceUtils;
 import io.github.muntashirakon.util.UiUtils;
 import me.zhanghai.android.fastscroll.FastScrollerBuilder;
 
-public class HelpActivity extends BaseActivity implements SearchView.OnQueryTextListener {
+public class HelpActivity extends BaseActivity {
     private LinearLayoutCompat mContainer;
     private WebView mWebView;
     private LinearLayoutCompat mSearchContainer;
     private SearchView mSearchView;
+    private SearchViewDebouncer mSearchDebouncer;
     private final OnBackPressedCallback mOnBackPressedCallback = new OnBackPressedCallback(false) {
         @Override
         public void handleOnBackPressed() {
@@ -85,17 +86,26 @@ public class HelpActivity extends BaseActivity implements SearchView.OnQueryText
         Button nextButton = findViewById(R.id.next_button);
         Button previousButton = findViewById(R.id.previous_button);
         mSearchView = findViewById(R.id.search_bar);
-        mSearchView.findViewById(com.google.android.material.R.id.search_close_btn).setOnClickListener(v -> {
+        mSearchView.findViewById(androidx.appcompat.R.id.search_close_btn).setOnClickListener(v -> {
             mWebView.clearMatches();
             mSearchView.setQuery(null, false);
             Transition sharedAxis = new MaterialSharedAxis(MaterialSharedAxis.Y, true);
             TransitionManager.beginDelayedTransition(mContainer, sharedAxis);
             mSearchContainer.setVisibility(View.GONE);
         });
-        mSearchView.setOnQueryTextListener(this);
+        mSearchDebouncer = new SearchViewDebouncer(SearchViewDebouncer.DELAY_STANDARD);
+        mSearchDebouncer.bind(mSearchView, query -> mWebView.findAllAsync(query));
         nextButton.setOnClickListener(v -> mWebView.findNext(true));
         previousButton.setOnClickListener(v -> mWebView.findNext(false));
         new FastScrollerBuilder(mWebView).useMd2Style().build();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mSearchDebouncer != null) {
+            mSearchDebouncer.unbind();
+        }
     }
 
     @Override
@@ -130,17 +140,6 @@ public class HelpActivity extends BaseActivity implements SearchView.OnQueryText
             return true;
         }
         return super.onOptionsItemSelected(item);
-    }
-
-    @Override
-    public boolean onQueryTextSubmit(String query) {
-        return false;
-    }
-
-    @Override
-    public boolean onQueryTextChange(String newText) {
-        mWebView.findAllAsync(newText);
-        return true;
     }
 
     private void openDocsSite() {

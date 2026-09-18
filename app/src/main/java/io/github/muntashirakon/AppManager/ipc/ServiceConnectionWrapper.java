@@ -25,44 +25,83 @@ class ServiceConnectionWrapper {
     public static final String TAG = ServiceConnectionWrapper.class.getSimpleName();
 
     @Nullable
-    private IBinder mIBinder;
+    private volatile IBinder mIBinder;
     @Nullable
-    private CountDownLatch mServiceBoundWatcher;
+    private volatile CountDownLatch mServiceBoundWatcher;
+    @Nullable
+    private final Runnable mDeathCallback;
 
     private class ServiceConnectionImpl implements ServiceConnection {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             Log.d(TAG, "service onServiceConnected: %s", name);
-            mIBinder = service;
+            synchronized (this) {
+                // The callback may arrive after stopDaemon() cancelled the bind.
+                if (mServiceBoundWatcher == null) {
+                    RootService.stop(new Intent().setComponent(mComponentName));
+                    return;
+                }
+                mIBinder = service;
+            }
+            try {
+                service.linkToDeath(() -> {
+                    boolean binderDied;
+                    synchronized (ServiceConnectionImpl.this) {
+                        binderDied = mIBinder == service;
+                        if (binderDied) {
+                            mIBinder = null;
+                        }
+                    }
+                    if (binderDied && mDeathCallback != null) {
+                        mDeathCallback.run();
+                    }
+                }, 0);
+            } catch (RemoteException e) {
+                synchronized (this) {
+                    mIBinder = null;
+                }
+            }
             onResponseReceived();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             Log.d(TAG, "service onServiceDisconnected: %s", name);
-            mIBinder = null;
+            onBinderLost();
             onResponseReceived();
         }
 
         @Override
         public void onBindingDied(ComponentName name) {
             Log.d(TAG, "service onBindingDied: %s", name);
-            mIBinder = null;
+            onBinderLost();
             onResponseReceived();
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
             Log.d(TAG, "service onNullBinding: %s", name);
-            mIBinder = null;
+            onBinderLost();
             onResponseReceived();
         }
 
+        private void onBinderLost() {
+            boolean binderLost;
+            synchronized (this) {
+                binderLost = mIBinder != null;
+                mIBinder = null;
+            }
+            if (binderLost && mDeathCallback != null) {
+                mDeathCallback.run();
+            }
+        }
+
         private void onResponseReceived() {
-            if (mServiceBoundWatcher != null) {
-                // Should never be null
+            synchronized (this) {
+                if (mServiceBoundWatcher != null) {
                 mServiceBoundWatcher.countDown();
-            } else throw new RuntimeException("Service watcher should never be null!");
+                }
+            }
         }
     }
 
@@ -72,11 +111,21 @@ class ServiceConnectionWrapper {
     private final ServiceConnectionImpl mServiceConnection;
 
     public ServiceConnectionWrapper(@NonNull String pkgName, @NonNull String className) {
-        this(new ComponentName(pkgName, className));
+        this(new ComponentName(pkgName, className), null);
+    }
+
+    public ServiceConnectionWrapper(@NonNull String pkgName, @NonNull String className,
+                                    @Nullable Runnable deathCallback) {
+        this(new ComponentName(pkgName, className), deathCallback);
     }
 
     public ServiceConnectionWrapper(@NonNull ComponentName cn) {
+        this(cn, null);
+    }
+
+    public ServiceConnectionWrapper(@NonNull ComponentName cn, @Nullable Runnable deathCallback) {
         mComponentName = cn;
+        mDeathCallback = deathCallback;
         mServiceConnection = new ServiceConnectionImpl();
     }
 
@@ -91,12 +140,10 @@ class ServiceConnectionWrapper {
     @NonNull
     @NoOps(used = true)
     public IBinder bindService() throws RemoteException {
-        synchronized (mServiceConnection) {
-            if (!isBinderActive()) {
-                startDaemon();
-            }
-            return getService();
+        if (!isBinderActive()) {
+            startDaemon();
         }
+        return getService();
     }
 
     @MainThread
@@ -108,26 +155,38 @@ class ServiceConnectionWrapper {
 
     @WorkerThread
     private void startDaemon() {
+        CountDownLatch serviceBoundWatcher;
         synchronized (mServiceConnection) {
             if (isBinderActive()) {
                 Log.d(TAG, "Binder is already active?");
                 return;
             }
-            mServiceBoundWatcher = new CountDownLatch(1);
-            Log.d(TAG, "Launching service...");
-            Intent intent = new Intent();
-            intent.setComponent(mComponentName);
-            ThreadUtils.postOnMainThread(() -> {
-                if (mIBinder != null) {
-                    RootService.stop(intent);
+            serviceBoundWatcher = mServiceBoundWatcher;
+            if (serviceBoundWatcher == null) {
+                serviceBoundWatcher = new CountDownLatch(1);
+                mServiceBoundWatcher = serviceBoundWatcher;
+                Log.d(TAG, "Launching service...");
+                Intent intent = new Intent();
+                intent.setComponent(mComponentName);
+                ThreadUtils.postOnMainThread(() -> {
+                    if (mIBinder != null) {
+                        RootService.stop(intent);
+                    }
+                    RootService.bind(intent, mServiceConnection);
+                });
+            }
+        }
+        // Wait for service to be bound without holding mServiceConnection. The stop path may
+        // need the same lock to cancel a bind that never receives a callback.
+        try {
+            serviceBoundWatcher.await(45, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Service watcher interrupted.");
+        } finally {
+            synchronized (mServiceConnection) {
+                if (mServiceBoundWatcher == serviceBoundWatcher) {
+                    mServiceBoundWatcher = null;
                 }
-                RootService.bind(intent, mServiceConnection);
-            });
-            // Wait for service to be bound
-            try {
-                mServiceBoundWatcher.await(45, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Log.e(TAG, "Service watcher interrupted.");
             }
         }
     }
@@ -136,8 +195,16 @@ class ServiceConnectionWrapper {
     public void stopDaemon() {
         Intent intent = new Intent();
         intent.setComponent(mComponentName);
+        CountDownLatch serviceBoundWatcher;
+        synchronized (mServiceConnection) {
+            mIBinder = null;
+            serviceBoundWatcher = mServiceBoundWatcher;
+            mServiceBoundWatcher = null;
+        }
+        if (serviceBoundWatcher != null) {
+            serviceBoundWatcher.countDown();
+        }
         ThreadUtils.postOnMainThread(() -> RootService.stop(intent));
-        mIBinder = null;
     }
 
     boolean isBinderActive() {

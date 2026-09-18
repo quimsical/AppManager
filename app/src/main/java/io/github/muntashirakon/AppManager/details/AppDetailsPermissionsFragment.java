@@ -4,6 +4,7 @@ package io.github.muntashirakon.AppManager.details;
 
 import static io.github.muntashirakon.AppManager.utils.PackageUtils.getAppOpModeNames;
 import static io.github.muntashirakon.AppManager.utils.PackageUtils.getAppOpNames;
+import static io.github.muntashirakon.util.AdapterUtils.PAYLOAD_HIGHLIGHT_CHANGED;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -25,6 +26,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
+import androidx.recyclerview.widget.DiffUtil;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
@@ -83,6 +85,11 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     private int mNeededProperty;
     private int mSortOrder;
     private String mSearchQuery;
+    /**
+     * Settings-backed special permissions do not necessarily broadcast a package change. Keep track
+     * of launching one so the current tab can re-query its state when the Settings activity returns.
+     */
+    private boolean mSettingsActionLaunched;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -145,13 +152,15 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
         switch (mNeededProperty) {
             case APP_OPS:
-                inflater.inflate(R.menu.fragment_app_details_app_ops_actions, menu);
+                if (viewModel != null && !viewModel.isExternalApk()) {
+                    inflater.inflate(R.menu.fragment_app_details_app_ops_actions, menu);
+                }
                 break;
             case USES_PERMISSIONS:
                 if (viewModel != null && !viewModel.isExternalApk()) {
                     inflater.inflate(R.menu.fragment_app_details_permissions_actions, menu);
-                    break;
-                } // else fallthrough
+                } else inflater.inflate(R.menu.fragment_app_details_refresh_actions, menu);
+                break;
             case PERMISSIONS:
                 inflater.inflate(R.menu.fragment_app_details_refresh_actions, menu);
                 break;
@@ -297,27 +306,26 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     @Override
     public void onResume() {
         super.onResume();
-        if (activity.searchView != null) {
-            if (!activity.searchView.isShown()) {
-                activity.searchView.setVisibility(View.VISIBLE);
+        if (viewModel != null) {
+            if (mSettingsActionLaunched) {
+                // Permissions may have been altered
+                mSettingsActionLaunched = false;
+                ProgressIndicatorCompat.setVisibility(progressIndicator, true);
+                viewModel.load(mNeededProperty);
             }
-            activity.searchView.setOnQueryTextListener(this);
-            if (viewModel != null) {
-                int sortOrder = viewModel.getSortOrder(mNeededProperty);
-                String searchQuery = viewModel.getSearchQuery();
-                if (sortOrder != mSortOrder || !Objects.equals(searchQuery, mSearchQuery)) {
-                    viewModel.filterAndSortItems(mNeededProperty);
-                }
+            int sortOrder = viewModel.getSortOrder(mNeededProperty);
+            String searchQuery = viewModel.getSearchQuery();
+            if (sortOrder != mSortOrder || !Objects.equals(searchQuery, mSearchQuery)) {
+                viewModel.filterAndSortItems(mNeededProperty);
             }
         }
     }
 
     @Override
-    public boolean onQueryTextChange(String searchQuery, int type) {
+    public void search(String searchQuery, int type) {
         if (viewModel != null) {
             viewModel.setSearchQuery(searchQuery, type, mNeededProperty);
         }
-        return true;
     }
 
     private int getNotFoundString(@PermissionProperty int index) {
@@ -373,10 +381,37 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
         viewModel.triggerPackageChange();
     }
 
+    static class ItemCallback extends DiffUtil.ItemCallback<AppDetailsItem<?>> {
+        @Override
+        public boolean areItemsTheSame(@NonNull AppDetailsItem<?> oldItem, @NonNull AppDetailsItem<?> newItem) {
+            return Objects.equals(oldItem.getClass(), newItem.getClass())
+                    && Objects.equals(oldItem.name, newItem.name);
+        }
+
+        @SuppressLint("DiffUtilEquals")
+        @Override
+        public boolean areContentsTheSame(@NonNull AppDetailsItem<?> oldItem, @NonNull AppDetailsItem<?> newItem) {
+            if (oldItem instanceof AppDetailsAppOpItem && newItem instanceof AppDetailsAppOpItem) {
+                AppDetailsAppOpItem oldOp = (AppDetailsAppOpItem) oldItem;
+                AppDetailsAppOpItem newOp = (AppDetailsAppOpItem) newItem;
+                return oldOp.getMode() == newOp.getMode()
+                        && oldOp.isAllowed() == newOp.isAllowed()
+                        && oldOp.isRunning() == newOp.isRunning()
+                        && oldOp.getDuration() == newOp.getDuration()
+                        && oldOp.getTime() == newOp.getTime()
+                        && oldOp.getRejectTime() == newOp.getRejectTime();
+            }
+            if (oldItem instanceof AppDetailsPermissionItem && newItem instanceof AppDetailsPermissionItem) {
+                AppDetailsPermissionItem oldPerm = (AppDetailsPermissionItem) oldItem;
+                AppDetailsPermissionItem newPerm = (AppDetailsPermissionItem) newItem;
+                return oldPerm.isGranted() == newPerm.isGranted() && oldPerm.modifiable == newPerm.modifiable;
+            }
+            return Objects.equals(oldItem.item, newItem.item);
+        }
+    }
+
     @UiThread
-    private class AppDetailsRecyclerAdapter extends RecyclerView.Adapter<AppDetailsRecyclerAdapter.ViewHolder> {
-        @NonNull
-        private final List<AppDetailsItem<?>> mAdapterList;
+    class AppDetailsRecyclerAdapter extends RecyclerView.ListAdapter<AppDetailsItem<?>, AppDetailsRecyclerAdapter.ViewHolder> {
         @PermissionProperty
         private int mRequestedProperty;
         @Nullable
@@ -384,20 +419,29 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
         private boolean mCanModifyAppOpMode;
 
         AppDetailsRecyclerAdapter() {
-            mAdapterList = new ArrayList<>();
+            super(new ItemCallback());
         }
 
         @UiThread
         void setDefaultList(@NonNull List<AppDetailsItem<?>> list) {
             ThreadUtils.postOnBackgroundThread(() -> {
-                mRequestedProperty = mNeededProperty;
-                mConstraint = viewModel == null ? null : viewModel.getSearchQuery();
-                mCanModifyAppOpMode = SelfPermissions.canModifyAppOpMode();
+                int neededProperty = mNeededProperty;
+                String oldConstraint = mConstraint;
+                String query = viewModel == null ? null : viewModel.getSearchQuery();
+                boolean canModify = SelfPermissions.canModifyAppOpMode();
                 ThreadUtils.postOnMainThread(() -> {
                     if (isDetached()) return;
                     ProgressIndicatorCompat.setVisibility(progressIndicator, false);
-                    synchronized (mAdapterList) {
-                        AdapterUtils.notifyDataSetChanged(this, mAdapterList, list);
+                    mRequestedProperty = neededProperty;
+                    mConstraint = query;
+                    mCanModifyAppOpMode = canModify;
+                    submitListWithScrollState(
+                            new ArrayList<>(list),
+                            AdapterUtils.isStartingSearch(oldConstraint, mConstraint),
+                            AdapterUtils.isClearingSearch(oldConstraint, mConstraint)
+                    );
+                    if (!Objects.equals(oldConstraint, mConstraint)) {
+                        notifyItemRangeChanged(0, getItemCount(), PAYLOAD_HIGHLIGHT_CHANGED);
                     }
                 });
             });
@@ -486,6 +530,58 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
         }
 
         @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position, @NonNull List<Object> payloads) {
+            if (!payloads.isEmpty()) {
+                for (Object payload : payloads) {
+                    if (Objects.equals(payload, PAYLOAD_HIGHLIGHT_CHANGED)) {
+                        updateTextHighlights(holder, position);
+                        return;
+                    }
+                }
+            }
+            super.onBindViewHolder(holder, position, payloads);
+        }
+
+        public void updateTextHighlights(@NonNull AppDetailsRecyclerAdapter.ViewHolder holder, int position) {
+            switch (mRequestedProperty) {
+                case APP_OPS: {
+                    AppDetailsAppOpItem item = (AppDetailsAppOpItem) getItem(position);
+                    // Set op name
+                    SpannableStringBuilder opName = new SpannableStringBuilder(item.getOp() + " - ");
+                    if (item.name.equals(String.valueOf(item.getOp()))) {
+                        opName.append(getString(R.string.unknown_op));
+                    } else {
+                        // Highlight searched query
+                        opName.append(UIUtils.getHighlightedText(item.name, mConstraint, colorQueryStringHighlight));
+                    }
+                    holder.textView1.setText(opName);
+                    break;
+                }
+                case USES_PERMISSIONS: {
+                    AppDetailsPermissionItem item = (AppDetailsPermissionItem) getItem(position);
+                    holder.textView1.setText(UIUtils.getHighlightedText(item.name, mConstraint, colorQueryStringHighlight));
+                    break;
+                }
+                case PERMISSIONS: {
+                    AppDetailsDefinedPermissionItem permissionItem = (AppDetailsDefinedPermissionItem) getItem(position);
+                    PermissionInfo permissionInfo = permissionItem.item;
+                    // Name
+                    if (mConstraint != null && permissionInfo.name.toLowerCase(Locale.ROOT).contains(mConstraint)) {
+                        // Highlight searched query
+                        holder.textView2.setText(UIUtils.getHighlightedText(permissionInfo.name, mConstraint, colorQueryStringHighlight));
+                    } else {
+                        holder.textView2.setText(permissionInfo.name.startsWith(mPackageName) ?
+                                permissionInfo.name.replaceFirst(mPackageName, "") : permissionInfo.name);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+
+        @Override
         public void onBindViewHolder(@NonNull AppDetailsRecyclerAdapter.ViewHolder holder, int position) {
             Context context = holder.itemView.getContext();
             switch (mRequestedProperty) {
@@ -503,33 +599,18 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             }
         }
 
-        @Override
-        public long getItemId(int position) {
-            return position;
-        }
-
-        @Override
-        public int getItemCount() {
-            synchronized (mAdapterList) {
-                return mAdapterList.size();
-            }
-        }
-
         private void getAppOpsView(@NonNull Context context, @NonNull ViewHolder holder, int index) {
-            AppDetailsAppOpItem item;
-            synchronized (mAdapterList) {
-                item = (AppDetailsAppOpItem) mAdapterList.get(index);
-            }
+            AppDetailsAppOpItem item = (AppDetailsAppOpItem) getItem(index);
             final String opStr = item.name;
             PermissionInfo permissionInfo = item.permissionInfo;
             // Set op name
             SpannableStringBuilder opName = new SpannableStringBuilder(item.getOp() + " - ");
             if (item.name.equals(String.valueOf(item.getOp()))) {
                 opName.append(getString(R.string.unknown_op));
-            } else if (mConstraint != null && opStr.toLowerCase(Locale.ROOT).contains(mConstraint)) {
+            } else {
                 // Highlight searched query
                 opName.append(UIUtils.getHighlightedText(opStr, mConstraint, colorQueryStringHighlight));
-            } else opName.append(opStr);
+            }
             holder.textView1.setText(opName);
             // Set op mode, running and duration
             StringBuilder opRunningInfo = new StringBuilder()
@@ -623,7 +704,9 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
                 // TODO: 22/5/23 Perform using a ViewModel
                 ThreadUtils.postOnBackgroundThread(() -> {
                     if (viewModel != null && viewModel.setAppOpMode(item)) {
-                        ThreadUtils.postOnMainThread(() -> notifyItemChanged(index, AdapterUtils.STUB));
+                        int currentPos = holder.getBindingAdapterPosition();
+                        if (currentPos == RecyclerView.NO_POSITION) return;
+                        ThreadUtils.postOnMainThread(() -> notifyItemChanged(currentPos, AdapterUtils.STUB));
                     } else {
                         ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(isAllowed
                                 ? R.string.failed_to_enable_op : R.string.failed_to_disable_op));
@@ -637,10 +720,12 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
                         .setSelection(item.getMode())
                         .setOnSingleChoiceClickListener((dialog, which, item1, isChecked) -> {
                             int opMode = modes.get(which);
+                            int currentPos = holder.getBindingAdapterPosition();
+                            if (currentPos == RecyclerView.NO_POSITION) return;
                             // TODO: 22/5/23 Perform using a ViewModel
                             ThreadUtils.postOnBackgroundThread(() -> {
                                 if (viewModel != null && viewModel.setAppOpMode(item, opMode)) {
-                                    ThreadUtils.postOnMainThread(() -> notifyItemChanged(index, AdapterUtils.STUB));
+                                    ThreadUtils.postOnMainThread(() -> notifyItemChanged(currentPos, AdapterUtils.STUB));
                                 } else {
                                     ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(
                                             R.string.failed_to_change_app_op_mode));
@@ -654,17 +739,11 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
         }
 
         private void getUsesPermissionsView(@NonNull Context context, @NonNull ViewHolder holder, int index) {
-            AppDetailsPermissionItem permissionItem;
-            synchronized (mAdapterList) {
-                permissionItem = (AppDetailsPermissionItem) mAdapterList.get(index);
-            }
+            AppDetailsPermissionItem permissionItem = (AppDetailsPermissionItem) getItem(index);
             @NonNull PermissionInfo permissionInfo = permissionItem.item;
             final String permName = permissionInfo.name;
             // Set permission name
-            if (mConstraint != null && permName.toLowerCase(Locale.ROOT).contains(mConstraint)) {
-                // Highlight searched query
-                holder.textView1.setText(UIUtils.getHighlightedText(permName, mConstraint, colorQueryStringHighlight));
-            } else holder.textView1.setText(permName);
+            holder.textView1.setText(UIUtils.getHighlightedText(permName, mConstraint, colorQueryStringHighlight));
             // Set others
             // Description
             CharSequence description = permissionInfo.loadDescription(packageManager);
@@ -674,7 +753,11 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             } else holder.textView2.setVisibility(View.GONE);
             // Protection level
             String protectionLevel = Utils.getProtectionLevelString(permissionInfo);
-            protectionLevel += '|' + (permissionItem.permission.isGranted() ? "granted" : "revoked");
+            protectionLevel += '|' + (permissionItem.isGranted() ? "granted" : "revoked");
+            if (permissionItem.hasOverlayState() && permissionItem.permission.isGranted()
+                    && !permissionItem.isGranted()) {
+                protectionLevel += " (by App Manager)";
+            }
             holder.textView3.setText(String.format(Locale.ROOT, "⚑ %s", protectionLevel));
             // Set background color
             if (permissionItem.isDangerous) {
@@ -697,21 +780,27 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             // Permission Switch
             boolean canGrantOrRevokePermission = permissionItem.modifiable && !mIsExternalApk;
             if (canGrantOrRevokePermission) {
+                holder.settingButton.setVisibility(View.GONE);
+                holder.settingButton.setOnClickListener(null);
                 holder.toggleSwitch.setVisibility(View.VISIBLE);
                 holder.toggleSwitch.setChecked(permissionItem.isGranted());
                 // TODO: 22/5/23 Perform using a ViewModel
-                holder.itemView.setOnClickListener(v -> ThreadUtils.postOnBackgroundThread(() -> {
-                    try {
-                        if (Objects.requireNonNull(viewModel).togglePermission(permissionItem)) {
-                            ThreadUtils.postOnMainThread(() -> notifyItemChanged(index, AdapterUtils.STUB));
-                        } else throw new Exception("Couldn't grant permission: " + permName);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(permissionItem.isGranted()
-                                ? R.string.failed_to_grant_permission
-                                : R.string.failed_to_revoke_permission));
-                    }
-                }));
+                holder.itemView.setOnClickListener(v -> {
+                    int currentPos = holder.getBindingAdapterPosition();
+                    if (currentPos == RecyclerView.NO_POSITION) return;
+                    ThreadUtils.postOnBackgroundThread(() -> {
+                        try {
+                            if (Objects.requireNonNull(viewModel).togglePermission(permissionItem)) {
+                                ThreadUtils.postOnMainThread(() -> notifyItemChanged(currentPos, AdapterUtils.STUB));
+                            } else throw new Exception("Couldn't grant permission: " + permName);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(permissionItem.isGranted()
+                                    ? R.string.failed_to_grant_permission
+                                    : R.string.failed_to_revoke_permission));
+                        }
+                    });
+                });
             } else {
                 holder.toggleSwitch.setVisibility(View.GONE);
                 holder.itemView.setOnClickListener(null);
@@ -722,6 +811,7 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
                         try {
                             String packageName = Objects.requireNonNull(viewModel).getPackageName();
                             startActivity(permissionItem.settingItem.toIntent(Objects.requireNonNull(packageName)));
+                            mSettingsActionLaunched = true;
                         } catch (Throwable th) {
                             th.printStackTrace();
                             if (th.getLocalizedMessage() != null) {
@@ -751,10 +841,7 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
         }
 
         private void getPermissionsView(@NonNull Context context, @NonNull ViewHolder holder, int index) {
-            AppDetailsDefinedPermissionItem permissionItem;
-            synchronized (mAdapterList) {
-                permissionItem = (AppDetailsDefinedPermissionItem) mAdapterList.get(index);
-            }
+            AppDetailsDefinedPermissionItem permissionItem = (AppDetailsDefinedPermissionItem) getItem(index);
             PermissionInfo permissionInfo = permissionItem.item;
             // Internal or external
             holder.chipType.setText(permissionItem.isExternal ? R.string.external : R.string.internal);

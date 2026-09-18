@@ -49,6 +49,7 @@ import io.github.muntashirakon.AppManager.fm.FmUtils;
 import io.github.muntashirakon.AppManager.fm.icons.FmIconFetcher;
 import io.github.muntashirakon.AppManager.self.imagecache.ImageLoader;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.users.Groups;
 import io.github.muntashirakon.AppManager.users.Owners;
 import io.github.muntashirakon.AppManager.utils.DateUtils;
@@ -227,6 +228,7 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
             assert mFileProperties.uidGidPair != null;
             mGroupView.setText(String.format(Locale.ROOT, "%s (%d)", groupName, mFileProperties.uidGidPair.gid));
         });
+        LocalServices.state().observe(getViewLifecycleOwner(), ignored -> updateSelinuxVisibility());
 
         // Load live data
         mViewModel.loadFileProperties(path);
@@ -290,7 +292,7 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
             mOwnerLayout.setEndIconVisible(isPhysicalWritable);
             mGroupLayout.setEndIconVisible(isPhysicalWritable);
             mModeLayout.setEndIconVisible(isPhysicalWritable);
-            mSelinuxContextLayout.setEndIconVisible(Ops.isWorkingUidRoot() && isPhysicalWritable);
+            updateSelinuxVisibility();
         }
         if (noInit || mFileProperties.mode != fileProperties.mode) {
             mModeView.setText(fileProperties.mode != 0 ? FmUtils.getFormattedMode(fileProperties.mode) : "--");
@@ -312,6 +314,13 @@ public class FilePropertiesDialogFragment extends CapsuleBottomSheetDialogFragme
         if (fileProperties.uidGidPair != null && uidGidChanged) {
             mViewModel.loadOwnerInfo(fileProperties.uidGidPair.uid);
             mViewModel.loadGroupInfo(fileProperties.uidGidPair.gid);
+        }
+    }
+
+    private void updateSelinuxVisibility() {
+        if (mFileProperties != null) {
+            boolean isPhysicalWritable = mFileProperties.canWrite && mFileProperties.isPhysicalFs;
+            mSelinuxContextLayout.setEndIconVisible(Ops.isWorkingUidRoot() && isPhysicalWritable);
         }
     }
 

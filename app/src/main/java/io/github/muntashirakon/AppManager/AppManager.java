@@ -3,6 +3,8 @@
 package io.github.muntashirakon.AppManager;
 
 import android.app.Application;
+
+import io.github.muntashirakon.AppManager.permission.PermissionOverrideManager;
 import android.content.Context;
 import android.os.Build;
 import android.sun.security.provider.JavaKeyStoreProvider;
@@ -18,12 +20,13 @@ import java.security.Security;
 
 import dalvik.system.ZipPathValidator;
 import io.github.muntashirakon.AppManager.misc.AMExceptionHandler;
+import io.github.muntashirakon.AppManager.compat.ProcessCompat;
 import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.AppManager.utils.appearance.AppearanceUtils;
 
 public class AppManager extends Application {
     static {
-        Shell.enableVerboseLogging = BuildConfig.DEBUG;
+        Shell.enableVerboseLogging = false; // BuildConfig.DEBUG;
         Shell.setDefaultBuilder(Shell.Builder.create()
                 .setFlags(Shell.FLAG_MOUNT_MASTER)
                 .setTimeout(10));
@@ -37,6 +40,8 @@ public class AppManager extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        if (isIsolatedProcess()) return;
+        PermissionOverrideManager.reconcileAll();
         Thread.setDefaultUncaughtExceptionHandler(new AMExceptionHandler(this));
         AppearanceUtils.init(this);
         Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME);
@@ -48,9 +53,14 @@ public class AppManager extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !Utils.isRoboUnitTest()) {
+        if (!isIsolatedProcess() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !Utils.isRoboUnitTest()) {
             HiddenApiBypass.addHiddenApiExemptions("L");
         }
+    }
+
+    private static boolean isIsolatedProcess() {
+        int uid = android.os.Process.myUid();
+        return uid >= ProcessCompat.FIRST_ISOLATED_UID && uid <= ProcessCompat.LAST_ISOLATED_UID;
     }
 
     @Override

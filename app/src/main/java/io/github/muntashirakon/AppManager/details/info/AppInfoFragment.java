@@ -459,7 +459,8 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                 UIUtils.displayLongToast("Error: " + th.getLocalizedMessage());
             }
         } else if (itemId == R.id.action_export_blocking_rules) {
-            final String fileName = "app_manager_rules_export-" + DateUtils.formatDateTime(mActivity, System.currentTimeMillis()) + ".am.tsv";
+            final String fileName = "app_manager_rules_export-"
+                    + DateUtils.formatDateTimeForFilename(mActivity, System.currentTimeMillis()) + ".am.tsv";
             mExport.launch(fileName, uri -> {
                 if (uri == null || mMainModel == null) {
                     // Back button pressed.
@@ -651,12 +652,6 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
         if (mMenuPreparationResult != null) {
             mMenuPreparationResult.cancel(true);
         }
-    }
-
-    @Override
-    public void onStart() {
-        super.onStart();
-        if (mActivity.searchView != null) mActivity.searchView.setVisibility(View.GONE);
     }
 
     @Override
@@ -1917,7 +1912,7 @@ public class AppInfoFragment extends Fragment implements SwipeRefreshLayout.OnRe
                         showProgressIndicator(false);
                     }
                     if (isDetached()) return;
-                    mAdapter.setAdapterList(mListItems);
+                    mAdapter.submitList(mListItems);
                 });
             }
         });

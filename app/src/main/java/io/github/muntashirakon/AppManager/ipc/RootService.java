@@ -198,12 +198,11 @@ public abstract class RootService extends ContextWrapper {
                     if (!Runner.runCommand(cmd).isSuccessful()) {
                         Log.e(TAG, "Couldn't start service using root.", new Throwable());
                     }
-                } else if (LocalServer.alive(ContextUtils.getContext())) {
+                } else {
+                    // No need to check for the server health here.
                     if (LocalServer.getInstance().runCommand(cmd).getStatusCode() != 0) {
                         Log.e(TAG, "Couldn't start service using ADB.", new Throwable());
                     }
-                } else {
-                    Log.e(TAG, "Unable to start service using an unsupported mode.", new Throwable());
                 }
             } catch (Throwable e) {
                 Log.e(TAG, e.getMessage(), e);

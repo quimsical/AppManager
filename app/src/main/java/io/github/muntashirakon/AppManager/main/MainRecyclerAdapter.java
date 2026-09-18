@@ -5,6 +5,7 @@ package io.github.muntashirakon.AppManager.main;
 import static io.github.muntashirakon.AppManager.compat.PackageManagerCompat.MATCH_UNINSTALLED_PACKAGES;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.displayLongToast;
 import static io.github.muntashirakon.AppManager.utils.UIUtils.displayShortToast;
+import static io.github.muntashirakon.util.AdapterUtils.PAYLOAD_HIGHLIGHT_CHANGED;
 
 import android.content.Context;
 import android.content.Intent;
@@ -24,11 +25,13 @@ import android.view.ViewGroup;
 import android.widget.SectionIndexer;
 import android.widget.TextView;
 
-import androidx.annotation.GuardedBy;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
 import androidx.appcompat.widget.AppCompatImageView;
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -38,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.installer.PackageInstallerActivity;
@@ -64,14 +68,12 @@ import io.github.muntashirakon.util.AccessibilityUtils;
 import io.github.muntashirakon.util.AdapterUtils;
 import io.github.muntashirakon.widget.MultiSelectionView;
 
-public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecyclerAdapter.ViewHolder>
+public class MainRecyclerAdapter extends MultiSelectionView.Adapter<ApplicationItem, MainRecyclerAdapter.ViewHolder>
         implements SectionIndexer {
     private static final String sSections = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     private final MainActivity mActivity;
     private String mSearchQuery;
-    @GuardedBy("mAdapterList")
-    private final List<ApplicationItem> mAdapterList = new ArrayList<>();
 
     private final int mColorGreen;
     private final int mColorOrange;
@@ -79,8 +81,20 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
     private final int mColorSecondary;
     private final int mQueryStringHighlight;
 
+    private static final DiffUtil.ItemCallback<ApplicationItem> DIFF_CALLBACK = new DiffUtil.ItemCallback<ApplicationItem>() {
+        @Override
+        public boolean areItemsTheSame(@NonNull ApplicationItem oldItem, @NonNull ApplicationItem newItem) {
+            return Objects.equals(oldItem.packageName, newItem.packageName);
+        }
+
+        @Override
+        public boolean areContentsTheSame(@NonNull ApplicationItem oldItem, @NonNull ApplicationItem newItem) {
+            return oldItem.getItemVersion() == newItem.getItemVersion();
+        }
+    };
+
     MainRecyclerAdapter(@NonNull MainActivity activity) {
-        super();
+        super(DIFF_CALLBACK);
         mActivity = activity;
         mColorGreen = ContextCompat.getColor(activity, io.github.muntashirakon.ui.R.color.stopped);
         mColorOrange = ContextCompat.getColor(activity, io.github.muntashirakon.ui.R.color.orange);
@@ -89,22 +103,28 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         mQueryStringHighlight = ColorCodes.getQueryStringHighlightColor(activity);
     }
 
-    @GuardedBy("mAdapterList")
     @UiThread
     void setDefaultList(List<ApplicationItem> list) {
         if (mActivity.viewModel == null) return;
-        synchronized (mAdapterList) {
-            mSearchQuery = mActivity.viewModel.getSearchQuery();
-            AdapterUtils.notifyDataSetChanged(this, mAdapterList, list);
-            notifySelectionChange();
+        String oldSearchQuery = mSearchQuery;
+        mSearchQuery = mActivity.viewModel.getSearchQuery();
+        submitListWithScrollState(
+                list != null ? new ArrayList<>(list) : null,
+                AdapterUtils.isStartingSearch(oldSearchQuery, mSearchQuery),
+                AdapterUtils.isClearingSearch(oldSearchQuery, mSearchQuery)
+        );
+        if (!Objects.equals(oldSearchQuery, mSearchQuery)) {
+            notifyItemRangeChanged(0, getItemCount(), PAYLOAD_HIGHLIGHT_CHANGED);
         }
+        notifySelectionChange();
     }
 
-    @GuardedBy("mAdapterList")
     @Override
     public void cancelSelection() {
         super.cancelSelection();
-        mActivity.viewModel.cancelSelection();
+        if (mActivity.viewModel != null) {
+            mActivity.viewModel.cancelSelection();
+        }
     }
 
     @Override
@@ -119,54 +139,21 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         return mActivity.viewModel.getApplicationItemCount();
     }
 
-    @GuardedBy("mAdapterList")
     @Override
     protected boolean isSelected(int position) {
-        synchronized (mAdapterList) {
-            return mAdapterList.get(position).isSelected;
-        }
+        return getItem(position).isSelected;
     }
 
-    @GuardedBy("mAdapterList")
     @Override
     protected boolean select(int position) {
-        synchronized (mAdapterList) {
-            mAdapterList.set(position, mActivity.viewModel.select(mAdapterList.get(position)));
-            return true;
-        }
+        mActivity.viewModel.select(getItem(position));
+        return true;
     }
 
-    @GuardedBy("mAdapterList")
     @Override
     protected boolean deselect(int position) {
-        synchronized (mAdapterList) {
-            mAdapterList.set(position, mActivity.viewModel.deselect(mAdapterList.get(position)));
-            return true;
-        }
-    }
-
-    @GuardedBy("mAdapterList")
-    @Override
-    public void toggleSelection(int position) {
-        synchronized (mAdapterList) {
-            super.toggleSelection(position);
-        }
-    }
-
-    @GuardedBy("mAdapterList")
-    @Override
-    public void selectAll() {
-        synchronized (mAdapterList) {
-            super.selectAll();
-        }
-    }
-
-    @GuardedBy("mAdapterList")
-    @Override
-    public void selectRange(int firstPosition, int secondPosition) {
-        synchronized (mAdapterList) {
-            super.selectRange(firstPosition, secondPosition);
-        }
+        mActivity.viewModel.deselect(getItem(position));
+        return true;
     }
 
     @NonNull
@@ -176,45 +163,65 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         return new ViewHolder(view);
     }
 
-    @GuardedBy("mAdapterList")
+    @Override
+    public void onBindViewHolder(@NonNull ViewHolder holder, int position, @NonNull List<Object> payloads) {
+        if (!payloads.isEmpty()) {
+            for (Object payload : payloads) {
+                if (Objects.equals(payload, PAYLOAD_HIGHLIGHT_CHANGED)) {
+                    updateTextHighlights(holder, getItem(position));
+                }
+            }
+        }
+        // Handle other stuff
+        super.onBindViewHolder(holder, position, payloads);
+    }
+
+    private void updateTextHighlights(@NonNull ViewHolder holder, @NonNull ApplicationItem item) {
+        String query = mSearchQuery;
+        holder.label.setText(UIUtils.getHighlightedText(item.label, query, mQueryStringHighlight));
+        holder.packageName.setText(UIUtils.getHighlightedText(item.packageName, query, mQueryStringHighlight));
+    }
+
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        final ApplicationItem item;
-        synchronized (mAdapterList) {
-            item = mAdapterList.get(position);
-        }
+        final ApplicationItem item = getItem(position);
         MaterialCardView cardView = holder.itemView;
         Context context = cardView.getContext();
         // Add click listeners
         cardView.setOnClickListener(v -> {
+            int currentPos = holder.getBindingAdapterPosition();
+            if (currentPos == RecyclerView.NO_POSITION) return;
             // If selection mode is on, select/deselect the current item instead of the default behaviour
             if (isInSelectionMode()) {
-                toggleSelection(position);
+                toggleSelection(currentPos);
                 AccessibilityUtils.requestAccessibilityFocus(holder.itemView);
                 return;
             }
             handleClick(item);
         });
         cardView.setOnLongClickListener(v -> {
+            int currentPos = holder.getBindingAdapterPosition();
+            if (currentPos == RecyclerView.NO_POSITION) return false;
             // Long click listener: Select/deselect an app.
             // 1) Turn selection mode on if this is the first item in the selection list
             // 2) Select between last selection position and this position (inclusive) if selection mode is on
-            synchronized (mAdapterList) {
-                ApplicationItem lastSelectedItem = mActivity.viewModel.getLastSelectedPackage();
-                int lastSelectedItemPosition = lastSelectedItem == null ? -1 : mAdapterList.indexOf(lastSelectedItem);
-                if (lastSelectedItemPosition >= 0) {
-                    // Select from last selection to this selection
-                    selectRange(lastSelectedItemPosition, position);
-                } else {
-                    toggleSelection(position);
-                    AccessibilityUtils.requestAccessibilityFocus(holder.itemView);
-                }
+            ApplicationItem lastSelectedItem = mActivity.viewModel.getLastSelectedPackage();
+            int lastSelectedItemPosition = lastSelectedItem == null ? -1 : indexOf(lastSelectedItem);
+            if (lastSelectedItemPosition >= 0) {
+                // Select from last selection to this selection
+                selectRange(lastSelectedItemPosition, currentPos);
+            } else {
+                toggleSelection(currentPos);
+                AccessibilityUtils.requestAccessibilityFocus(holder.itemView);
             }
             return true;
         });
         holder.icon.setOnClickListener(v -> {
-            toggleSelection(position);
-            AccessibilityUtils.requestAccessibilityFocus(holder.itemView);
+            int currentPos = holder.getBindingAdapterPosition();
+            if (currentPos != RecyclerView.NO_POSITION) {
+                toggleSelection(currentPos);
+                AccessibilityUtils.requestAccessibilityFocus(holder.itemView);
+            }
         });
         // Box-stroke colors: uninstalled > disabled > force-stopped > regular
         if (!item.isInstalled) {
@@ -249,7 +256,10 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
             }
             // Set UID text color to orange if the package is shared
             holder.userId.setTextColor(item.sharedUserId != null ? mColorOrange : mColorSecondary);
-        } else holder.userId.setText("");
+        } else {
+            holder.userId.setText("");
+        }
+
         if (item.sha != null) {
             // Set issuer
             holder.issuer.setVisibility(View.VISIBLE);
@@ -268,20 +278,28 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         if (!TextUtils.isEmpty(mSearchQuery) && item.label.toLowerCase(Locale.ROOT).contains(mSearchQuery)) {
             // Highlight searched query
             holder.label.setText(UIUtils.getHighlightedText(item.label, mSearchQuery, mQueryStringHighlight));
-        } else holder.label.setText(item.label);
+        } else {
+            holder.label.setText(item.label);
+        }
         // Set app label color to red if clearing user data not allowed
         if (item.isInstalled && !item.allowClearingUserData) {
             holder.label.setTextColor(Color.RED);
-        } else holder.label.setTextColor(mColorPrimary);
+        } else {
+            holder.label.setTextColor(mColorPrimary);
+        }
         // Set package name
         if (!TextUtils.isEmpty(mSearchQuery) && item.packageName.toLowerCase(Locale.ROOT).contains(mSearchQuery)) {
             // Highlight searched query
             holder.packageName.setText(UIUtils.getHighlightedText(item.packageName, mSearchQuery, mQueryStringHighlight));
-        } else holder.packageName.setText(item.packageName);
+        } else {
+            holder.packageName.setText(item.packageName);
+        }
         // Set package name color to orange if the app has known tracker components
         if (item.trackerCount > 0) {
             holder.packageName.setTextColor(ColorCodes.getComponentTrackerIndicatorColor(context));
-        } else holder.packageName.setTextColor(mColorSecondary);
+        } else {
+            holder.packageName.setTextColor(mColorSecondary);
+        }
         // Set version (along with HW accelerated, debug and test only flags)
         holder.version.setText(item.versionTag);
         // Set version color to dark cyan if the app is inactive
@@ -299,7 +317,9 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         // Set SDK
         if (item.sdkString != null) {
             holder.size.setText(item.sdkString);
-        } else holder.size.setText("-");
+        } else {
+            holder.size.setText("-");
+        }
         // Set SDK color to orange if the app is using cleartext (e.g. HTTP) traffic
         holder.size.setTextColor(item.usesCleartextTraffic ? mColorOrange : mColorSecondary);
         // Check for backup
@@ -337,49 +357,50 @@ public class MainRecyclerAdapter extends MultiSelectionView.Adapter<MainRecycler
         super.onBindViewHolder(holder, position);
     }
 
-    @GuardedBy("mAdapterList")
     @Override
     public long getItemId(int position) {
-        synchronized (mAdapterList) {
-            return mAdapterList.get(position).hashCode();
-        }
+        return getItem(position).hashCode();
     }
 
-    @GuardedBy("mAdapterList")
-    @Override
-    public int getItemCount() {
-        synchronized (mAdapterList) {
-            return mAdapterList.size();
-        }
-    }
-
-    @GuardedBy("mAdapterList")
     @Override
     public int getPositionForSection(int section) {
-        synchronized (mAdapterList) {
-            for (int i = 0; i < getItemCount(); i++) {
-                String item = mAdapterList.get(i).label;
-                if (!item.isEmpty()) {
-                    if (item.charAt(0) == sSections.charAt(section))
-                        return i;
+        List<ApplicationItem> currentList = getCurrentList();
+        for (int i = 0; i < currentList.size(); i++) {
+            String item = currentList.get(i).label;
+            if (!item.isEmpty()) {
+                if (item.charAt(0) == sSections.charAt(section)) {
+                    return i;
                 }
             }
-            return 0;
         }
+        return 0;
     }
 
     @Override
-    public int getSectionForPosition(int i) {
+    public int getSectionForPosition(int position) {
         return 0;
     }
 
     @Override
     public Object[] getSections() {
         String[] sectionsArr = new String[sSections.length()];
-        for (int i = 0; i < sSections.length(); i++)
+        for (int i = 0; i < sSections.length(); i++) {
             sectionsArr[i] = String.valueOf(sSections.charAt(i));
-
+        }
         return sectionsArr;
+    }
+
+    private int indexOf(@Nullable ApplicationItem item) {
+        if (item == null) {
+            return -1;
+        }
+        List<ApplicationItem> list = getCurrentList();
+        for (int i = 0; i < list.size(); ++i) {
+            if (Objects.equals(list.get(i), item)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void handleClick(@NonNull ApplicationItem item) {

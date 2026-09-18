@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package io.github.muntashirakon.AppManager.details;
+
+import androidx.annotation.NonNull;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.StringJoiner;
+
+import io.github.muntashirakon.AppManager.R;
+
+public final class AppDetailsTabs {
+    private static final List<AppDetailsTab> DEFAULT_TABS = Collections.unmodifiableList(Arrays.asList(
+            new AppDetailsTab(AppDetailsFragment.APP_INFO, R.string.app_info),
+            new AppDetailsTab(AppDetailsFragment.ACTIVITIES, R.string.activities),
+            new AppDetailsTab(AppDetailsFragment.SERVICES, R.string.service),
+            new AppDetailsTab(AppDetailsFragment.RECEIVERS, R.string.receivers),
+            new AppDetailsTab(AppDetailsFragment.PROVIDERS, R.string.providers),
+            new AppDetailsTab(AppDetailsFragment.APP_OPS, R.string.app_ops),
+            new AppDetailsTab(AppDetailsFragment.USES_PERMISSIONS, R.string.permissions),
+            new AppDetailsTab(AppDetailsFragment.PERMISSIONS, R.string.declared_permission),
+            new AppDetailsTab(AppDetailsFragment.FEATURES, R.string.uses_feature),
+            new AppDetailsTab(AppDetailsFragment.CONFIGURATIONS, R.string.configurations),
+            new AppDetailsTab(AppDetailsFragment.SIGNATURES, R.string.app_signing_signatures),
+            new AppDetailsTab(AppDetailsFragment.SHARED_LIBRARIES, R.string.shared_libs),
+            new AppDetailsTab(AppDetailsFragment.OVERLAYS, R.string.overlays)
+    ));
+
+    private AppDetailsTabs() {
+    }
+
+    @NonNull
+    public static List<AppDetailsTab> getDefaultTabs() {
+        return DEFAULT_TABS;
+    }
+
+    @NonNull
+    public static List<AppDetailsTab> getTabs(@NonNull List<Integer> order, int enabledFlags) {
+        List<AppDetailsTab> tabs = new ArrayList<>();
+        for (Integer id : order) {
+            if (id == null || (enabledFlags & (1 << id)) == 0) continue;
+            for (AppDetailsTab tab : DEFAULT_TABS) {
+                if (tab.getId() == id) {
+                    tabs.add(tab);
+                    break;
+                }
+            }
+        }
+        if (tabs.isEmpty()) tabs.add(DEFAULT_TABS.get(0));
+        return tabs;
+    }
+
+    @NonNull
+    public static String getDefaultOrder() {
+        StringJoiner order = new StringJoiner(",");
+        for (AppDetailsTab tab : DEFAULT_TABS) {
+            order.add(Integer.toString(tab.getId()));
+        }
+        return order.toString();
+    }
+
+    public static int getAllTabFlags() {
+        int flags = 0;
+        for (AppDetailsTab tab : DEFAULT_TABS) {
+            flags |= 1 << tab.getId();
+        }
+        return flags;
+    }
+
+    public static boolean isKnownTabId(int id) {
+        for (AppDetailsTab tab : DEFAULT_TABS) {
+            if (tab.getId() == id) return true;
+        }
+        return false;
+    }
+}

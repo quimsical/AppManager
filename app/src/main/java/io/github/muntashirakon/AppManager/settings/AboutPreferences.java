@@ -88,8 +88,6 @@ public class AboutPreferences extends PreferenceFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setEnterTransition(new MaterialSharedAxis(MaterialSharedAxis.Z, true));
-        setReturnTransition(new MaterialSharedAxis(MaterialSharedAxis.Z, false));
     }
 
     @Override
@@ -102,7 +100,7 @@ public class AboutPreferences extends PreferenceFragment {
             recyclerView.setLayoutManager(new LinearLayoutManager(recyclerView.getContext()));
             ChangelogRecyclerAdapter adapter = new ChangelogRecyclerAdapter();
             recyclerView.setAdapter(adapter);
-            adapter.setAdapterList(changelog.getChangelogItems());
+            adapter.submitList(changelog.getChangelogItems());
             new AlertDialogBuilder(requireActivity(), true)
                     .setTitle(R.string.changelog)
                     .setView(recyclerView)

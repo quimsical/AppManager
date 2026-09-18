@@ -2,8 +2,6 @@
 
 package io.github.muntashirakon.AppManager.server.common;
 
-import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -13,6 +11,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Objects;
 
 /**
@@ -20,6 +20,7 @@ import java.util.Objects;
  */
 // Copyright 2017 Zheng Li
 public final class DataTransmission implements Closeable {
+    private static final int MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
     /**
      * Protocol version. Specification: <code>protocol-version,token</code>
      */
@@ -114,6 +115,9 @@ public final class DataTransmission implements Closeable {
      */
     public void sendMessage(@Nullable byte[] messageBytes) throws IOException {
         if (messageBytes != null) {
+            if (messageBytes.length > MAX_MESSAGE_SIZE) {
+                throw new IOException("Message is too large: " + messageBytes.length);
+            }
             mOutputStream.writeInt(messageBytes.length);
             mOutputStream.write(messageBytes);
             mOutputStream.flush();
@@ -129,6 +133,9 @@ public final class DataTransmission implements Closeable {
     @NonNull
     private byte[] readMessage() throws IOException {
         int len = mInputStream.readInt();
+        if (len < 0 || len > MAX_MESSAGE_SIZE) {
+            throw new IOException("Invalid message length: " + len);
+        }
         byte[] bytes = new byte[len];
         mInputStream.readFully(bytes, 0, len);
         return bytes;
@@ -150,38 +157,66 @@ public final class DataTransmission implements Closeable {
     }
 
     /**
-     * Handshake: verify tokens
+     * Handshake: HMAC-based mutual challenge-response authentication
      *
-     * @param token Token supplied by server or client based
+     * @param token Token supplied by server or client
      * @param role  Whether the supplied token is from server or client
-     * @throws IOException              When it fails to verify the token
+     * @throws IOException              When it fails to verify the token or calculate HMAC
      * @throws ProtocolVersionException When the {@link #PROTOCOL_VERSION} mismatch occurs
      */
     public void shakeHands(@NonNull String token, Role role) throws IOException {
         Objects.requireNonNull(token);
-        if (role == Role.Server) {
+        if (role == Role.Client) {
+            FLog.log("DataTransmission#shakeHands: Client protocol: " + PROTOCOL_VERSION);
+            // Send protocol version and client challenge (Nonce_C)
+            sendMessage(PROTOCOL_VERSION.getBytes(StandardCharsets.UTF_8));
+            byte[] nonceC = AuthUtils.generateNonce();
+            sendMessage(nonceC);
+
+            // Receive server's HMAC proof and server nonce (HMAC_S, None_S)
+            byte[] serverHmac = readMessage();
+            byte[] nonceS = readMessage();
+
+            // Validate server (HMAC_S == HMAC(token, Nonce_C)?)
+            byte[] expectedServerHmac = AuthUtils.calculateHmac(token, nonceC);
+            if (!MessageDigest.isEqual(serverHmac, expectedServerHmac)) {
+                FLog.log("DataTransmission#shakeHands: Rogue server detected! Connection dropped.");
+                throw new IOException("Unauthorized server: HMAC mismatch.");
+            }
+
+            // Prove legitimacy of client to the server (HMAC_C = HMAC(token, Nonce_S)
+            byte[] clientHmac = AuthUtils.calculateHmac(token, nonceS);
+            sendMessage(clientHmac);
+
+        } else if (role == Role.Server) {
             FLog.log("DataTransmission#shakeHands: Server protocol: " + PROTOCOL_VERSION);
-            String auth = new String(readMessage());  // <protocol-version>,<token>
-            FLog.log("Received authentication: " + auth);
-            String[] split = auth.split(",");
-            String clientToken = split[1];
-            // Match tokens
-            if (token.equals(clientToken)) {
-                // Connection is authorised
+            // Receive protocol version and client nonce (Nonce_C)
+            String clientProtocol = new String(readMessage(), StandardCharsets.UTF_8);
+            if (!PROTOCOL_VERSION.equals(clientProtocol)) {
+                throw new ProtocolVersionException("Client protocol version: " + clientProtocol + ", " +
+                        "Server protocol version: " + PROTOCOL_VERSION);
+            }
+            byte[] nonceC = readMessage();
+
+            // Prove legitimacy of server to the client (HMAC_S = HMAC(token, Nonce_C))
+            byte[] serverHmac = AuthUtils.calculateHmac(token, nonceC);
+            sendMessage(serverHmac);
+
+            // Send challenge to client (Nonce_S)
+            byte[] nonceS = AuthUtils.generateNonce();
+            sendMessage(nonceS);
+
+            // Receive client's HMAC (HMAC_C)
+            byte[] clientHmac = readMessage();
+
+            // Validate client (HMAC_C == HMAC(token, Nonce_S)?)
+            byte[] expectedClientHmac = AuthUtils.calculateHmac(token, nonceS);
+            if (MessageDigest.isEqual(clientHmac, expectedClientHmac)) {
                 FLog.log("DataTransmission#shakeHands: Authentication successful.");
             } else {
                 FLog.log("DataTransmission#shakeHands: Authentication failed.");
-                throw new IOException("Unauthorized client, token: " + token);
+                throw new IOException("Unauthorized client: HMAC mismatch.");
             }
-            // Check protocol version
-            String protocolVersion = split[0];
-            if (!PROTOCOL_VERSION.equals(protocolVersion)) {
-                throw new ProtocolVersionException("Client protocol version: " + protocolVersion + ", " +
-                        "Server protocol version: " + PROTOCOL_VERSION);
-            }
-        } else if (role == Role.Client) {
-            Log.e("DataTransmission", "shakeHands: Client protocol: " + PROTOCOL_VERSION);
-            sendMessage(PROTOCOL_VERSION + "," + token);
         }
     }
 

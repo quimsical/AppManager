@@ -12,18 +12,25 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 import io.github.muntashirakon.AppManager.db.dao.AppDao;
 import io.github.muntashirakon.AppManager.db.dao.BackupDao;
 import io.github.muntashirakon.AppManager.db.dao.FmFavoriteDao;
+import io.github.muntashirakon.AppManager.db.dao.FmDirectorySizeDao;
+import io.github.muntashirakon.AppManager.db.dao.FmDirectorySortDao;
 import io.github.muntashirakon.AppManager.db.dao.FreezeTypeDao;
 import io.github.muntashirakon.AppManager.db.dao.LogFilterDao;
 import io.github.muntashirakon.AppManager.db.dao.OpHistoryDao;
+import io.github.muntashirakon.AppManager.db.dao.PermissionOverrideDao;
 import io.github.muntashirakon.AppManager.db.entity.App;
 import io.github.muntashirakon.AppManager.db.entity.Backup;
 import io.github.muntashirakon.AppManager.db.entity.FmFavorite;
+import io.github.muntashirakon.AppManager.db.entity.FmDirectorySize;
+import io.github.muntashirakon.AppManager.db.entity.FmDirectorySort;
 import io.github.muntashirakon.AppManager.db.entity.FreezeType;
 import io.github.muntashirakon.AppManager.db.entity.LogFilter;
 import io.github.muntashirakon.AppManager.db.entity.OpHistory;
+import io.github.muntashirakon.AppManager.db.entity.PermissionOverride;
 import io.github.muntashirakon.AppManager.utils.ContextUtils;
 
-@Database(entities = {App.class, LogFilter.class, Backup.class, OpHistory.class, FmFavorite.class, FreezeType.class}, version = 7)
+@Database(entities = {App.class, LogFilter.class, Backup.class, OpHistory.class, FmFavorite.class, FreezeType.class,
+        PermissionOverride.class, FmDirectorySort.class, FmDirectorySize.class}, version = 9)
 public abstract class AppsDb extends RoomDatabase {
     private static AppsDb sAppsDb;
 
@@ -57,11 +64,24 @@ public abstract class AppsDb extends RoomDatabase {
             db.execSQL("DROP TABLE IF EXISTS `file_hash`");
         }
     };
+    public static final Migration M_7_8 = new Migration(7, 8) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `permission_override` (`package_name` TEXT NOT NULL, `user_id` INTEGER NOT NULL, `permission_name` TEXT NOT NULL, `desired_granted` INTEGER NOT NULL, `controller` TEXT NOT NULL, `sync_status` INTEGER NOT NULL, `sync_time` INTEGER NOT NULL, PRIMARY KEY(`package_name`, `user_id`, `permission_name`))");
+        }
+    };
+    public static final Migration M_8_9 = new Migration(8, 9) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `fm_directory_sort` (`directory_key` TEXT NOT NULL, `sort_order` INTEGER NOT NULL, `reverse_sort` INTEGER NOT NULL, `last_used_at` INTEGER NOT NULL, PRIMARY KEY(`directory_key`))");
+            db.execSQL("CREATE TABLE IF NOT EXISTS `fm_directory_size` (`directory_key` TEXT NOT NULL, `size_bytes` INTEGER NOT NULL, `calculated_at` INTEGER NOT NULL, `last_used_at` INTEGER NOT NULL, PRIMARY KEY(`directory_key`))");
+        }
+    };
 
     public static AppsDb getInstance() {
         if (sAppsDb == null) {
             sAppsDb = Room.databaseBuilder(ContextUtils.getContext(), AppsDb.class, "apps.db")
-                    .addMigrations(M_2_3, M_3_4, M_4_5, M_5_6, M_6_7)
+                    .addMigrations(M_2_3, M_3_4, M_4_5, M_5_6, M_6_7, M_7_8, M_8_9)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build();
             try {
@@ -83,5 +103,11 @@ public abstract class AppsDb extends RoomDatabase {
 
     public abstract FmFavoriteDao fmFavoriteDao();
 
+    public abstract FmDirectorySortDao fmDirectorySortDao();
+
+    public abstract FmDirectorySizeDao fmDirectorySizeDao();
+
     public abstract FreezeTypeDao freezeTypeDao();
+
+    public abstract PermissionOverrideDao permissionOverrideDao();
 }

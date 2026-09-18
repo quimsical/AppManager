@@ -25,6 +25,7 @@ import io.github.muntashirakon.AppManager.filters.options.ComponentsOption;
 import io.github.muntashirakon.AppManager.filters.options.FreezeOption;
 import io.github.muntashirakon.AppManager.filters.options.InstalledOption;
 import io.github.muntashirakon.AppManager.filters.options.RunningAppsOption;
+import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.misc.ListOptions;
 import io.github.muntashirakon.AppManager.profiles.ProfileManager;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
@@ -210,6 +211,7 @@ public class MainListOptions extends ListOptions {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         MainActivity activity = (MainActivity) requireActivity();
+        LocalServices.state().observe(getViewLifecycleOwner(), ignored -> refreshOptions());
         profileNameSpinner.setOnItemClickListener((parent, view1, position, id) -> {
             if (mAdapter == null || activity.viewModel == null) {
                 return;
@@ -284,6 +286,12 @@ public class MainListOptions extends ListOptions {
                     })
                     .show();
         });
+    }
+
+    private void refreshOptions() {
+        if (getView() != null) {
+            reloadUi();
+        }
     }
 
     @Override

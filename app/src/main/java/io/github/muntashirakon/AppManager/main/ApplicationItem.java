@@ -45,6 +45,7 @@ import java.util.concurrent.TimeUnit;
 
 import aosp.libcore.util.EmptyArray;
 import io.github.muntashirakon.AppManager.StaticDataset;
+import io.github.muntashirakon.AppManager.apk.signing.CertUtils;
 import io.github.muntashirakon.AppManager.apk.signing.SignerInfo;
 import io.github.muntashirakon.AppManager.backup.BackupUtils;
 import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
@@ -80,6 +81,8 @@ import io.github.muntashirakon.io.Path;
  * Stores an application info
  */
 public class ApplicationItem extends PackageItemInfo implements IFilterableAppInfo {
+    private long itemVersion = 0;
+
     /**
      * Version name
      */
@@ -230,6 +233,9 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
     }
 
     public void generateOtherInfo() {
+        // Increment ApplicationItem version
+        incItemVersion();
+
         isStopped = (flags & ApplicationInfo.FLAG_STOPPED) != 0;
         isSystem = (flags & ApplicationInfo.FLAG_SYSTEM) != 0;
         isPersistent = (flags & ApplicationInfo.FLAG_PERSISTENT) != 0;
@@ -238,7 +244,9 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
         }
         for (int userId : userIds) {
             canReadLogs |= (PermissionCompat.checkPermission(Manifest.permission.READ_LOGS, packageName, userId) == PackageManager.PERMISSION_GRANTED);
-            isAppInactive |= UsageStatsManagerCompat.isAppInactive(packageName, userId);
+            if (SelfPermissions.checkCrossUserPermission(userId, false)) {
+                isAppInactive |= UsageStatsManagerCompat.isAppInactive(packageName, userId);
+            } else isAppInactive = false;
         }
         allowClearingUserData = (flags & ApplicationInfo.FLAG_ALLOW_CLEAR_USER_DATA) != 0;
         // UID
@@ -250,11 +258,7 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
         } else uidOrAppIds = "";
         // Cert short name
         if (sha != null) {
-            try {
-                issuerShortName = "CN=" + (sha.first).split("CN=", 2)[1];
-            } catch (ArrayIndexOutOfBoundsException e) {
-                issuerShortName = sha.first;
-            }
+            issuerShortName = CertUtils.getReadableSubject(sha.first);
             if (TextUtils.isEmpty(sha.second)) {
                 sha = null;
             }
@@ -291,6 +295,14 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
                 backupFlagsStr.append("rules");
             }
         }
+    }
+
+    public void incItemVersion() {
+        ++itemVersion;
+    }
+
+    public long getItemVersion() {
+        return itemVersion;
     }
 
     @WorkerThread
@@ -391,6 +403,8 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
             // Update dynamic info
             isStopped = (mApplicationInfo.flags & ApplicationInfo.FLAG_STOPPED) != 0;
             isDisabled = FreezeUtils.isFrozen(mApplicationInfo);
+            // Increment ApplicationItem version
+            incItemVersion();
         } catch (RemoteException | PackageManager.NameNotFoundException ignore) {
         }
     }

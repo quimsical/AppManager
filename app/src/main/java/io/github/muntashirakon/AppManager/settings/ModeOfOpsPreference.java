@@ -33,6 +33,7 @@ import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.servermanager.LocalServer;
 import io.github.muntashirakon.AppManager.servermanager.ServerConfig;
 import io.github.muntashirakon.AppManager.users.Users;
+import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.dialog.SearchableSingleChoiceDialogBuilder;
@@ -58,6 +59,8 @@ public class ModeOfOpsPreference extends Fragment {
     @Ops.Mode
     private String mCurrentMode;
     private boolean mConnecting;
+    private boolean mServerHealth;
+    private boolean mServerHealthCheckStarted;
     @Nullable
     private ColorStateList mColorActive;
     @Nullable
@@ -104,6 +107,7 @@ public class ModeOfOpsPreference extends Fragment {
         mModeOfOpsAlertDialog = UIUtils.getProgressDialog(requireActivity(), getString(R.string.loading), true);
         mModes = getResources().getStringArray(R.array.modes);
         mCurrentMode = Ops.getMode();
+        mConnecting = mModel.isModeOperationPending();
         mInferredModeView = view.findViewById(R.id.inferred_mode);
         mRemoteServerStatusView = view.findViewById(R.id.remote_server_status);
         mRemoteServicesStatusView = view.findViewById(R.id.remote_services_status);
@@ -118,7 +122,7 @@ public class ModeOfOpsPreference extends Fragment {
                 .setSelection(mCurrentMode)
                 .addDisabledItems(disabledItems)
                 .setPositiveButton(R.string.apply, (dialog, which, selectedItem) -> {
-                    if (selectedItem != null) {
+                    if (selectedItem != null && !mModel.isModeOperationPending()) {
                         mCurrentMode = selectedItem;
                         if (Ops.MODE_ADB_OVER_TCP.equals(mCurrentMode)) {
                             ServerConfig.setAdbPort(ServerConfig.DEFAULT_ADB_PORT);
@@ -136,14 +140,6 @@ public class ModeOfOpsPreference extends Fragment {
         TextInputLayout customCommand0Layout = TextInputLayoutCompat.fromTextInputEditText(customCommand0);
         customCommand0Layout.setEndIconOnClickListener(v -> {
             CharSequence command = customCommand0.getText();
-            if (!TextUtils.isEmpty(command)) {
-                Utils.copyToClipboard(requireContext(), "command", command);
-            }
-        });
-        TextInputTextView customCommand1 = view.findViewById(android.R.id.text2);
-        TextInputLayout customCommand1Layout = TextInputLayoutCompat.fromTextInputEditText(customCommand1);
-        customCommand1Layout.setEndIconOnClickListener(v -> {
-            CharSequence command = customCommand1.getText();
             if (!TextUtils.isEmpty(command)) {
                 Utils.copyToClipboard(requireContext(), "command", command);
             }
@@ -179,17 +175,32 @@ public class ModeOfOpsPreference extends Fragment {
                         return;
                     } // fall-through
                 case Ops.STATUS_FAILURE_ADB_NEED_MORE_PERMS:
-                    Ops.displayIncompleteUsbDebuggingMessage(requireActivity());
+                    Ops.displayIncompleteUsbDebuggingMessage(requireActivity(), this::completeModeOperation);
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_PROTOCOL:
+                    UIUtils.displayLongToast(R.string.server_protocol_mismatch);
+                    completeModeOperation();
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_AUTHENTICATION:
+                    UIUtils.displayLongToast(R.string.server_authentication_failed);
+                    completeModeOperation();
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_UNRESPONSIVE:
+                    UIUtils.displayLongToast(R.string.server_unresponsive);
+                    completeModeOperation();
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_START:
+                    UIUtils.displayLongToast(R.string.server_start_failed);
+                    completeModeOperation();
+                    break;
                 case Ops.STATUS_SUCCESS:
                 case Ops.STATUS_FAILURE:
-                    mConnecting = false;
-                    mModeOfOpsAlertDialog.dismiss();
-                    mCurrentMode = Ops.getMode();
-                    updateViews();
+                    completeModeOperation();
+                    break;
             }
         });
+        LocalServices.state().observe(getViewLifecycleOwner(), ignored -> updateViews());
         mModel.getCustomCommand0().observe(getViewLifecycleOwner(), customCommand0::setText);
-        mModel.getCustomCommand1().observe(getViewLifecycleOwner(), customCommand1::setText);
     }
 
     @Override
@@ -198,8 +209,29 @@ public class ModeOfOpsPreference extends Fragment {
         requireActivity().setTitle(R.string.pref_mode_of_operations);
     }
 
+    private void completeModeOperation() {
+        mConnecting = false;
+        mModeOfOpsAlertDialog.dismiss();
+        mCurrentMode = Ops.getMode();
+        mServerHealthCheckStarted = false;
+        updateViews();
+    }
+
     private void updateViews() {
-        boolean serverActive = LocalServer.alive(requireContext());
+        boolean serverActive = mServerHealth;
+        if (!mServerHealthCheckStarted) {
+            mServerHealthCheckStarted = true;
+            android.content.Context context = getContext();
+            if (context == null) return;
+            ThreadUtils.postOnBackgroundThread(() -> {
+                boolean healthy = LocalServer.checkServerHealth(context);
+                ThreadUtils.postOnMainThread(() -> {
+                    if (!isAdded()) return;
+                    mServerHealth = healthy;
+                    updateViews();
+                });
+            });
+        }
         boolean serverRequired = requireRemoteServer(mCurrentMode);
         boolean servicesActive = LocalServices.alive();
         boolean servicesRequired = requireRemoteServices(mCurrentMode);

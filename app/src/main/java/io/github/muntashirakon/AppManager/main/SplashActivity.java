@@ -130,35 +130,54 @@ public class SplashActivity extends AppCompatActivity {
             switch (status) {
                 case Ops.STATUS_AUTO_CONNECT_WIRELESS_DEBUGGING:
                     Log.d(TAG, "Try auto-connecting to wireless debugging.");
+                    mStateNameView.setText(R.string.enabling_wireless_debugging);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         mViewModel.autoConnectWirelessDebugging();
                         return;
                     } // fall-through
                 case Ops.STATUS_WIRELESS_DEBUGGING_CHOOSER_REQUIRED:
                     Log.d(TAG, "Display wireless debugging chooser (pair or connect)");
+                    mStateNameView.setText(R.string.wireless_debugging_setup_required);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Ops.connectWirelessDebugging(this, mViewModel);
                         return;
                     } // fall-through
                 case Ops.STATUS_ADB_CONNECT_REQUIRED:
                     Log.d(TAG, "Display connect dialog.");
+                    mStateNameView.setText(R.string.connecting_to_adb);
                     Ops.connectAdbInput(this, mViewModel);
                     return;
                 case Ops.STATUS_ADB_PAIRING_REQUIRED:
                     Log.d(TAG, "Display pairing dialog.");
+                    mStateNameView.setText(R.string.pairing_with_adb);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Ops.pairAdbInput(this, mViewModel);
                         return;
                     } // fall-through
                 case Ops.STATUS_FAILURE_ADB_NEED_MORE_PERMS:
-                    Ops.displayIncompleteUsbDebuggingMessage(this);
+                    mStateNameView.setText(R.string.incomplete_usb_debugging);
+                    Ops.displayIncompleteUsbDebuggingMessage(this, this::completeAuthentication);
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_PROTOCOL:
+                    UIUtils.displayLongToast(R.string.server_protocol_mismatch);
+                    completeAuthentication();
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_AUTHENTICATION:
+                    UIUtils.displayLongToast(R.string.server_authentication_failed);
+                    completeAuthentication();
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_UNRESPONSIVE:
+                    UIUtils.displayLongToast(R.string.server_unresponsive);
+                    completeAuthentication();
+                    break;
+                case Ops.STATUS_FAILURE_SERVER_START:
+                    UIUtils.displayLongToast(R.string.server_start_failed);
+                    completeAuthentication();
+                    break;
                 case Ops.STATUS_SUCCESS:
                 case Ops.STATUS_FAILURE:
-                    Log.d(TAG, "Authentication completed.");
-                    mViewModel.setAuthenticating(false);
-                    Ops.setAuthenticated(this, true);
-                    startActivity(new Intent(this, MainActivity.class));
-                    finish();
+                    completeAuthentication();
+                    break;
             }
         });
         if (!mViewModel.isAuthenticating()) {
@@ -174,6 +193,15 @@ public class SplashActivity extends AppCompatActivity {
                     .putExtra(KeyStoreActivity.EXTRA_KS, true);
             mKeyStoreActivity.launch(keyStoreIntent);
         }
+    }
+
+    private void completeAuthentication() {
+        Log.d(TAG, "Authentication completed.");
+        mStateNameView.setText(R.string.launching);
+        mViewModel.setAuthenticating(false);
+        Ops.setAuthenticated(this, true);
+        startActivity(new Intent(this, MainActivity.class));
+        finish();
     }
 
     private void ensureSecurityAndModeOfOp() {
@@ -206,6 +234,7 @@ public class SplashActivity extends AppCompatActivity {
         }
         // Set mode of operation
         if (mViewModel != null) {
+            mStateNameView.setText(R.string.determining_working_mode);
             mViewModel.setModeOfOps();
         }
     }

@@ -3,6 +3,7 @@
 package io.github.muntashirakon.AppManager.scanner;
 
 import static io.github.muntashirakon.AppManager.misc.AdvancedSearchView.SEARCH_TYPE_REGEX;
+import static io.github.muntashirakon.util.AdapterUtils.PAYLOAD_HIGHLIGHT_CHANGED;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -15,8 +16,6 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Filter;
-import android.widget.Filterable;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -26,6 +25,7 @@ import androidx.core.view.MenuProvider;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.DiffUtil;
 
 import com.google.android.material.card.MaterialCardView;
 
@@ -38,13 +38,14 @@ import java.util.Objects;
 import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.editor.CodeEditorActivity;
 import io.github.muntashirakon.AppManager.misc.AdvancedSearchView;
+import io.github.muntashirakon.AppManager.misc.SearchViewDebouncer;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.appearance.ColorCodes;
 import io.github.muntashirakon.util.AdapterUtils;
 import io.github.muntashirakon.util.UiUtils;
 import io.github.muntashirakon.widget.RecyclerView;
 
-public class ClassListingFragment extends Fragment implements AdvancedSearchView.OnQueryTextListener, MenuProvider {
+public class ClassListingFragment extends Fragment implements MenuProvider {
     private TextView mEmptyView;
     private boolean mTrackerClassesOnly;
     private ClassListingAdapter mClassListingAdapter;
@@ -53,6 +54,7 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
     private List<String> mTrackerClasses;
     private ScannerViewModel mViewModel;
     private ScannerActivity mActivity;
+    private SearchViewDebouncer mSearchDebouncer;
 
     @Nullable
     @Override
@@ -109,23 +111,15 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
     }
 
     @Override
-    public boolean onQueryTextChange(String newText, @AdvancedSearchView.SearchType int type) {
-        if (mClassListingAdapter != null) {
-            mClassListingAdapter.filter(newText, type);
-        }
-        return true;
-    }
-
-    @Override
-    public boolean onQueryTextSubmit(String query, int type) {
-        return false;
-    }
-
-    @Override
     public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
         inflater.inflate(R.menu.fragment_class_lister_actions, menu);
         AdvancedSearchView searchView = (AdvancedSearchView) menu.findItem(R.id.action_search).getActionView();
-        Objects.requireNonNull(searchView).setOnQueryTextListener(this);
+        mSearchDebouncer = new SearchViewDebouncer(SearchViewDebouncer.DELAY_STANDARD);
+        mSearchDebouncer.bindAdvanced(Objects.requireNonNull(searchView), (query, type) -> {
+            if (mClassListingAdapter != null) {
+                mClassListingAdapter.filter(query, type);
+            }
+        });
     }
 
     @Override
@@ -138,26 +132,45 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
         return true;
     }
 
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (mSearchDebouncer != null) {
+            mSearchDebouncer.unbind();
+        }
+    }
+
     private void showProgress(boolean willShow) {
         mActivity.showProgress(willShow);
         mEmptyView.setText(willShow ? R.string.loading : R.string.no_tracker_class);
     }
 
-    static class ClassListingAdapter extends RecyclerView.Adapter<ClassListingAdapter.ViewHolder> implements Filterable {
-        private Filter mFilter;
-        private String mConstraint;
-        @AdvancedSearchView.SearchType
-        private int mFilterType = AdvancedSearchView.SEARCH_TYPE_CONTAINS;
-        private List<String> mDefaultList;
+    static class ClassListingAdapter extends RecyclerView.ListAdapter<String, ClassListingAdapter.ViewHolder> {
         private final Activity mActivity;
         private final ScannerViewModel mViewModel;
-        @NonNull
-        private final List<String> mAdapterList = new ArrayList<>();
         private final int mCardColor0;
         private final int mCardColor1;
         private final int mQueryStringHighlightColor;
+        private List<String> mDefaultList = new ArrayList<>();
+        @Nullable
+        private String mConstraint;
+        @AdvancedSearchView.SearchType
+        private int mFilterType = AdvancedSearchView.SEARCH_TYPE_CONTAINS;
+
+        private static final DiffUtil.ItemCallback<String> DIFF_CALLBACK = new DiffUtil.ItemCallback<String>() {
+            @Override
+            public boolean areItemsTheSame(@NonNull String oldItem, @NonNull String newItem) {
+                return Objects.equals(oldItem, newItem);
+            }
+
+            @Override
+            public boolean areContentsTheSame(@NonNull String oldItem, @NonNull String newItem) {
+                return Objects.equals(oldItem, newItem);
+            }
+        };
 
         ClassListingAdapter(@NonNull Activity activity, @NonNull ScannerViewModel viewModel) {
+            super(DIFF_CALLBACK);
             mActivity = activity;
             mViewModel = viewModel;
             mCardColor0 = ColorCodes.getListItemColor0(activity);
@@ -172,31 +185,38 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
         }
 
         void filter() {
-            if (!TextUtils.isEmpty(mConstraint)) {
-                filter(mConstraint, mFilterType);
-            } else {
-                AdapterUtils.notifyDataSetChanged(this, mAdapterList, mDefaultList);
-            }
+            dispatchFilteredList(mConstraint, mFilterType);
         }
 
         void filter(String query, @AdvancedSearchView.SearchType int filterType) {
-            mConstraint = query;
-            mFilterType = filterType;
-            getFilter().filter(mConstraint);
+            dispatchFilteredList(query, filterType);
         }
 
-        @Override
-        public int getItemCount() {
-            synchronized (mAdapterList) {
-                return mAdapterList.size();
+        private void dispatchFilteredList(@Nullable String query, @AdvancedSearchView.SearchType int filterType) {
+            String oldConstraint = mConstraint;
+            mConstraint = query;
+            mFilterType = filterType;
+            boolean isStartingSearch = AdapterUtils.isStartingSearch(oldConstraint, mConstraint);
+            boolean isClearingSearch = AdapterUtils.isClearingSearch(oldConstraint, mConstraint);
+            if (TextUtils.isEmpty(mConstraint)) {
+                submitListWithScrollState(new ArrayList<>(mDefaultList), isStartingSearch, isClearingSearch);
+                return;
+            }
+            String constraint = mFilterType == SEARCH_TYPE_REGEX ? mConstraint : mConstraint.toLowerCase(Locale.ROOT);
+            List<String> matchingResults = AdvancedSearchView.matches(
+                    constraint,
+                    mDefaultList,
+                    (AdvancedSearchView.ChoiceGenerator<String>) object -> mFilterType == SEARCH_TYPE_REGEX ? object : object.toLowerCase(Locale.ROOT),
+                    mFilterType);
+            submitListWithScrollState(matchingResults, isStartingSearch, isClearingSearch);
+            if (!Objects.equals(oldConstraint, mConstraint)) {
+                notifyItemRangeChanged(0, getItemCount(), PAYLOAD_HIGHLIGHT_CHANGED);
             }
         }
 
         @Override
         public long getItemId(int position) {
-            synchronized (mAdapterList) {
-                return mDefaultList.indexOf(mAdapterList.get(position));
-            }
+            return mDefaultList.indexOf(getItem(position));
         }
 
         @NonNull
@@ -207,19 +227,30 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
         }
 
         @Override
-        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-            String className;
-            synchronized (mAdapterList) {
-                className = mAdapterList.get(position);
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position, @NonNull List<Object> payloads) {
+            if (!payloads.isEmpty()) {
+                for (Object payload : payloads) {
+                    if (Objects.equals(payload, PAYLOAD_HIGHLIGHT_CHANGED)) {
+                        updateTextHighlights(holder, getItem(position));
+                        return;
+                    }
+                }
             }
+            super.onBindViewHolder(holder, position, payloads);
+        }
+
+        private void updateTextHighlights(@NonNull ViewHolder holder, @NonNull String item) {
+            // Highlight searched query
+            holder.classNameView.setText(UIUtils.getHighlightedText(item, mConstraint, mQueryStringHighlightColor));
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            String className = getItem(position);
             TextView textView = holder.classNameView;
             textView.setTypeface(Typeface.MONOSPACE);
-            if (mConstraint != null && className.toLowerCase(Locale.ROOT).contains(mConstraint)) {
-                // Highlight searched query
-                textView.setText(UIUtils.getHighlightedText(className, mConstraint, mQueryStringHighlightColor));
-            } else {
-                textView.setText(className);
-            }
+            // Highlight searched query
+            textView.setText(UIUtils.getHighlightedText(className, mConstraint, mQueryStringHighlightColor));
             holder.itemView.setCardBackgroundColor(position % 2 == 0 ? mCardColor1 : mCardColor0);
             holder.itemView.setOnClickListener(v -> {
                 try {
@@ -231,48 +262,6 @@ public class ClassListingFragment extends Fragment implements AdvancedSearchView
                     UIUtils.displayLongToast(e.toString());
                 }
             });
-        }
-
-        @Override
-        public Filter getFilter() {
-            if (mFilter == null)
-                mFilter = new Filter() {
-                    @Override
-                    protected FilterResults performFiltering(CharSequence charSequence) {
-                        String constraint = mFilterType == SEARCH_TYPE_REGEX ? charSequence.toString()
-                                : charSequence.toString().toLowerCase(Locale.ROOT);
-                        FilterResults filterResults = new FilterResults();
-                        if (constraint.isEmpty()) {
-                            filterResults.count = 0;
-                            filterResults.values = null;
-                            return filterResults;
-                        }
-
-                        List<String> list = AdvancedSearchView.matches(
-                                constraint,
-                                mDefaultList,
-                                (AdvancedSearchView.ChoiceGenerator<String>) object -> mFilterType == SEARCH_TYPE_REGEX ? object
-                                        : object.toLowerCase(Locale.ROOT),
-                                mFilterType);
-
-                        filterResults.count = list.size();
-                        filterResults.values = list;
-                        return filterResults;
-                    }
-
-                    @Override
-                    protected void publishResults(CharSequence charSequence, FilterResults filterResults) {
-                        synchronized (mAdapterList) {
-                            if (filterResults.values == null) {
-                                AdapterUtils.notifyDataSetChanged(ClassListingAdapter.this, mAdapterList, mDefaultList);
-                            } else {
-                                //noinspection unchecked
-                                AdapterUtils.notifyDataSetChanged(ClassListingAdapter.this, mAdapterList, (List<String>) filterResults.values);
-                            }
-                        }
-                    }
-                };
-            return mFilter;
         }
 
         public static class ViewHolder extends RecyclerView.ViewHolder {
